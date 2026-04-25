@@ -155,8 +155,12 @@ textarea {
 	overflow-x: auto;
 	overflow-y: hidden;
 	scroll-snap-type: x mandatory;
-	scrollbar-gutter: stable;
-	scrollbar-color: var(--line-strong) transparent;
+	scrollbar-width: none;
+}
+
+.portrait-strip::-webkit-scrollbar,
+.connection-copy-block pre::-webkit-scrollbar {
+	display: none;
 }
 
 .portrait-card {
@@ -219,17 +223,6 @@ textarea {
 	display: block;
 	object-fit: cover;
 	background-color: var(--bg-deep);
-}
-
-.portrait-monogram {
-	position: absolute;
-	inset-block-start: 0.75rem;
-	inset-inline-start: 0.75rem;
-	padding: 0.25rem 0.45rem;
-	border-radius: 8px;
-	background: hsl(var(--h) 36% 8% / 0.38);
-	font-size: 0.8rem;
-	letter-spacing: 0;
 }
 
 .utility-card {
@@ -342,7 +335,7 @@ textarea {
 	margin: 0;
 	min-block-size: 0;
 	overflow: auto;
-	scrollbar-gutter: stable;
+	scrollbar-width: none;
 	padding: 0.7rem 0.75rem;
 	white-space: pre-wrap;
 	overflow-wrap: normal;
