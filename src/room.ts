@@ -29,7 +29,6 @@ export type RoomPeer = {
 	activity: PortraitActivityState
 	colorSeed: string
 	mediaStream: MediaStream | null
-	name: string
 	state: PeerState
 }
 
@@ -422,7 +421,6 @@ export function createRoom() {
 					activity: activityState(person.activity),
 					colorSeed: participantIdToString(person.id),
 					mediaStream: person.mediaStream,
-					name: person.name,
 					state: person.link?.live ? 'live' : 'waiting',
 				})),
 		)

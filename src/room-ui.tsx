@@ -34,15 +34,6 @@ const selfMediaStateLabels = {
 	error: 'capture failed',
 } satisfies Record<SelfMediaStatus, string>
 
-function initials(name: string) {
-	return name
-		.split(/\s+/)
-		.filter(Boolean)
-		.slice(0, 2)
-		.map((part) => part[0]?.toUpperCase() ?? '')
-		.join('')
-}
-
 function hasLiveSelfPreview(media: SelfMedia) {
 	return (
 		media.status === 'live' &&
@@ -284,7 +275,6 @@ export function PersonCard(props: {
 	activity: PortraitActivityState
 	colorSeed: string
 	mediaStream?: MediaStream | null
-	name: string
 	state: PeerState
 }) {
 	let video: HTMLVideoElement | null = null
@@ -299,14 +289,11 @@ export function PersonCard(props: {
 	return (
 		<article class="portrait-card person-card" data-state={props.state}>
 			<div
-				class="portrait-face"
+				class="portrait-face person-face"
 				data-has-video={props.mediaStream != null ? 'true' : 'false'}
 				style={{ '--card-h': `${hueFromSeed(props.colorSeed)}` }}
 			>
-				<Show
-					when={props.mediaStream != null}
-					fallback={<div class="portrait-initials">{initials(props.name)}</div>}
-				>
+				<Show when={props.mediaStream != null}>
 					{/* biome-ignore lint/a11y/useMediaCaption: Live peer media has no authored caption track. */}
 					<video
 						ref={(element) => {

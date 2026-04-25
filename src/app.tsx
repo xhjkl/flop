@@ -57,7 +57,6 @@ export default function App() {
 							activity={peer.activity}
 							colorSeed={peer.colorSeed}
 							mediaStream={peer.mediaStream}
-							name={peer.name}
 							state={peer.state}
 						/>
 					)}

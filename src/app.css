@@ -197,6 +197,10 @@ textarea {
 	background: var(--bg-deep);
 }
 
+.person-face[data-has-video="false"] {
+	background: hsl(var(--card-h) 42% 34%);
+}
+
 .person-activity-shell {
 	position: absolute;
 	z-index: 1;
@@ -207,20 +211,6 @@ textarea {
 	gap: 0.5rem;
 	transform: translateX(-50%);
 	pointer-events: auto;
-}
-
-.portrait-initials {
-	display: grid;
-	place-items: center;
-	inline-size: min(58%, 9rem);
-	aspect-ratio: 1;
-	border: 1px solid hsl(var(--h-contrast) 34% 78% / 0.28);
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--bg-deep) 72%, transparent);
-	box-shadow: 0 1rem 1.8rem hsl(var(--h) 42% 7% / 0.2);
-	color: var(--face-fg);
-	font-size: clamp(2.4rem, 10dvh, 5.4rem);
-	line-height: 1;
 }
 
 .remote-video {

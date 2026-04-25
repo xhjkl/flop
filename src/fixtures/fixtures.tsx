@@ -144,7 +144,6 @@ export const uiFixtures: UiFixture[] = [
 				<PersonCard
 					activity={emptyActivity}
 					colorSeed={HOST_ID}
-					name="Room host"
 					state="waiting"
 				/>
 				{connectionCard({
@@ -190,15 +189,9 @@ export const uiFixtures: UiFixture[] = [
 						],
 					}}
 					colorSeed={MARA_ID}
-					name="Mara"
 					state="live"
 				/>
-				<PersonCard
-					activity={emptyActivity}
-					colorSeed={JO_ID}
-					name="Jo"
-					state="live"
-				/>
+				<PersonCard activity={emptyActivity} colorSeed={JO_ID} state="live" />
 				{connectionCard(
 					{
 						phase: 'invite-ready',
