@@ -1,4 +1,11 @@
-import { createEffect, For, type JSX, Show } from 'solid-js'
+import {
+	createEffect,
+	createSignal,
+	For,
+	type JSX,
+	onCleanup,
+	Show,
+} from 'solid-js'
 import { hueFromSeed, themeHueFromSeed } from './hue'
 import type {
 	BlipComposerState,
@@ -162,9 +169,27 @@ function BlipComposer(props: {
 	onSetText: (text: string) => void
 	showWhenIdle?: boolean
 }) {
+	let committedTimeout: ReturnType<typeof setTimeout> | null = null
+	const [dirty, setDirty] = createSignal(false)
+	const [editing, setEditing] = createSignal(false)
+	const [committed, setCommitted] = createSignal(false)
+
+	function markCommitted() {
+		setDirty(false)
+		setEditing(false)
+		setCommitted(true)
+		if (committedTimeout != null) clearTimeout(committedTimeout)
+		committedTimeout = setTimeout(() => setCommitted(false), 520)
+	}
+
 	function send() {
-		if (!props.canSend) return
+		if (!props.canSend || !dirty()) {
+			setEditing(false)
+			return
+		}
+
 		props.onSend()
+		markCommitted()
 	}
 
 	function submit(event: SubmitEvent) {
@@ -178,6 +203,10 @@ function BlipComposer(props: {
 		event.preventDefault()
 		send()
 	}
+
+	onCleanup(() => {
+		if (committedTimeout != null) clearTimeout(committedTimeout)
+	})
 
 	return (
 		<form class="blip-composer" onSubmit={submit}>
@@ -197,7 +226,15 @@ function BlipComposer(props: {
 					enterkeyhint="done"
 					placeholder={props.canSend ? 'tap to blip' : 'connect to blip'}
 					rows={1}
-					onInput={(event) => props.onSetText(event.currentTarget.value)}
+					data-editing={editing() ? 'true' : 'false'}
+					data-committed={committed() ? 'true' : 'false'}
+					onFocus={() => setEditing(true)}
+					onInput={(event) => {
+						setDirty(true)
+						setEditing(true)
+						setCommitted(false)
+						props.onSetText(event.currentTarget.value)
+					}}
 					onKeyDown={submitEnter}
 					onBlur={send}
 					disabled={!props.canSend}

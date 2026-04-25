@@ -201,10 +201,11 @@ textarea {
 	position: absolute;
 	z-index: 1;
 	inset-block-end: 1rem;
-	inset-inline-end: 1rem;
+	inset-inline-start: 50%;
 	inline-size: min(calc(100% - 2rem), 15rem);
 	display: grid;
 	gap: 0.5rem;
+	transform: translateX(-50%);
 	pointer-events: auto;
 }
 
@@ -444,9 +445,22 @@ textarea {
 .portrait-blip,
 .blip-issue {
 	margin: 0;
-	color: var(--fg);
 	font-size: 0.9rem;
 	line-height: 1.25;
+}
+
+.portrait-blip {
+	min-block-size: 2.1rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid hsl(var(--h-contrast) 34% 78% / 0.24);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--bg-deep) 70%, transparent);
+	padding: 0.45rem 0.7rem;
+	color: var(--fg-strong);
+	text-align: center;
+	backdrop-filter: blur(14px);
 }
 
 .blip-issue {
@@ -466,12 +480,31 @@ textarea {
 	padding: 0.45rem 0.7rem;
 	border-radius: 999px;
 	background: color-mix(in srgb, var(--bg-deep) 70%, transparent);
+	color: var(--muted);
 	resize: none;
 	text-align: center;
 	font-size: 0.82rem;
 	line-height: 1.2;
 	overflow: auto;
 	backdrop-filter: blur(14px);
+	transition:
+		background-color var(--tap-transition),
+		border-color var(--tap-transition),
+		color var(--tap-transition),
+		transform 160ms ease;
+}
+
+.blip-composer textarea[data-editing="true"] {
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--bg-deep) 54%, var(--accent-soft));
+	color: var(--fg-strong);
+}
+
+.blip-composer textarea[data-committed="true"] {
+	background-color: hsl(var(--h-contrast) 58% 80% / 0.2);
+	color: var(--fg-strong);
+	transform: scale(1.03);
+	animation: copied-pop 520ms ease;
 }
 
 .self-card {
