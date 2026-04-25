@@ -199,6 +199,11 @@ textarea {
 		var(--face-bg);
 }
 
+.portrait-face[data-has-video="true"] {
+	padding: 0;
+	background: var(--bg-deep);
+}
+
 .portrait-initials {
 	display: grid;
 	place-items: center;
@@ -211,6 +216,14 @@ textarea {
 	color: var(--face-fg);
 	font-size: clamp(2.4rem, 10dvh, 5.4rem);
 	line-height: 1;
+}
+
+.remote-video {
+	inline-size: 100%;
+	block-size: 100%;
+	display: block;
+	object-fit: cover;
+	background-color: var(--bg-deep);
 }
 
 .portrait-monogram {

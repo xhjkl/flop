@@ -28,6 +28,7 @@ import { createPeer, type Peer } from './webrtc'
 export type RoomPeer = {
 	activity: PortraitActivityState
 	colorSeed: string
+	mediaStream: MediaStream | null
 	name: string
 	state: PeerState
 }
@@ -73,6 +74,7 @@ type PersonActivity = {
 type RoomPerson = Participant & {
 	activity: PersonActivity
 	link: PeerLink | null
+	mediaStream: MediaStream | null
 }
 
 const FILE_CHUNK_BYTES = 16 * 1024
@@ -106,7 +108,12 @@ function emptyPersonActivity(): PersonActivity {
 }
 
 function createPerson(participant: Participant): RoomPerson {
-	return { ...participant, activity: emptyPersonActivity(), link: null }
+	return {
+		...participant,
+		activity: emptyPersonActivity(),
+		link: null,
+		mediaStream: null,
+	}
 }
 
 function publicParticipant(person: RoomPerson): Participant {
@@ -253,6 +260,7 @@ export function createRoom() {
 
 		for (const person of people.values()) {
 			person.link = null
+			person.mediaStream = null
 		}
 
 		for (const closingPeer of closingPeers) {
@@ -279,6 +287,7 @@ export function createRoom() {
 		if (person == null) return false
 
 		person.link = link
+		if (link == null) person.mediaStream = null
 		return true
 	}
 
@@ -295,6 +304,7 @@ export function createRoom() {
 						...participant,
 						activity: existing?.activity ?? emptyPersonActivity(),
 						link: existing?.link ?? null,
+						mediaStream: existing?.mediaStream ?? null,
 					},
 				]
 			}),
@@ -408,10 +418,27 @@ export function createRoom() {
 				.map((person) => ({
 					activity: activityState(person.activity),
 					colorSeed: participantIdToString(person.id),
+					mediaStream: person.mediaStream,
 					name: person.name,
 					state: person.link?.live ? 'live' : 'waiting',
 				})),
 		)
+	}
+
+	function refreshParticipantMedia(participantId: ParticipantId) {
+		if (participantId === localParticipantId) refreshSelfActivity()
+		else refreshPeerCards()
+	}
+
+	function setParticipantMedia(
+		participantId: ParticipantId,
+		stream: MediaStream | null,
+	) {
+		const person = people.get(participantId)
+		if (person == null) return
+
+		person.mediaStream = stream
+		refreshParticipantMedia(participantId)
 	}
 
 	function sendToParticipant(
@@ -640,6 +667,7 @@ export function createRoom() {
 
 		person.link = null
 		person.activity = emptyPersonActivity()
+		person.mediaStream = null
 
 		if (isGuestRoom() && participantId === hostParticipantId) {
 			markRoomClosed()
@@ -697,6 +725,7 @@ export function createRoom() {
 		// Pending is the manual invite/reply socket; it becomes a person only after the room protocol says who is there.
 		const version = ++pendingPeerVersion
 		let remoteParticipantId: ParticipantId | null = null
+		let remoteMediaStream: MediaStream | null = null
 		let nextPeer: Peer | null = null
 
 		const handle = {
@@ -710,6 +739,9 @@ export function createRoom() {
 				}
 
 				remoteParticipantId = participantId
+				if (remoteMediaStream != null) {
+					setParticipantMedia(participantId, remoteMediaStream)
+				}
 				refreshPeerCards()
 			},
 			remoteId: () => remoteParticipantId,
@@ -733,6 +765,12 @@ export function createRoom() {
 				if (nextPeer == null) return
 				handlers.onMessage(nextPeer, text, handle)
 			},
+			onRemoteMedia: (stream) => {
+				remoteMediaStream = stream
+				if (remoteParticipantId != null) {
+					setParticipantMedia(remoteParticipantId, stream)
+				}
+			},
 			onClose: () => {
 				if (remoteParticipantId != null) {
 					removePeerLink(remoteParticipantId, { peer: nextPeer })
@@ -753,6 +791,7 @@ export function createRoom() {
 		})
 
 		pendingPeer = nextPeer
+		nextPeer.setLocalMedia(state.selfMedia.stream)
 		return nextPeer
 	}
 
@@ -777,8 +816,10 @@ export function createRoom() {
 		peer = createPeer({
 			onOpen: () => markPeerLive(participantId),
 			onMessage: (text) => handlePeerMessage(participantId, text),
+			onRemoteMedia: (stream) => setParticipantMedia(participantId, stream),
 			onClose: () => removePeerLink(participantId, { peer }),
 		})
+		peer.setLocalMedia(state.selfMedia.stream)
 
 		if (!setParticipantLink(participantId, { peer, live: false })) {
 			peer.close()
@@ -1163,10 +1204,23 @@ export function createRoom() {
 			return
 		}
 
+		const sent = sendToLinks(peers, { type: 'blip', text: blip })
+		if (sent === 0) {
+			setBlipIssue('The room is connected, but the direct channel is not open.')
+			return
+		}
+
 		setParticipantBlip(localParticipantId, blip)
-		sendToLinks(peers, { type: 'blip', text: blip })
 		setState('blipComposer', 'text', '')
 		setBlipIssue(null)
+	}
+
+	function publishSelfMedia(stream: MediaStream | null) {
+		for (const peer of linkedPeers()) {
+			peer.setLocalMedia(stream)
+		}
+
+		pendingPeer?.setLocalMedia(stream)
 	}
 
 	async function sendFileToPeers(file: File, peers: PeerLink[]) {
@@ -1254,6 +1308,7 @@ export function createRoom() {
 
 	function disposeSelfMedia() {
 		selfMediaVersion++
+		publishSelfMedia(null)
 		stopSelfMedia(state.selfMedia)
 		setState('selfMedia', emptySelfMedia())
 	}
@@ -1263,6 +1318,7 @@ export function createRoom() {
 
 		// Camera permission belongs to the self portrait, not to page load.
 		const version = ++selfMediaVersion
+		publishSelfMedia(null)
 		stopSelfMedia(state.selfMedia)
 		setState('selfMedia', {
 			...emptySelfMedia(),
@@ -1276,6 +1332,7 @@ export function createRoom() {
 		}
 
 		setState('selfMedia', selfMedia)
+		publishSelfMedia(selfMedia.stream)
 	}
 
 	function setTracksEnabled(kind: 'audio' | 'video', enabled: boolean) {

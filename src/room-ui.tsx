@@ -231,16 +231,40 @@ function SelfBlipComposer(props: {
 export function PersonCard(props: {
 	activity: PortraitActivityState
 	colorSeed: string
+	mediaStream?: MediaStream | null
 	name: string
 	state: PeerState
 }) {
+	let video: HTMLVideoElement | null = null
+
+	createEffect(() => {
+		if (video == null) return
+
+		video.srcObject = props.mediaStream ?? null
+		if (props.mediaStream != null) void video.play().catch(() => null)
+	})
+
 	return (
 		<article class="portrait-card person-card" data-state={props.state}>
 			<div
 				class="portrait-face"
+				data-has-video={props.mediaStream != null ? 'true' : 'false'}
 				style={{ '--card-h': `${hueFromSeed(props.colorSeed)}` }}
 			>
-				<div class="portrait-initials">{initials(props.name)}</div>
+				<Show
+					when={props.mediaStream != null}
+					fallback={<div class="portrait-initials">{initials(props.name)}</div>}
+				>
+					{/* biome-ignore lint/a11y/useMediaCaption: Live peer media has no authored caption track. */}
+					<video
+						ref={(element) => {
+							video = element
+						}}
+						class="remote-video"
+						autoplay
+						playsinline
+					/>
+				</Show>
 			</div>
 			<div class="portrait-meta">
 				<strong>{props.name}</strong>

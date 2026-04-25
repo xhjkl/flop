@@ -6,6 +6,7 @@ export type Peer = {
 	createAnswer: (encodedOffer: string) => Promise<string>
 	close: () => void
 	send: (text: string) => boolean
+	setLocalMedia: (stream: MediaStream | null) => void
 	waitForBufferBelow: (bytes: number) => Promise<void>
 }
 
@@ -13,6 +14,7 @@ type PeerOptions = {
 	onOpen?: () => void
 	onClose?: () => void
 	onMessage?: (text: string) => void
+	onRemoteMedia?: (stream: MediaStream | null) => void
 	iceServers?: RTCIceServer[]
 }
 
@@ -78,15 +80,42 @@ async function encodeLocalDescription(pc: RTCPeerConnection) {
 	return encodeSignal(description)
 }
 
+function firstTrack(stream: MediaStream | null, kind: 'audio' | 'video') {
+	return kind === 'audio'
+		? (stream?.getAudioTracks()[0] ?? null)
+		: (stream?.getVideoTracks()[0] ?? null)
+}
+
 export function createPeer(options: PeerOptions = {}): Peer {
 	const pc = new RTCPeerConnection({
 		iceServers: options.iceServers ?? DEFAULT_ICE_SERVERS,
 	})
+	// Stable sendrecv slots let camera/mic start later without a second invite ceremony.
+	const audioSender = pc.addTransceiver('audio', {
+		direction: 'sendrecv',
+	}).sender
+	const videoSender = pc.addTransceiver('video', {
+		direction: 'sendrecv',
+	}).sender
+	let remoteStream: MediaStream | null = null
 	let channel: RTCDataChannel | null = null
 
 	function attachChannel(nextChannel: RTCDataChannel) {
 		channel = nextChannel
 		bindChannel(nextChannel, options)
+	}
+
+	pc.ontrack = (event) => {
+		remoteStream = event.streams[0] ?? remoteStream ?? new MediaStream()
+
+		if (!remoteStream.getTracks().includes(event.track)) {
+			remoteStream.addTrack(event.track)
+		}
+
+		options.onRemoteMedia?.(remoteStream)
+		event.track.addEventListener('ended', () => {
+			options.onRemoteMedia?.(remoteStream)
+		})
 	}
 
 	pc.ondatachannel = (event) => {
@@ -133,6 +162,11 @@ export function createPeer(options: PeerOptions = {}): Peer {
 		}
 	}
 
+	function setLocalMedia(stream: MediaStream | null) {
+		void audioSender.replaceTrack(firstTrack(stream, 'audio')).catch(() => null)
+		void videoSender.replaceTrack(firstTrack(stream, 'video')).catch(() => null)
+	}
+
 	function waitForBufferBelow(bytes: number) {
 		const activeChannel = channel
 		if (
@@ -171,6 +205,7 @@ export function createPeer(options: PeerOptions = {}): Peer {
 		createAnswer,
 		close,
 		send,
+		setLocalMedia,
 		waitForBufferBelow,
 	}
 }
