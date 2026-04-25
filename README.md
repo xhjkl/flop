@@ -34,7 +34,7 @@ Drop files anywhere on the page to send them to connected peers. File chips appe
 
 #### Blips
 
-A blip is the small text line below a portrait. Once at least one peer is live, the self portrait exposes a short composer and sends that text to the connected room.
+A blip is the small text line on a portrait. Write it any time; Flop keeps it locally and sends it to peers as direct links come alive.
 
 #### Closed Room
 
