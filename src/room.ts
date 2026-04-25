@@ -586,6 +586,11 @@ export function createRoom() {
 	}
 
 	function handlePeerBlip(participantId: ParticipantId, text: string) {
+		roomDebug('blip.receive', {
+			empty: text.trim() === '',
+			from: participantIdToString(participantId),
+			textLength: text.length,
+		})
 		setParticipantBlip(participantId, text)
 	}
 
@@ -1261,7 +1266,16 @@ export function createRoom() {
 			setParticipantBlip(localParticipantId, blip)
 		}
 
-		sendToLinks(livePeerLinks(), { type: 'blip', text: blip })
+		const sent = sendToLinks(livePeerLinks(), { type: 'blip', text: blip })
+		roomDebug('blip.send', {
+			empty: blip === '',
+			participant:
+				localParticipantId == null
+					? null
+					: participantIdToString(localParticipantId),
+			sent,
+			textLength: blip.length,
+		})
 		setState('blipComposer', 'text', blip)
 		setBlipIssue(null)
 	}
