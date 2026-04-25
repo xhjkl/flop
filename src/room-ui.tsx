@@ -43,6 +43,37 @@ function hasLiveSelfPreview(media: SelfMedia) {
 	)
 }
 
+function describeStream(stream: MediaStream | null) {
+	return {
+		streamId: stream?.id ?? null,
+		tracks:
+			stream?.getTracks().map((track) => ({
+				enabled: track.enabled,
+				id: track.id,
+				kind: track.kind,
+				muted: track.muted,
+				readyState: track.readyState,
+			})) ?? [],
+	}
+}
+
+function playVideo(
+	label: string,
+	element: HTMLVideoElement,
+	stream: MediaStream,
+) {
+	void element.play().catch((error: unknown) => {
+		console.warn('[flop:media] video play failed', {
+			error,
+			hasSrcObject: element.srcObject != null,
+			label,
+			muted: element.muted,
+			readyState: element.readyState,
+			...describeStream(stream),
+		})
+	})
+}
+
 export function CardActions(props: { actions: CardAction[] }) {
 	if (props.actions.length === 0) return null
 
@@ -280,10 +311,12 @@ export function PersonCard(props: {
 	let video: HTMLVideoElement | null = null
 
 	createEffect(() => {
-		if (video == null) return
+		const stream = props.mediaStream ?? null
+		const element = video
+		if (element == null) return
 
-		video.srcObject = props.mediaStream ?? null
-		if (props.mediaStream != null) void video.play().catch(() => null)
+		if (element.srcObject !== stream) element.srcObject = stream
+		if (stream != null) playVideo('remote', element, stream)
 	})
 
 	return (
@@ -328,16 +361,18 @@ export function SelfMediaCard(props: {
 	let video: HTMLVideoElement | null = null
 
 	createEffect(() => {
-		if (video == null) return
+		const stream = hasLiveSelfPreview(props.media) ? props.media.stream : null
+		const element = video
+		if (element == null) return
 
-		if (hasLiveSelfPreview(props.media)) {
+		if (stream != null) {
 			// The local preview is a mirror first; remote publishing can build on the same portrait.
-			video.srcObject = props.media.stream
-			void video.play().catch(() => null)
+			if (element.srcObject !== stream) element.srcObject = stream
+			playVideo('self', element, stream)
 			return
 		}
 
-		video.srcObject = null
+		element.srcObject = null
 	})
 
 	return (
@@ -357,7 +392,6 @@ export function SelfMediaCard(props: {
 						muted
 						playsinline
 					/>
-					<div class="portrait-monogram">YOU</div>
 				</div>
 			</Show>
 			<div class="self-card-body">
