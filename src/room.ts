@@ -191,6 +191,22 @@ function sendRoomMessage(peer: Peer, message: RoomMessage) {
 	return peer.send(encodeRoomMessage(message))
 }
 
+function roomDebug(event: string, details: Record<string, unknown> = {}) {
+	console.debug('[flop:room]', JSON.stringify({ event, ...details }))
+}
+
+function mediaTracks(stream: MediaStream | null) {
+	return (
+		stream?.getTracks().map((track) => ({
+			enabled: track.enabled,
+			id: track.id,
+			kind: track.kind,
+			muted: track.muted,
+			readyState: track.readyState,
+		})) ?? []
+	)
+}
+
 function randomTransferId() {
 	const bytes = new Uint8Array(12)
 	crypto.getRandomValues(bytes)
@@ -731,6 +747,7 @@ export function createRoom() {
 	}
 
 	function openPendingPeer(handlers: {
+		debugLabel: string
 		onCloseWithoutId: () => void
 		onMessage: (
 			peer: Peer,
@@ -776,6 +793,7 @@ export function createRoom() {
 		}
 
 		nextPeer = createPeer({
+			debugLabel: handlers.debugLabel,
 			onOpen: () => {
 				if (
 					nextPeer == null ||
@@ -843,6 +861,7 @@ export function createRoom() {
 		let peer: Peer | null = null
 
 		peer = createPeer({
+			debugLabel: `mesh:${participantIdToString(participantId)}`,
 			onOpen: () => markPeerLive(participantId),
 			onMessage: (text) => handlePeerMessage(participantId, text),
 			onRemoteMedia: (stream) => setParticipantMedia(participantId, stream),
@@ -1115,6 +1134,7 @@ export function createRoom() {
 			setState('connection', emptyHostConnection())
 
 			const nextPeer = openPendingPeer({
+				debugLabel: options.resetPeers ? 'host:invite' : 'host:next-invite',
 				onOpen: (peer, handle) => {
 					markHostConnected(peer, handle.markLive)
 				},
@@ -1171,6 +1191,7 @@ export function createRoom() {
 			})
 
 			const nextPeer = openPendingPeer({
+				debugLabel: 'guest:reply',
 				onOpen: (peer) => {
 					sendRoomMessage(peer, { type: 'hello' })
 				},
@@ -1244,7 +1265,15 @@ export function createRoom() {
 	}
 
 	function publishSelfMedia(stream: MediaStream | null) {
-		for (const peer of linkedPeers()) {
+		const peers = linkedPeers()
+		roomDebug('media.publish', {
+			linkedPeers: peers.length,
+			pendingPeer: pendingPeer != null,
+			streamId: stream?.id ?? null,
+			tracks: mediaTracks(stream),
+		})
+
+		for (const peer of peers) {
 			peer.setLocalMedia(stream)
 		}
 
@@ -1365,6 +1394,7 @@ export function createRoom() {
 
 	function setTracksEnabled(kind: 'audio' | 'video', enabled: boolean) {
 		if (!setSelfMediaTracksEnabled(state.selfMedia, kind, enabled)) return
+		roomDebug('media.track-enabled', { enabled, kind })
 
 		if (kind === 'video') setState('selfMedia', 'cameraEnabled', enabled)
 		else setState('selfMedia', 'microphoneEnabled', enabled)
