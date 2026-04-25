@@ -1,0 +1,668 @@
+/* Register hue so room color changes glide instead of snapping. */
+@property --h {
+	syntax: "<number>";
+	inherits: true;
+	initial-value: 194;
+}
+
+:root {
+	--h: 194;
+	--h-contrast: calc(var(--h) + 142);
+	--tap-transition: 180ms ease;
+	--theme-transition: 680ms ease;
+
+	color: hsl(var(--h-contrast) 38% 88%);
+	background: hsl(var(--h) 42% 13%);
+	font-family:
+		"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+	inline-size: 100%;
+	min-block-size: 100%;
+}
+
+body {
+	margin: 0;
+	overflow: hidden;
+	background: hsl(var(--h) 42% 13%);
+}
+
+button,
+input,
+textarea,
+video {
+	font: inherit;
+	color: inherit;
+}
+
+button {
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background-color: var(--accent-soft);
+	padding: 0.65rem 0.8rem;
+	cursor: pointer;
+	color: var(--fg-strong);
+	transition:
+		background-color var(--tap-transition),
+		border-color var(--tap-transition),
+		color var(--tap-transition);
+}
+
+button:hover:not(:disabled),
+button:focus-visible {
+	border-color: var(--accent);
+	background-color: hsl(var(--h-contrast) 56% 80% / 0.18);
+}
+
+button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+input,
+textarea {
+	inline-size: 100%;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background-color: color-mix(in srgb, var(--bg-deep) 72%, var(--surface));
+}
+
+input {
+	padding: 0.7rem 0.85rem;
+}
+
+textarea {
+	block-size: 100%;
+	min-block-size: 0;
+	resize: none;
+	padding: 0.85rem;
+}
+
+.portrait-app {
+	--h-contrast: calc(var(--h) + 168);
+	--h-glow: calc(var(--h) + 18);
+	--bg: hsl(var(--h) 64% 20%);
+	--bg-deep: hsl(var(--h) 56% 11%);
+	--surface: hsl(var(--h) 62% 24%);
+	--surface-strong: hsl(var(--h) 66% 27%);
+	--surface-glow: hsl(var(--h-glow) 76% 74% / 0.08);
+	--fg: hsl(var(--h-contrast) 34% 90%);
+	--fg-strong: hsl(var(--h-contrast) 44% 95%);
+	--muted: hsl(var(--h-contrast) 22% 78%);
+	--line: hsl(var(--h-contrast) 34% 78% / 0.42);
+	--line-strong: hsl(var(--h-contrast) 44% 84% / 0.62);
+	--accent: hsl(var(--h-contrast) 66% 80%);
+	--accent-soft: hsl(var(--h-contrast) 56% 80% / 0.16);
+	--accent-ink: hsl(var(--h) 48% 10%);
+	--ok: var(--accent);
+	--warn: hsl(calc(var(--h) + 50) 82% 78%);
+
+	position: relative;
+	inline-size: 100%;
+	block-size: 100dvh;
+	min-inline-size: 0;
+	display: grid;
+	grid-template-rows: minmax(0, 1fr);
+	overflow: hidden;
+	padding: 1rem;
+	color: var(--fg);
+	background-color: var(--bg);
+	transition: --h var(--theme-transition);
+}
+
+.utility-header strong,
+.portrait-meta strong {
+	overflow-wrap: anywhere;
+}
+
+.nowrap {
+	white-space: nowrap;
+}
+
+.portrait-meta span,
+.portrait-meta small,
+.utility-card p,
+.utility-header small {
+	color: var(--muted);
+}
+
+.utility-header small {
+	font-size: 0.82rem;
+	text-transform: lowercase;
+}
+
+.utility-header strong {
+	text-transform: lowercase;
+}
+
+.portrait-strip {
+	/* Cards are tall portraits first; width follows height so the strip keeps its gallery rhythm. */
+	--portrait-inline: clamp(17rem, calc((100dvh - 8rem) * 0.95), 34rem);
+
+	inline-size: 100%;
+	max-inline-size: 100%;
+	min-inline-size: 0;
+	min-block-size: 0;
+	display: grid;
+	grid-auto-flow: column;
+	grid-auto-columns: var(--portrait-inline);
+	grid-template-rows: minmax(0, 1fr);
+	gap: 0.85rem;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scroll-snap-type: x mandatory;
+	scrollbar-gutter: stable;
+	scrollbar-color: var(--line-strong) transparent;
+}
+
+.portrait-card {
+	min-inline-size: 0;
+	min-block-size: 0;
+	block-size: 100%;
+	display: grid;
+	overflow: hidden;
+	scroll-snap-align: start;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: var(--surface);
+	box-shadow:
+		inset 0 1px 0 hsl(var(--h-glow) 64% 88% / 0.08),
+		0 1rem 2.4rem hsl(var(--h) 30% 5% / 0.13);
+}
+
+.person-card {
+	grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.portrait-face {
+	--face-bg: color-mix(
+		in srgb,
+		hsl(var(--card-h) 38% 32%) 14%,
+		var(--surface-strong)
+	);
+	--face-fg: var(--fg-strong);
+
+	position: relative;
+	display: grid;
+	place-items: center;
+	padding: 1rem;
+	background:
+		linear-gradient(180deg, hsl(var(--card-h) 38% 40% / 0.18), transparent 72%),
+		linear-gradient(145deg, var(--surface-glow), transparent 56%),
+		var(--face-bg);
+}
+
+.portrait-initials {
+	display: grid;
+	place-items: center;
+	inline-size: min(58%, 9rem);
+	aspect-ratio: 1;
+	border: 1px solid hsl(var(--h-contrast) 34% 78% / 0.28);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--bg-deep) 72%, transparent);
+	box-shadow: 0 1rem 1.8rem hsl(var(--h) 42% 7% / 0.2);
+	color: var(--face-fg);
+	font-size: clamp(2.4rem, 10dvh, 5.4rem);
+	line-height: 1;
+}
+
+.portrait-monogram {
+	position: absolute;
+	inset-block-start: 0.75rem;
+	inset-inline-start: 0.75rem;
+	padding: 0.25rem 0.45rem;
+	border-radius: 8px;
+	background: hsl(var(--h) 36% 8% / 0.38);
+	font-size: 0.8rem;
+	letter-spacing: 0;
+}
+
+.portrait-meta,
+.utility-card {
+	padding: 0.9rem;
+}
+
+.portrait-meta,
+.utility-header,
+.card-actions {
+	display: grid;
+	gap: 0.35rem;
+}
+
+.utility-card {
+	grid-template-rows: auto minmax(0, 1fr) auto;
+	gap: 0.85rem;
+	background:
+		linear-gradient(155deg, var(--surface-glow), transparent 62%),
+		var(--surface-strong);
+}
+
+.utility-card p {
+	min-block-size: 0;
+	margin: 0;
+	overflow: auto;
+}
+
+.connection-card {
+	grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.connection-copy {
+	display: grid;
+	gap: 0.6rem;
+}
+
+.connection-copy p {
+	color: var(--fg);
+}
+
+.connection-copy .connection-issue {
+	color: var(--warn);
+}
+
+.connection-main {
+	min-block-size: 0;
+	display: grid;
+	gap: 0.75rem;
+	align-content: start;
+}
+
+.connection-copy-block {
+	block-size: clamp(10rem, 24dvh, 12rem);
+	min-block-size: 0;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	overflow: hidden;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--bg-deep) 70%, var(--surface));
+}
+
+.connection-copy-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding: 0.45rem 0.5rem 0.45rem 0.75rem;
+	border-bottom: 1px solid var(--line);
+	color: var(--muted);
+	font-size: 0.88rem;
+}
+
+.connection-copy-head button {
+	padding: 0.35rem 0.55rem;
+	border-color: transparent;
+	background-color: var(--accent-soft);
+	font-size: 0.84rem;
+	transition:
+		background-color var(--tap-transition),
+		color var(--tap-transition),
+		transform 160ms ease;
+}
+
+.connection-copy-head button[data-copied="true"] {
+	background-color: hsl(var(--h-contrast) 58% 80% / 0.2);
+	color: var(--fg-strong);
+	transform: scale(1.03);
+	animation: copied-pop 520ms ease;
+}
+
+@keyframes copied-pop {
+	0% {
+		transform: scale(1);
+	}
+
+	45% {
+		transform: scale(1.06);
+	}
+
+	100% {
+		transform: scale(1.03);
+	}
+}
+
+.connection-copy-block pre {
+	/* Invite and reply codes should feel like plain old text you can copy anywhere. */
+	margin: 0;
+	min-block-size: 0;
+	overflow: auto;
+	scrollbar-gutter: stable;
+	padding: 0.7rem 0.75rem;
+	white-space: pre-wrap;
+	overflow-wrap: normal;
+	word-break: break-all;
+	color: var(--fg);
+	font-family:
+		ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono",
+		monospace;
+	font-size: 0.82rem;
+	line-height: 1.25;
+}
+
+.connection-copy-block:has(button:disabled) pre {
+	display: grid;
+	place-items: center;
+	color: var(--muted);
+	text-align: center;
+}
+
+.connection-paste-line {
+	display: grid;
+	gap: 0.35rem;
+	color: var(--muted);
+	font-size: 0.88rem;
+}
+
+.connection-side-switch {
+	display: grid;
+	padding-block-start: clamp(2rem, 8dvh, 5rem);
+}
+
+.connection-side-switch button {
+	inline-size: 100%;
+	border-color: var(--line);
+	background: transparent;
+	color: var(--muted);
+	padding-inline: 0.75rem;
+}
+
+.card-actions {
+	align-content: end;
+}
+
+.portrait-activity {
+	display: grid;
+	gap: 0.4rem;
+}
+
+.file-chip {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	display: block;
+	border: 1px solid hsl(var(--h-contrast) 34% 78% / 0.24);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--bg-deep) 46%, transparent);
+	padding: 0.3rem 0.55rem;
+	color: var(--fg-strong);
+	text-decoration: none;
+	font-size: 0.82rem;
+	line-height: 1.2;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.portrait-activity .file-chip {
+	color: var(--fg-strong);
+}
+
+.file-chip i {
+	position: absolute;
+	z-index: -1;
+	inset-block: 0;
+	inset-inline-start: 0;
+	inline-size: var(--progress);
+	background: hsl(var(--h-contrast) 58% 80% / 0.2);
+}
+
+.file-chip span {
+	color: inherit;
+}
+
+.file-chip[data-file-state="error"] {
+	border-color: color-mix(in srgb, var(--warn) 62%, var(--line));
+	color: var(--warn);
+}
+
+.portrait-blip,
+.blip-issue {
+	margin: 0;
+	color: var(--fg);
+	font-size: 0.9rem;
+	line-height: 1.25;
+}
+
+.blip-issue {
+	color: var(--warn);
+}
+
+.blip-composer {
+	display: grid;
+	gap: 0.4rem;
+}
+
+.blip-composer div {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 0.45rem;
+}
+
+.blip-composer input {
+	min-inline-size: 0;
+}
+
+.blip-composer button {
+	padding-inline: 0.65rem;
+}
+
+.self-card {
+	position: relative;
+	background: var(--surface-strong);
+}
+
+.self-card-body {
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr) auto auto;
+	gap: 0.85rem;
+	padding: 0.9rem;
+	min-block-size: 0;
+}
+
+.self-copy-shell {
+	display: grid;
+	gap: 0.85rem;
+}
+
+.self-card-copy {
+	display: grid;
+	gap: 0.75rem;
+	align-content: start;
+}
+
+.self-card-copy p {
+	margin: 0;
+	color: var(--fg);
+}
+
+.self-card[data-media-state="live"] {
+	border-color: color-mix(in srgb, var(--ok) 62%, var(--line));
+}
+
+.self-card[data-media-state="ready"] .self-card-body {
+	grid-template-rows: none;
+	align-content: center;
+	justify-items: center;
+	gap: 1.4rem;
+	padding: 1.4rem;
+}
+
+.self-card[data-media-state="ready"] .self-copy-shell {
+	inline-size: min(100%, 24rem);
+	justify-items: center;
+	text-align: center;
+}
+
+.self-card[data-media-state="ready"] .utility-header {
+	justify-items: center;
+}
+
+.self-card[data-media-state="ready"] .card-actions {
+	inline-size: min(100%, 18rem);
+	align-content: start;
+}
+
+.self-card[data-media-state="ready"] .card-actions button {
+	inline-size: 100%;
+}
+
+.self-card[data-media-state="ready"] .blip-composer,
+.self-card[data-media-state="ready"] .portrait-activity {
+	inline-size: min(100%, 18rem);
+}
+
+.self-card[data-media-state="live"] .self-card-body {
+	align-content: end;
+}
+
+.self-card[data-media-state="denied"],
+.self-card[data-media-state="missing"],
+.self-card[data-media-state="unsupported"],
+.self-card[data-media-state="error"] {
+	border-color: color-mix(in srgb, var(--warn) 62%, var(--line));
+}
+
+.self-portrait-face {
+	padding: 0;
+	overflow: hidden;
+	background:
+		linear-gradient(180deg, hsl(var(--h-glow) 64% 74% / 0.12), transparent 72%),
+		var(--bg-deep);
+}
+
+.self-card[data-has-preview="true"] {
+	grid-template-rows: minmax(0, 1fr);
+}
+
+.self-card[data-has-preview="false"] {
+	grid-template-rows: auto;
+}
+
+.self-card[data-has-preview="true"] .self-portrait-face {
+	position: absolute;
+	inset: 0;
+}
+
+.self-card[data-has-preview="true"] .self-card-body {
+	position: relative;
+	z-index: 1;
+	align-content: end;
+	justify-items: end;
+	block-size: 100%;
+	padding: 1rem;
+	background: linear-gradient(
+		180deg,
+		transparent 46%,
+		hsl(var(--h) 50% 7% / 0.82)
+	);
+}
+
+.self-live-shell {
+	inline-size: min(100%, 20rem);
+	display: grid;
+	gap: 0.65rem;
+	justify-items: stretch;
+}
+
+.self-video {
+	inline-size: 100%;
+	block-size: 100%;
+	display: block;
+	object-fit: cover;
+	transform: scaleX(-1);
+	background-color: var(--bg-deep);
+}
+
+.self-live-controls {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.65rem;
+	justify-content: end;
+}
+
+.self-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.8rem;
+	min-inline-size: 7rem;
+	padding: 0.45rem 0.6rem;
+	border: 1px solid hsl(var(--h-contrast) 30% 78% / 0.2);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--bg-deep) 74%, transparent);
+	backdrop-filter: blur(14px);
+}
+
+.self-toggle-label {
+	font-size: 0.82rem;
+	text-transform: lowercase;
+}
+
+.self-toggle-switch {
+	position: relative;
+	inline-size: 2.5rem;
+	block-size: 1.5rem;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--surface) 76%, var(--bg-deep));
+	transition:
+		background-color var(--tap-transition),
+		box-shadow var(--tap-transition);
+}
+
+.self-toggle-knob {
+	position: absolute;
+	inset-block-start: 0.125rem;
+	inset-inline-start: 0.125rem;
+	inline-size: 1.25rem;
+	block-size: 1.25rem;
+	border-radius: 50%;
+	background: var(--fg-strong);
+	transition:
+		background-color var(--tap-transition),
+		transform 120ms ease;
+}
+
+.self-toggle[data-enabled="true"] .self-toggle-switch {
+	background: var(--accent);
+	box-shadow: 0 0 0.75rem hsl(var(--h-contrast) 58% 80% / 0.18);
+}
+
+.self-toggle[data-enabled="true"] .self-toggle-knob {
+	transform: translateX(1rem);
+	background: var(--accent-ink);
+}
+
+.person-card[data-state="live"] {
+	border-color: color-mix(in srgb, var(--ok) 62%, var(--line));
+}
+
+@media (orientation: portrait), (max-width: 720px) {
+	.portrait-app {
+		padding: 0.75rem;
+	}
+
+	.portrait-strip {
+		--portrait-size: calc(100vw - 1.5rem);
+
+		grid-auto-flow: row;
+		grid-auto-columns: auto;
+		grid-auto-rows: var(--portrait-size);
+		grid-template-columns: minmax(0, var(--portrait-size));
+		grid-template-rows: none;
+		place-content: start center;
+		overflow-x: hidden;
+		overflow-y: auto;
+		scroll-snap-type: y mandatory;
+	}
+
+	.portrait-card {
+		inline-size: 100%;
+		block-size: 100%;
+	}
+}

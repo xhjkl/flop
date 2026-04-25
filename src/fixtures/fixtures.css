@@ -1,0 +1,51 @@
+.fixture-shell {
+	block-size: 100dvh;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	overflow: hidden;
+}
+
+.fixture-shell .portrait-app {
+	block-size: 100%;
+	min-block-size: 0;
+}
+
+.fixtures {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	display: grid;
+	gap: 0.75rem;
+	padding: 0.85rem 1rem 0;
+	border-bottom: 1px solid var(--line);
+	background: hsl(var(--h) 22% 10% / 0.94);
+}
+
+.fixture-banner {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem 0.8rem;
+	align-items: baseline;
+}
+
+.fixture-banner span,
+.fixture-meta small {
+	color: var(--muted);
+}
+
+.fixture-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.55rem;
+}
+
+.fixture-actions button.active {
+	border-color: var(--accent);
+	background: hsl(var(--h-contrast) 56% 84% / 0.14);
+}
+
+.fixture-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem 1rem;
+}

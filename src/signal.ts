@@ -1,0 +1,77 @@
+import {
+	base64UrlToBytes,
+	bytesToArrayBuffer,
+	bytesToBase64Url,
+} from './binary'
+
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
+
+type SignalDescription = Pick<RTCSessionDescriptionInit, 'type' | 'sdp'> & {
+	sdp: string
+}
+
+function encodeSignalText(description: SignalDescription) {
+	// The invite code is SDP type plus SDP body. JSON would only add ceremony here.
+	if (description.type === 'offer') return `o\n${description.sdp}`
+	if (description.type === 'answer') return `a\n${description.sdp}`
+
+	throw new Error('Unsupported signal description')
+}
+
+function decodeSignalText(value: string): SignalDescription {
+	if (value.startsWith('o\n')) return { type: 'offer', sdp: value.slice(2) }
+	if (value.startsWith('a\n')) return { type: 'answer', sdp: value.slice(2) }
+
+	throw new Error('Invalid signal description')
+}
+
+async function compressSignalText(value: string) {
+	if (typeof CompressionStream === 'undefined') return null
+
+	// Native deflate keeps URLs small without making the bundle pay for a codec.
+	const input = encoder.encode(value)
+	const stream = new Blob([bytesToArrayBuffer(input)])
+		.stream()
+		.pipeThrough(new CompressionStream('deflate-raw'))
+	const compressed = new Uint8Array(await new Response(stream).arrayBuffer())
+	return bytesToBase64Url(compressed)
+}
+
+async function decompressSignalText(value: string) {
+	if (typeof DecompressionStream === 'undefined') return null
+
+	const compressed = base64UrlToBytes(value)
+	const stream = new Blob([bytesToArrayBuffer(compressed)])
+		.stream()
+		.pipeThrough(new DecompressionStream('deflate-raw'))
+	const decompressed = await new Response(stream).arrayBuffer()
+	return decoder.decode(decompressed)
+}
+
+export async function encodeSignal(
+	description: SignalDescription,
+): Promise<string> {
+	const signalText = encodeSignalText(description)
+
+	try {
+		const compressed = await compressSignalText(signalText)
+		if (compressed != null) return compressed
+	} catch {}
+
+	return bytesToBase64Url(encoder.encode(signalText))
+}
+
+export async function decodeSignal<T = unknown>(value: string): Promise<T> {
+	// Decode from friendliest to most packed, so localhost experiments stay easy to inspect.
+	try {
+		return decodeSignalText(value) as T
+	} catch {}
+
+	try {
+		const signalText = await decompressSignalText(value)
+		if (signalText != null) return decodeSignalText(signalText) as T
+	} catch {}
+
+	return decodeSignalText(decoder.decode(base64UrlToBytes(value))) as T
+}

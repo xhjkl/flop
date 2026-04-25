@@ -1,0 +1,15 @@
+{
+	"name": "flop",
+	"short_name": "flop",
+	"icons": [
+		{
+			"src": "./favicon.svg",
+			"type": "image/svg+xml",
+			"sizes": "any"
+		}
+	],
+	"start_url": ".",
+	"display": "standalone",
+	"background_color": "#123f36",
+	"theme_color": "#123f36"
+}
