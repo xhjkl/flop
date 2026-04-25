@@ -451,21 +451,23 @@ textarea {
 
 .blip-composer {
 	display: grid;
-	gap: 0.4rem;
-}
-
-.blip-composer div {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto;
 	gap: 0.45rem;
 }
 
-.blip-composer input {
+.blip-composer textarea {
+	block-size: auto;
+	min-block-size: 2.1rem;
+	max-block-size: 5rem;
 	min-inline-size: 0;
-}
-
-.blip-composer button {
-	padding-inline: 0.65rem;
+	padding: 0.45rem 0.7rem;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--bg-deep) 70%, transparent);
+	resize: none;
+	text-align: center;
+	font-size: 0.82rem;
+	line-height: 1.2;
+	overflow: auto;
+	backdrop-filter: blur(14px);
 }
 
 .self-card {
@@ -499,6 +501,7 @@ textarea {
 
 .self-card[data-media-state="live"] {
 	border-color: color-mix(in srgb, var(--ok) 62%, var(--line));
+	grid-template-rows: minmax(0, 1fr);
 }
 
 .self-card[data-media-state="ready"] .self-card-body {
@@ -534,7 +537,14 @@ textarea {
 }
 
 .self-card[data-media-state="live"] .self-card-body {
-	align-content: end;
+	position: absolute;
+	z-index: 1;
+	inset-block-end: 1rem;
+	inset-inline-end: 1rem;
+	inline-size: min(calc(100% - 2rem), 15rem);
+	display: block;
+	padding: 0;
+	pointer-events: none;
 }
 
 .self-card[data-media-state="denied"],
@@ -556,7 +566,7 @@ textarea {
 	grid-template-rows: minmax(0, 1fr);
 }
 
-.self-card[data-has-preview="false"] {
+.self-card:not([data-media-state="live"])[data-has-preview="false"] {
 	grid-template-rows: auto;
 }
 
@@ -565,25 +575,16 @@ textarea {
 	inset: 0;
 }
 
-.self-card[data-has-preview="true"] .self-card-body {
-	position: relative;
-	z-index: 1;
-	align-content: end;
-	justify-items: end;
-	block-size: 100%;
-	padding: 1rem;
-	background: linear-gradient(
-		180deg,
-		transparent 46%,
-		hsl(var(--h) 50% 7% / 0.82)
-	);
+.self-live-shell {
+	inline-size: 100%;
+	display: grid;
+	gap: 0.5rem;
+	justify-items: stretch;
+	pointer-events: auto;
 }
 
-.self-live-shell {
-	inline-size: min(100%, 20rem);
-	display: grid;
-	gap: 0.65rem;
-	justify-items: stretch;
+.self-live-shell .portrait-activity {
+	justify-self: stretch;
 }
 
 .self-video {
@@ -596,19 +597,18 @@ textarea {
 }
 
 .self-live-controls {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.65rem;
-	justify-content: end;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.5rem;
 }
 
 .self-toggle {
 	display: inline-flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 0.8rem;
-	min-inline-size: 7rem;
-	padding: 0.45rem 0.6rem;
+	gap: 0.55rem;
+	min-inline-size: 0;
+	padding: 0.4rem 0.55rem;
 	border: 1px solid hsl(var(--h-contrast) 30% 78% / 0.2);
 	border-radius: 999px;
 	background: color-mix(in srgb, var(--bg-deep) 74%, transparent);

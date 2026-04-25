@@ -161,10 +161,23 @@ function BlipComposer(props: {
 	composer: BlipComposerState
 	onSend: () => void
 	onSetText: (text: string) => void
+	showWhenIdle?: boolean
 }) {
+	function send() {
+		if (!props.canSend || props.composer.text.trim() === '') return
+		props.onSend()
+	}
+
 	function submit(event: SubmitEvent) {
 		event.preventDefault()
-		props.onSend()
+		send()
+	}
+
+	function submitEnter(event: KeyboardEvent) {
+		if (event.key !== 'Enter' || event.isComposing) return
+		if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+		event.preventDefault()
+		send()
 	}
 
 	return (
@@ -172,24 +185,24 @@ function BlipComposer(props: {
 			<Show when={props.composer.issue}>
 				{(issue) => <p class="blip-issue">{issue()}</p>}
 			</Show>
-			<Show when={props.canSend || props.composer.text.trim() !== ''}>
-				<div>
-					<input
-						type="text"
-						value={props.composer.text}
-						placeholder={
-							props.canSend ? 'write a blip' : 'connect before writing'
-						}
-						onInput={(event) => props.onSetText(event.currentTarget.value)}
-						disabled={!props.canSend}
-					/>
-					<button
-						type="submit"
-						disabled={!props.canSend || props.composer.text.trim() === ''}
-					>
-						send
-					</button>
-				</div>
+			<Show
+				when={
+					props.showWhenIdle ||
+					props.canSend ||
+					props.composer.text.trim() !== ''
+				}
+			>
+				<textarea
+					value={props.composer.text}
+					aria-label="blip"
+					enterkeyhint="done"
+					placeholder={props.canSend ? 'tap to blip' : 'connect to blip'}
+					rows={1}
+					onInput={(event) => props.onSetText(event.currentTarget.value)}
+					onKeyDown={submitEnter}
+					onBlur={send}
+					disabled={!props.canSend}
+				/>
 			</Show>
 		</form>
 	)
@@ -200,6 +213,7 @@ function SelfBlipComposer(props: {
 	composer?: BlipComposerState
 	onSend?: () => void
 	onSetText?: (text: string) => void
+	showWhenIdle?: boolean
 }) {
 	if (
 		props.composer == null ||
@@ -211,6 +225,7 @@ function SelfBlipComposer(props: {
 
 	if (
 		!(props.canSend ?? false) &&
+		!(props.showWhenIdle ?? false) &&
 		props.composer.issue == null &&
 		props.composer.text.trim() === ''
 	) {
@@ -224,6 +239,7 @@ function SelfBlipComposer(props: {
 			composer={props.composer}
 			onSend={props.onSend}
 			onSetText={props.onSetText}
+			showWhenIdle={props.showWhenIdle}
 		/>
 	)
 }
@@ -336,6 +352,7 @@ export function SelfMediaCard(props: {
 								composer={props.blipComposer}
 								onSend={props.onSendBlip}
 								onSetText={props.onSetBlipText}
+								showWhenIdle
 							/>
 							<div class="self-live-controls">
 								<Show when={props.cameraToggle}>

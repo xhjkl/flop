@@ -33,6 +33,15 @@ const idleMedia: SelfMedia = {
 	microphoneAvailable: false,
 	microphoneEnabled: false,
 }
+const liveMedia: SelfMedia = {
+	status: 'live',
+	issue: null,
+	stream: null,
+	cameraAvailable: true,
+	cameraEnabled: false,
+	microphoneAvailable: true,
+	microphoneEnabled: true,
+}
 
 function fixture(
 	id: string,
@@ -69,6 +78,21 @@ function selfCard(activity = emptyActivity) {
 			blipComposer={fixtureComposer}
 			media={idleMedia}
 			title="you"
+			onSendBlip={noop}
+			onSetBlipText={noopText}
+		/>
+	)
+}
+
+function liveSelfCard(activity = emptyActivity) {
+	return (
+		<SelfMediaCard
+			activity={activity}
+			canBlip
+			blipComposer={fixtureComposer}
+			media={liveMedia}
+			cameraToggle={{ onPress: noop }}
+			microphoneToggle={{ onPress: noop }}
 			onSendBlip={noop}
 			onSetBlipText={noopText}
 		/>
@@ -140,7 +164,7 @@ export const uiFixtures: UiFixture[] = [
 		'Several live portraits, then the persistent invite.',
 		() => (
 			<Room themeSeed={SAMPLE_INVITE_LINK}>
-				{selfCard({
+				{liveSelfCard({
 					blip: 'dragged a few screenshots over',
 					files: [
 						{
