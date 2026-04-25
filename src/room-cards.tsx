@@ -61,7 +61,7 @@ export function SelfPortraitCard(props: {
 	onToggleMicrophone: () => void
 }) {
 	return (
-		// Welcome, permission, and mirror check are one portrait so the first step never feels like a modal.
+		// Welcome and permission are one portrait so the first step never feels like a modal.
 		<Switch
 			fallback={
 				<MediaFailureCard
@@ -90,10 +90,9 @@ export function SelfPortraitCard(props: {
 					<p>
 						Share the invite code, paste back the reply code, and send files
 						device-to-device. Use the button below to turn on camera and
-						microphone so other peers can see you. You'll get a quick{' '}
-						<span class="nowrap">mirror check</span> before you{' '}
-						<span class="nowrap">go live</span>.
+						microphone so other peers can see you.
 					</p>
+					{/* Future preflight? You'll get a quick mirror check before you go live. */}
 				</SelfMediaCard>
 			</Match>
 			<Match when={props.media.status === 'requesting'}>

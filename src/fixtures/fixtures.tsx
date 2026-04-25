@@ -95,10 +95,9 @@ export const uiFixtures: UiFixture[] = [
 					<p>
 						Share the invite code, paste back the reply code, and send files
 						device-to-device. Use the button below to turn on camera and
-						microphone so other peers can see you. You'll get a quick{' '}
-						<span class="nowrap">mirror check</span> before you{' '}
-						<span class="nowrap">go live</span>.
+						microphone so other peers can see you.
 					</p>
+					{/* Future preflight? You'll get a quick mirror check before you go live. */}
 				</SelfMediaCard>
 				{connectionCard({
 					phase: 'invite-ready',
