@@ -53,8 +53,14 @@ bun run sculpt
 ### Build
 
 ```bash
+bun run check
+bun run typecheck
 bun run build
 bun run preview
 ```
 
 The production build emits `dist/`. Fixtures are dev-only, and future publishing should be a dedicated action rather than a checked-in build folder.
+
+### Publish
+
+GitHub Pages is published by `.github/workflows/publish.yml`: every push to `main` installs, checks, typechecks, builds, and uploads `dist/` as a Pages artifact. In the GitHub repository settings, set Pages source to `GitHub Actions`; after that, pushes to `main` publish the HTTPS build.
