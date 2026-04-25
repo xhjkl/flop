@@ -25,6 +25,7 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 
 // STUN helps peers find each other; it is not a relay and should not become a server path.
 const ICE_GATHER_SOFT_TIMEOUT_MS = 1500
+const DISCONNECT_GRACE_MS = 5000
 
 function waitForIce(pc: RTCPeerConnection, timeoutMs: number | null = null) {
 	if (pc.iceGatheringState === 'complete') return Promise.resolve()
@@ -62,9 +63,13 @@ function waitForIce(pc: RTCPeerConnection, timeoutMs: number | null = null) {
 	})
 }
 
-function bindChannel(channel: RTCDataChannel, options: PeerOptions) {
+function bindChannel(
+	channel: RTCDataChannel,
+	options: PeerOptions,
+	onClose: () => void,
+) {
 	channel.onopen = () => options.onOpen?.()
-	channel.onclose = () => options.onClose?.()
+	channel.onclose = onClose
 	channel.onmessage = (event) => {
 		if (typeof event.data === 'string') options.onMessage?.(event.data)
 	}
@@ -99,11 +104,81 @@ export function createPeer(options: PeerOptions = {}): Peer {
 	}).sender
 	let remoteStream: MediaStream | null = null
 	let channel: RTCDataChannel | null = null
+	let closeEmitted = false
+	let disconnectTimeout: ReturnType<typeof setTimeout> | null = null
+
+	function clearDisconnectTimeout() {
+		if (disconnectTimeout == null) return
+
+		clearTimeout(disconnectTimeout)
+		disconnectTimeout = null
+	}
+
+	function closeTransport() {
+		clearDisconnectTimeout()
+		try {
+			channel?.close()
+		} catch {}
+
+		pc.close()
+	}
+
+	function emitClose() {
+		if (closeEmitted) return
+
+		closeEmitted = true
+		closeTransport()
+		options.onClose?.()
+	}
+
+	function scheduleDisconnectClose() {
+		if (disconnectTimeout != null) return
+
+		disconnectTimeout = setTimeout(() => {
+			const connectionState = pc.connectionState
+			const iceState = pc.iceConnectionState
+			if (
+				connectionState === 'disconnected' ||
+				connectionState === 'failed' ||
+				iceState === 'disconnected' ||
+				iceState === 'failed'
+			) {
+				emitClose()
+			}
+		}, DISCONNECT_GRACE_MS)
+	}
+
+	function handleConnectionHealth() {
+		const connectionState = pc.connectionState
+		const iceState = pc.iceConnectionState
+
+		if (connectionState === 'connected' || iceState === 'connected') {
+			clearDisconnectTimeout()
+			return
+		}
+
+		if (
+			connectionState === 'failed' ||
+			connectionState === 'closed' ||
+			iceState === 'failed' ||
+			iceState === 'closed'
+		) {
+			emitClose()
+			return
+		}
+
+		if (connectionState === 'disconnected' || iceState === 'disconnected') {
+			scheduleDisconnectClose()
+		}
+	}
 
 	function attachChannel(nextChannel: RTCDataChannel) {
 		channel = nextChannel
-		bindChannel(nextChannel, options)
+		bindChannel(nextChannel, options, emitClose)
 	}
+
+	pc.addEventListener('connectionstatechange', handleConnectionHealth)
+	pc.addEventListener('iceconnectionstatechange', handleConnectionHealth)
 
 	pc.ontrack = (event) => {
 		remoteStream = event.streams[0] ?? remoteStream ?? new MediaStream()
@@ -144,11 +219,8 @@ export function createPeer(options: PeerOptions = {}): Peer {
 	}
 
 	function close() {
-		try {
-			channel?.close()
-		} catch {}
-
-		pc.close()
+		closeEmitted = true
+		closeTransport()
 	}
 
 	function send(text: string) {

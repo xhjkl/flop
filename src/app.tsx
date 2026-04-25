@@ -42,7 +42,7 @@ export default function App() {
 			<Room themeSeed={state.themeSeed}>
 				<SelfPortraitCard
 					activity={state.selfActivity}
-					canBlip={state.peers.some((peer) => peer.state === 'live')}
+					canBlip
 					blipComposer={state.blipComposer}
 					media={state.selfMedia}
 					onSendBlip={room.sendBlip}

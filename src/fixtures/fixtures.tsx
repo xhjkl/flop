@@ -74,7 +74,7 @@ function selfCard(activity = emptyActivity) {
 	return (
 		<SelfMediaCard
 			activity={activity}
-			canBlip={false}
+			canBlip
 			blipComposer={fixtureComposer}
 			media={idleMedia}
 			title="you"
@@ -108,7 +108,7 @@ export const uiFixtures: UiFixture[] = [
 			<Room themeSeed={SAMPLE_OFFER}>
 				<SelfMediaCard
 					activity={emptyActivity}
-					canBlip={false}
+					canBlip
 					blipComposer={fixtureComposer}
 					media={idleMedia}
 					title="welcome to flop"

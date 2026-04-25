@@ -224,7 +224,7 @@ function BlipComposer(props: {
 					value={props.composer.text}
 					aria-label="blip"
 					enterkeyhint="done"
-					placeholder={props.canSend ? 'tap to blip' : 'connect to blip'}
+					placeholder="tap to blip"
 					rows={1}
 					data-editing={editing() ? 'true' : 'false'}
 					data-committed={committed() ? 'true' : 'false'}
@@ -265,7 +265,7 @@ function SelfBlipComposer(props: {
 		props.composer.issue == null &&
 		props.composer.text.trim() === ''
 	) {
-		// No empty chat box before there is someone to talk to.
+		// Some fixtures still hide the label; the app keeps blips always available.
 		return null
 	}
 
@@ -426,9 +426,7 @@ export function SelfMediaCard(props: {
 							</Show>
 						</div>
 					</Show>
-					<PortraitActivity
-						activity={props.activity ?? { blip: null, files: [] }}
-					/>
+					<PortraitActivity activity={filesActivity(props.activity)} />
 					<SelfBlipComposer
 						canSend={props.canBlip}
 						composer={props.blipComposer}

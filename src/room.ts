@@ -204,6 +204,7 @@ export function createRoom() {
 	let participantSequence = 0
 	const incomingFiles = new Map<string, IncomingFileTransfer>()
 	let fileUrls = new Set<string>()
+	let pendingLocalBlip: string | null = null
 	// Host identity is the closest thing we have to room identity, so it also paints the room.
 	let localParticipantId: ParticipantId | null = randomParticipantId()
 	let hostParticipantId: ParticipantId | null = localParticipantId
@@ -340,6 +341,7 @@ export function createRoom() {
 	}
 
 	function resetHostParticipants() {
+		pendingLocalBlip = null
 		localParticipantId = randomParticipantId()
 		hostParticipantId = localParticipantId
 		participantSequence = 0
@@ -357,7 +359,8 @@ export function createRoom() {
 		refreshSelfActivity()
 	}
 
-	function resetGuestParticipants() {
+	function resetGuestParticipants(options: { keepPendingBlip?: boolean } = {}) {
+		if (!options.keepPendingBlip) pendingLocalBlip = null
 		localParticipantId = null
 		hostParticipantId = null
 		participantSequence = 0
@@ -497,6 +500,33 @@ export function createRoom() {
 		person.activity.blip = blip === '' ? null : blip
 
 		refreshParticipantActivity(participantId)
+	}
+
+	function localBlip() {
+		const localPerson =
+			localParticipantId == null ? null : people.get(localParticipantId)
+		return localPerson?.activity.blip ?? pendingLocalBlip
+	}
+
+	function applyPendingLocalBlip() {
+		if (localParticipantId == null || pendingLocalBlip == null) return
+
+		setParticipantBlip(localParticipantId, pendingLocalBlip)
+		pendingLocalBlip = null
+	}
+
+	function sendLocalBlipToPeer(peer: Peer) {
+		const blip = localBlip()
+		if (blip == null) return false
+
+		return sendRoomMessage(peer, { type: 'blip', text: blip })
+	}
+
+	function publishLocalBlip() {
+		const blip = localBlip()
+		if (blip == null) return 0
+
+		return sendToLinks(livePeerLinks(), { type: 'blip', text: blip })
 	}
 
 	function setBlipIssue(issue: string | null) {
@@ -800,6 +830,7 @@ export function createRoom() {
 		if (link == null) return
 
 		link.live = true
+		sendLocalBlipToPeer(link.peer)
 		refreshPeerCards()
 	}
 
@@ -977,11 +1008,13 @@ export function createRoom() {
 				clearInviteHash()
 				setState('themeSeed', participantIdToString(message.hostId))
 				replacePeople(message.roster)
+				applyPendingLocalBlip()
 				handle?.markLive(message.hostId)
 				setState('connection', 'phase', 'connected')
 				setState('connection', 'issue', null)
 				refreshSelfActivity()
 				refreshPeerCards()
+				publishLocalBlip()
 				startMissingMeshOffers()
 				break
 			case 'roster':
@@ -1055,6 +1088,7 @@ export function createRoom() {
 				selfId: participant.id,
 				roster: roomRoster(),
 			})
+			sendLocalBlipToPeer(peer)
 		}
 
 		broadcastRoster()
@@ -1131,7 +1165,7 @@ export function createRoom() {
 
 		try {
 			closeAllPeers()
-			resetGuestParticipants()
+			resetGuestParticipants({ keepPendingBlip: true })
 			setState('connection', {
 				...emptyGuestConnection(),
 				phase: 'creating-reply',
@@ -1196,23 +1230,17 @@ export function createRoom() {
 
 	function sendBlip(text = state.blipComposer.text) {
 		const blip = text.trim()
-		if (localParticipantId == null) return
-		const currentBlip = people.get(localParticipantId)?.activity.blip ?? null
+		const currentBlip = localBlip()
 		if (blip === '' && currentBlip == null) return
 
-		const peers = livePeerLinks()
-		if (peers.length === 0) {
-			setBlipIssue('Connect another device before sending a blip.')
-			return
+		if (localParticipantId == null) {
+			pendingLocalBlip = blip === '' ? null : blip
+		} else {
+			pendingLocalBlip = null
+			setParticipantBlip(localParticipantId, blip)
 		}
 
-		const sent = sendToLinks(peers, { type: 'blip', text: blip })
-		if (sent === 0) {
-			setBlipIssue('The room is connected, but the direct channel is not open.')
-			return
-		}
-
-		setParticipantBlip(localParticipantId, blip)
+		sendToLinks(livePeerLinks(), { type: 'blip', text: blip })
 		setState('blipComposer', 'text', blip)
 		setBlipIssue(null)
 	}
