@@ -1,0 +1,22 @@
+{
+	"name": "flop",
+	"version": "0.0.0",
+	"license": "UNLICENSED",
+	"type": "module",
+	"packageManager": "bun",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"preview": "vite preview --port 31337",
+		"sculpt": "vite --open /src/fixtures/index.html"
+	},
+	"dependencies": {
+		"solid-js": "1"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2",
+		"typescript": "6",
+		"vite": "8",
+		"vite-plugin-solid": "2"
+	}
+}
