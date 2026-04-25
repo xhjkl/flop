@@ -29,6 +29,7 @@ export type RoomPeer = {
 	activity: PortraitActivityState
 	id: string
 	mediaStream: MediaStream | null
+	mediaVersion: number
 	state: PeerState
 }
 
@@ -74,6 +75,7 @@ type RoomPerson = Participant & {
 	activity: PersonActivity
 	link: PeerLink | null
 	mediaStream: MediaStream | null
+	mediaVersion: number
 }
 
 const FILE_CHUNK_BYTES = 16 * 1024
@@ -112,6 +114,7 @@ function createPerson(participant: Participant): RoomPerson {
 		activity: emptyPersonActivity(),
 		link: null,
 		mediaStream: null,
+		mediaVersion: 0,
 	}
 }
 
@@ -277,6 +280,7 @@ export function createRoom() {
 		for (const person of people.values()) {
 			person.link = null
 			person.mediaStream = null
+			person.mediaVersion++
 		}
 
 		for (const closingPeer of closingPeers) {
@@ -303,7 +307,10 @@ export function createRoom() {
 		if (person == null) return false
 
 		person.link = link
-		if (link == null) person.mediaStream = null
+		if (link == null) {
+			person.mediaStream = null
+			person.mediaVersion++
+		}
 		return true
 	}
 
@@ -321,6 +328,7 @@ export function createRoom() {
 						activity: existing?.activity ?? emptyPersonActivity(),
 						link: existing?.link ?? null,
 						mediaStream: existing?.mediaStream ?? null,
+						mediaVersion: existing?.mediaVersion ?? 0,
 					},
 				]
 			}),
@@ -437,6 +445,7 @@ export function createRoom() {
 					activity: activityState(person.activity),
 					id,
 					mediaStream: person.mediaStream,
+					mediaVersion: person.mediaVersion,
 					state: person.link?.live ? 'live' : 'waiting',
 				}
 			})
@@ -457,6 +466,7 @@ export function createRoom() {
 		if (person == null) return
 
 		person.mediaStream = stream
+		person.mediaVersion++
 		refreshParticipantMedia(participantId)
 	}
 
@@ -719,6 +729,7 @@ export function createRoom() {
 		person.link = null
 		person.activity = emptyPersonActivity()
 		person.mediaStream = null
+		person.mediaVersion++
 
 		if (isGuestRoom() && participantId === hostParticipantId) {
 			markRoomClosed()

@@ -204,6 +204,7 @@ export function createPeer(options: PeerOptions = {}): Peer {
 	const videoSender = pc.addTransceiver('video', {
 		direction: 'sendrecv',
 	}).sender
+	const remoteStream = new MediaStream()
 	const remoteTracks = new Map<string, MediaStreamTrack>()
 	let channel: RTCDataChannel | null = null
 	let closeEmitted = false
@@ -376,12 +377,7 @@ export function createPeer(options: PeerOptions = {}): Peer {
 	})
 
 	function emitRemoteMedia() {
-		const stream =
-			remoteTracks.size === 0
-				? null
-				: new MediaStream([...remoteTracks.values()])
-
-		options.onRemoteMedia?.(stream)
+		options.onRemoteMedia?.(remoteTracks.size === 0 ? null : remoteStream)
 	}
 
 	pc.ontrack = (event) => {
@@ -393,7 +389,10 @@ export function createPeer(options: PeerOptions = {}): Peer {
 			streamIds: event.streams.map((stream) => stream.id),
 		})
 
-		remoteTracks.set(event.track.id, event.track)
+		if (!remoteTracks.has(event.track.id)) {
+			remoteTracks.set(event.track.id, event.track)
+			remoteStream.addTrack(event.track)
+		}
 		emitRemoteMedia()
 
 		event.track.addEventListener('mute', () => {
@@ -415,6 +414,7 @@ export function createPeer(options: PeerOptions = {}): Peer {
 				kind: event.track.kind,
 			})
 			remoteTracks.delete(event.track.id)
+			remoteStream.removeTrack(event.track)
 			emitRemoteMedia()
 		})
 	}

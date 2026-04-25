@@ -319,17 +319,19 @@ export function PersonCard(props: {
 	activity: PortraitActivityState
 	colorSeed: string
 	mediaStream?: MediaStream | null
+	mediaVersion?: number
 	state: PeerState
 }) {
 	let video: HTMLVideoElement | null = null
 
 	createEffect(() => {
 		const stream = props.mediaStream ?? null
+		const mediaVersion = props.mediaVersion ?? 0
 		const element = video
 		if (element == null) return
 
 		if (element.srcObject !== stream) element.srcObject = stream
-		if (stream != null) playVideo('remote', element, stream)
+		if (stream != null) playVideo(`remote:${mediaVersion}`, element, stream)
 	})
 
 	return (
