@@ -117,8 +117,7 @@ textarea {
 	transition: --h var(--theme-transition);
 }
 
-.utility-header strong,
-.portrait-meta strong {
+.utility-header strong {
 	overflow-wrap: anywhere;
 }
 
@@ -126,8 +125,6 @@ textarea {
 	white-space: nowrap;
 }
 
-.portrait-meta span,
-.portrait-meta small,
 .utility-card p,
 .utility-header small {
 	color: var(--muted);
@@ -177,10 +174,6 @@ textarea {
 		0 1rem 2.4rem hsl(var(--h) 30% 5% / 0.13);
 }
 
-.person-card {
-	grid-template-rows: minmax(0, 1fr) auto;
-}
-
 .portrait-face {
 	--face-bg: color-mix(
 		in srgb,
@@ -202,6 +195,17 @@ textarea {
 .portrait-face[data-has-video="true"] {
 	padding: 0;
 	background: var(--bg-deep);
+}
+
+.person-activity-shell {
+	position: absolute;
+	z-index: 1;
+	inset-block-end: 1rem;
+	inset-inline-end: 1rem;
+	inline-size: min(calc(100% - 2rem), 15rem);
+	display: grid;
+	gap: 0.5rem;
+	pointer-events: auto;
 }
 
 .portrait-initials {
@@ -237,12 +241,10 @@ textarea {
 	letter-spacing: 0;
 }
 
-.portrait-meta,
 .utility-card {
 	padding: 0.9rem;
 }
 
-.portrait-meta,
 .utility-header,
 .card-actions {
 	display: grid;
@@ -395,18 +397,20 @@ textarea {
 
 .portrait-activity {
 	display: grid;
-	gap: 0.4rem;
+	gap: 0.5rem;
 }
 
 .file-chip {
 	position: relative;
 	isolation: isolate;
 	overflow: hidden;
-	display: block;
+	display: flex;
+	align-items: center;
+	min-block-size: 2.1rem;
 	border: 1px solid hsl(var(--h-contrast) 34% 78% / 0.24);
 	border-radius: 999px;
-	background: color-mix(in srgb, var(--bg-deep) 46%, transparent);
-	padding: 0.3rem 0.55rem;
+	background: color-mix(in srgb, var(--bg-deep) 70%, transparent);
+	padding: 0.45rem 0.7rem;
 	color: var(--fg-strong);
 	text-decoration: none;
 	font-size: 0.82rem;

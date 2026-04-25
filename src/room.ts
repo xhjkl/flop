@@ -1196,7 +1196,9 @@ export function createRoom() {
 
 	function sendBlip(text = state.blipComposer.text) {
 		const blip = text.trim()
-		if (blip === '' || localParticipantId == null) return
+		if (localParticipantId == null) return
+		const currentBlip = people.get(localParticipantId)?.activity.blip ?? null
+		if (blip === '' && currentBlip == null) return
 
 		const peers = livePeerLinks()
 		if (peers.length === 0) {
@@ -1211,7 +1213,7 @@ export function createRoom() {
 		}
 
 		setParticipantBlip(localParticipantId, blip)
-		setState('blipComposer', 'text', '')
+		setState('blipComposer', 'text', blip)
 		setBlipIssue(null)
 	}
 

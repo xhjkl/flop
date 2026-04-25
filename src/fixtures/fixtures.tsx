@@ -89,7 +89,7 @@ function liveSelfCard(activity = emptyActivity) {
 		<SelfMediaCard
 			activity={activity}
 			canBlip
-			blipComposer={fixtureComposer}
+			blipComposer={{ issue: null, text: activity.blip ?? '' }}
 			media={liveMedia}
 			cameraToggle={{ onPress: noop }}
 			microphoneToggle={{ onPress: noop }}

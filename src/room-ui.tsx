@@ -17,11 +17,6 @@ export type CardAction = PressAction & {
 	label: string
 }
 
-const peerStateLabels = {
-	live: 'live',
-	waiting: 'waiting',
-} satisfies Record<PeerState, string>
-
 const selfMediaStateLabels = {
 	ready: '',
 	requesting: 'requesting',
@@ -156,6 +151,10 @@ function PortraitActivity(props: { activity: PortraitActivityState }) {
 	)
 }
 
+function filesActivity(activity: PortraitActivityState | undefined) {
+	return { blip: null, files: activity?.files ?? [] }
+}
+
 function BlipComposer(props: {
 	canSend: boolean
 	composer: BlipComposerState
@@ -164,7 +163,7 @@ function BlipComposer(props: {
 	showWhenIdle?: boolean
 }) {
 	function send() {
-		if (!props.canSend || props.composer.text.trim() === '') return
+		if (!props.canSend) return
 		props.onSend()
 	}
 
@@ -281,11 +280,9 @@ export function PersonCard(props: {
 						playsinline
 					/>
 				</Show>
-			</div>
-			<div class="portrait-meta">
-				<strong>{props.name}</strong>
-				<PortraitActivity activity={props.activity} />
-				<small>{peerStateLabels[props.state]}</small>
+				<div class="person-activity-shell">
+					<PortraitActivity activity={props.activity} />
+				</div>
 			</div>
 		</article>
 	)
@@ -344,9 +341,7 @@ export function SelfMediaCard(props: {
 					when={props.media.status !== 'live'}
 					fallback={
 						<div class="self-live-shell">
-							<PortraitActivity
-								activity={props.activity ?? { blip: null, files: [] }}
-							/>
+							<PortraitActivity activity={filesActivity(props.activity)} />
 							<SelfBlipComposer
 								canSend={props.canBlip}
 								composer={props.blipComposer}
