@@ -1374,6 +1374,7 @@ export function createRoom() {
 		if (state.selfMedia.status === 'requesting') return
 
 		// Camera permission belongs to the self portrait, not to page load.
+		roomDebug('media.enable.start')
 		const version = ++selfMediaVersion
 		publishSelfMedia(null)
 		stopSelfMedia(state.selfMedia)
@@ -1388,6 +1389,11 @@ export function createRoom() {
 			return
 		}
 
+		roomDebug('media.enable.done', {
+			status: selfMedia.status,
+			streamId: selfMedia.stream?.id ?? null,
+			tracks: mediaTracks(selfMedia.stream),
+		})
 		setState('selfMedia', selfMedia)
 		publishSelfMedia(selfMedia.stream)
 	}

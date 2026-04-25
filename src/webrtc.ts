@@ -25,7 +25,7 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 ]
 
 // STUN helps peers find each other; it is not a relay and should not become a server path.
-const ICE_GATHER_TIMEOUT_MS = 10000
+const ICE_GATHER_TIMEOUT_MS = 2500
 const DISCONNECT_GRACE_MS = 5000
 
 function debugValue(_key: string, value: unknown): unknown {
@@ -73,22 +73,37 @@ function candidateTypeCounts(sdp: string) {
 	return counts
 }
 
-function waitForIce(pc: RTCPeerConnection, timeoutMs: number | null = null) {
+function waitForIce(
+	pc: RTCPeerConnection,
+	timeoutMs: number | null = null,
+	isEnough: (pc: RTCPeerConnection) => boolean = (pc) =>
+		pc.iceGatheringState === 'complete',
+) {
 	if (pc.iceGatheringState === 'complete') return Promise.resolve()
+	if (isEnough(pc)) return Promise.resolve()
 
 	return new Promise<void>((resolve) => {
 		let timeoutId: ReturnType<typeof setTimeout> | null = null
 
 		const cleanup = () => {
+			pc.removeEventListener('icecandidate', handleCandidate)
 			pc.removeEventListener('icegatheringstatechange', handleChange)
 			pc.removeEventListener('signalingstatechange', handleSignalChange)
 			if (timeoutId != null) clearTimeout(timeoutId)
 		}
 
-		const handleChange = () => {
-			if (pc.iceGatheringState !== 'complete') return
+		const maybeResolve = () => {
+			if (pc.iceGatheringState !== 'complete' && !isEnough(pc)) return
 			cleanup()
 			resolve()
+		}
+
+		const handleCandidate = () => {
+			maybeResolve()
+		}
+
+		const handleChange = () => {
+			maybeResolve()
 		}
 
 		const handleSignalChange = () => {
@@ -97,6 +112,7 @@ function waitForIce(pc: RTCPeerConnection, timeoutMs: number | null = null) {
 			resolve()
 		}
 
+		pc.addEventListener('icecandidate', handleCandidate)
 		pc.addEventListener('icegatheringstatechange', handleChange)
 		pc.addEventListener('signalingstatechange', handleSignalChange)
 
@@ -107,6 +123,10 @@ function waitForIce(pc: RTCPeerConnection, timeoutMs: number | null = null) {
 			}, timeoutMs)
 		}
 	})
+}
+
+function hasServerReflexiveCandidate(pc: RTCPeerConnection) {
+	return candidateTypeCounts(pc.localDescription?.sdp ?? '').srflx != null
 }
 
 function bindChannel(
@@ -141,8 +161,8 @@ function bindChannel(
 }
 
 async function encodeLocalDescription(pc: RTCPeerConnection, debug: RtcDebug) {
-	// Manual signaling has no trickle path, so wait for useful candidates before making a code.
-	await waitForIce(pc, ICE_GATHER_TIMEOUT_MS)
+	// Manual signaling has no trickle path; one srflx candidate is enough to stop making people wait.
+	await waitForIce(pc, ICE_GATHER_TIMEOUT_MS, hasServerReflexiveCandidate)
 
 	const description = pc.localDescription
 	if (description == null) throw new Error('Missing local description')
