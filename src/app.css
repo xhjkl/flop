@@ -265,6 +265,7 @@ textarea {
 
 .connection-card {
 	grid-template-rows: auto auto minmax(0, 1fr) auto;
+	gap: clamp(0.55rem, 1.6dvh, 0.85rem);
 }
 
 .connection-copy {
@@ -283,12 +284,14 @@ textarea {
 .connection-main {
 	min-block-size: 0;
 	display: grid;
+	grid-template-rows: minmax(0, 1fr) auto;
 	gap: 0.75rem;
 	align-content: start;
+	overflow: hidden;
 }
 
 .connection-copy-block {
-	block-size: clamp(10rem, 24dvh, 12rem);
+	block-size: auto;
 	min-block-size: 0;
 	display: grid;
 	grid-template-rows: auto minmax(0, 1fr);
@@ -375,7 +378,7 @@ textarea {
 
 .connection-side-switch {
 	display: grid;
-	padding-block-start: clamp(2rem, 8dvh, 5rem);
+	padding-block-start: clamp(0.75rem, 3dvh, 1.5rem);
 }
 
 .connection-side-switch button {
