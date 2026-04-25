@@ -57,20 +57,33 @@ function describeStream(stream: MediaStream | null) {
 	}
 }
 
+function mediaDebugValue(_key: string, value: unknown): unknown {
+	return value instanceof Error
+		? { message: value.message, name: value.name }
+		: value
+}
+
 function playVideo(
 	label: string,
 	element: HTMLVideoElement,
 	stream: MediaStream,
 ) {
 	void element.play().catch((error: unknown) => {
-		console.warn('[flop:media] video play failed', {
-			error,
-			hasSrcObject: element.srcObject != null,
-			label,
-			muted: element.muted,
-			readyState: element.readyState,
-			...describeStream(stream),
-		})
+		console.warn(
+			'[flop:media]',
+			JSON.stringify(
+				{
+					error,
+					event: 'video.play.failed',
+					hasSrcObject: element.srcObject != null,
+					label,
+					muted: element.muted,
+					readyState: element.readyState,
+					...describeStream(stream),
+				},
+				mediaDebugValue,
+			),
+		)
 	})
 }
 
@@ -326,17 +339,16 @@ export function PersonCard(props: {
 				data-has-video={props.mediaStream != null ? 'true' : 'false'}
 				style={{ '--card-h': `${hueFromSeed(props.colorSeed)}` }}
 			>
-				<Show when={props.mediaStream != null}>
-					{/* biome-ignore lint/a11y/useMediaCaption: Live peer media has no authored caption track. */}
-					<video
-						ref={(element) => {
-							video = element
-						}}
-						class="remote-video"
-						autoplay
-						playsinline
-					/>
-				</Show>
+				{/* biome-ignore lint/a11y/useMediaCaption: Live peer media has no authored caption track. */}
+				<video
+					ref={(element) => {
+						video = element
+					}}
+					class="remote-video"
+					data-active={props.mediaStream != null ? 'true' : 'false'}
+					autoplay
+					playsinline
+				/>
 				<div class="person-activity-shell">
 					<PortraitActivity activity={props.activity} />
 				</div>

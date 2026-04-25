@@ -55,7 +55,7 @@ export default function App() {
 					{(peer) => (
 						<PersonCard
 							activity={peer.activity}
-							colorSeed={peer.colorSeed}
+							colorSeed={peer.id}
 							mediaStream={peer.mediaStream}
 							state={peer.state}
 						/>

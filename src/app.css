@@ -225,6 +225,10 @@ textarea {
 	background-color: var(--bg-deep);
 }
 
+.remote-video[data-active="false"] {
+	display: none;
+}
+
 .utility-card {
 	padding: 0.9rem;
 }

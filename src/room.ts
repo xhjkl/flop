@@ -1,5 +1,5 @@
 import { onCleanup, onMount } from 'solid-js'
-import { createStore } from 'solid-js/store'
+import { createStore, reconcile } from 'solid-js/store'
 import { base64ToBytes, bytesToBase64 } from './binary'
 import {
 	decodeRoomMessage,
@@ -27,7 +27,7 @@ import { createPeer, type Peer } from './webrtc'
 
 export type RoomPeer = {
 	activity: PortraitActivityState
-	colorSeed: string
+	id: string
 	mediaStream: MediaStream | null
 	state: PeerState
 }
@@ -428,18 +428,20 @@ export function createRoom() {
 	}
 
 	function refreshPeerCards() {
-		setState(
-			'peers',
-			// Self gets a richer media portrait. Everyone else is projected into plain person cards.
-			[...people.values()]
-				.filter((person) => person.id !== localParticipantId)
-				.map((person) => ({
+		// Keep portrait identity stable; remounting a live <video> is enough to interrupt playback.
+		const peers: RoomPeer[] = [...people.values()]
+			.filter((person) => person.id !== localParticipantId)
+			.map((person) => {
+				const id = participantIdToString(person.id)
+				return {
 					activity: activityState(person.activity),
-					colorSeed: participantIdToString(person.id),
+					id,
 					mediaStream: person.mediaStream,
 					state: person.link?.live ? 'live' : 'waiting',
-				})),
-		)
+				}
+			})
+
+		setState('peers', reconcile(peers, { key: 'id' }))
 	}
 
 	function refreshParticipantMedia(participantId: ParticipantId) {
