@@ -7,8 +7,9 @@ import {
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
-type SignalDescription = Pick<RTCSessionDescriptionInit, 'type' | 'sdp'> & {
+export type SignalDescription = {
 	sdp: string
+	type: 'answer' | 'offer'
 }
 
 const encodeSignalText = (description: SignalDescription) => {
@@ -62,16 +63,18 @@ export const encodeSignal = async (
 	return bytesToBase64Url(encoder.encode(signalText))
 }
 
-export const decodeSignal = async <T = unknown>(value: string): Promise<T> => {
+export const decodeSignal = async (
+	value: string,
+): Promise<SignalDescription> => {
 	// Decode from friendliest to most packed, so localhost experiments stay easy to inspect.
 	try {
-		return decodeSignalText(value) as T
+		return decodeSignalText(value)
 	} catch {}
 
 	try {
 		const signalText = await decompressSignalText(value)
-		if (signalText != null) return decodeSignalText(signalText) as T
+		if (signalText != null) return decodeSignalText(signalText)
 	} catch {}
 
-	return decodeSignalText(decoder.decode(base64UrlToBytes(value))) as T
+	return decodeSignalText(decoder.decode(base64UrlToBytes(value)))
 }

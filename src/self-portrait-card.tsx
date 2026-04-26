@@ -98,9 +98,9 @@ export const SelfPortraitCard = (props: {
 					onSetBlipText={props.onSetBlipText}
 				>
 					<p>
-						Share an invite with another device, then send files
-						device-to-device. Use the button below to turn on camera and
-						microphone so other peers can see you.
+						Share an invite link to connect directly, then drop files here to
+						send them device-to-device. Use the button below to turn on camera
+						and microphone so other peers can see you.
 					</p>
 					{/* Future preflight? You'll get a quick mirror check before you go live. */}
 				</SelfMediaCard>

@@ -1,4 +1,4 @@
-import { decodeSignal, encodeSignal } from './signal'
+import type { SignalDescription } from './signal'
 import { bindChannel } from './webrtc/channel'
 import {
 	DEFAULT_ICE_SERVERS,
@@ -10,9 +10,9 @@ import {
 import { firstTrack } from './webrtc/media'
 
 export type Peer = {
-	createOffer: () => Promise<string>
-	acceptAnswer: (encoded: string) => Promise<void>
-	createAnswer: (encodedOffer: string) => Promise<string>
+	createOffer: () => Promise<SignalDescription>
+	acceptAnswer: (answer: SignalDescription) => Promise<void>
+	createAnswer: (offer: SignalDescription) => Promise<SignalDescription>
 	close: () => void
 	send: (text: string) => boolean
 	setLocalMedia: (stream: MediaStream | null) => void
@@ -29,14 +29,17 @@ type PeerOptions = {
 	iceServers?: RTCIceServer[]
 }
 
-const encodeLocalDescription = async (pc: RTCPeerConnection) => {
+const localDescription = async (pc: RTCPeerConnection) => {
 	// Manual signaling has no trickle path; one srflx candidate is enough to stop making people wait.
 	await waitForIce(pc, ICE_GATHER_TIMEOUT_MS, hasServerReflexiveCandidate)
 
 	const description = pc.localDescription
 	if (description == null) throw new Error('Missing local description')
+	if (description.type !== 'offer' && description.type !== 'answer') {
+		throw new Error('Unsupported local description')
+	}
 
-	return encodeSignal(description)
+	return { sdp: description.sdp, type: description.type }
 }
 
 export const createPeer = (options: PeerOptions = {}): Peer => {
@@ -222,22 +225,20 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		prepareMediaSlots()
 		const offer = await pc.createOffer()
 		await pc.setLocalDescription(offer)
-		return encodeLocalDescription(pc)
+		return localDescription(pc)
 	}
 
-	const acceptAnswer = async (encoded: string) => {
-		const answer = await decodeSignal<RTCSessionDescriptionInit>(encoded)
+	const acceptAnswer = async (answer: SignalDescription) => {
 		await pc.setRemoteDescription(answer)
 	}
 
-	const createAnswer = async (encodedOffer: string) => {
-		const offer = await decodeSignal<RTCSessionDescriptionInit>(encodedOffer)
+	const createAnswer = async (offer: SignalDescription) => {
 		await pc.setRemoteDescription(offer)
 		prepareMediaSlots()
 
 		const answer = await pc.createAnswer()
 		await pc.setLocalDescription(answer)
-		return encodeLocalDescription(pc)
+		return localDescription(pc)
 	}
 
 	const close = () => {

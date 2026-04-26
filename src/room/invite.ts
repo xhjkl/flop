@@ -1,3 +1,10 @@
+import { parseRoomSecret, type RoomSecret } from '../rendezvous/secret'
+
+export type InviteInput =
+	| { type: 'auto-link'; secret: RoomSecret }
+	| { type: 'empty' }
+	| { code: string; type: 'manual-code' }
+
 export const copyText = (text: string) => {
 	return navigator.clipboard?.writeText(text).catch(() => null) ?? null
 }
@@ -10,34 +17,39 @@ const safeDecodeURIComponent = (value: string) => {
 	}
 }
 
-export const inviteCodeFromHash = (hashText: string) => {
+export const inviteFromHash = (hashText: string): InviteInput => {
 	const hash = hashText.replace(/^#/, '')
-	if (hash.trim() === '') return null
+	if (hash.trim() === '') return { type: 'empty' }
 
-	return safeDecodeURIComponent(hash)
+	const decoded = safeDecodeURIComponent(hash)
+	const secret = parseRoomSecret(decoded)
+	if (secret != null) return { secret, type: 'auto-link' }
+
+	return { code: decoded, type: 'manual-code' }
 }
 
-export const inviteCodeFromInput = (text: string) => {
+export const inviteFromInput = (text: string): InviteInput => {
 	const input = text.trim()
-	if (input === '') return ''
+	if (input === '') return { type: 'empty' }
+
+	const secret = parseRoomSecret(input)
+	if (secret != null) return { secret, type: 'auto-link' }
 
 	// People paste full links, hashes, and raw codes. Make all of them feel like the same gesture.
 	try {
 		const url = new URL(input)
-		const inviteCode = inviteCodeFromHash(url.hash)
-		if (inviteCode != null) return inviteCode
+		return inviteFromHash(url.hash)
 	} catch {}
 
 	if (input.startsWith('#')) {
-		const inviteCode = inviteCodeFromHash(input)
-		if (inviteCode != null) return inviteCode
+		return inviteFromHash(input)
 	}
 
-	return input
+	return { code: input, type: 'manual-code' }
 }
 
 export const readInviteFromHash = () => {
-	return inviteCodeFromHash(window.location.hash)
+	return inviteFromHash(window.location.hash)
 }
 
 export const clearInviteHash = () => {
@@ -48,8 +60,16 @@ export const clearInviteHash = () => {
 	window.history.replaceState(null, '', url)
 }
 
-export const inviteLinkFromCode = (inviteCode: string) => {
+const currentUrlWithHash = (hash: string) => {
 	const url = new URL(window.location.href)
-	url.hash = inviteCode
+	url.hash = hash
 	return url.href
+}
+
+export const autoInviteLinkFromSecret = (secret: RoomSecret) => {
+	return currentUrlWithHash(secret)
+}
+
+export const manualInviteLinkFromCode = (inviteCode: string) => {
+	return currentUrlWithHash(inviteCode)
 }

@@ -10,16 +10,21 @@ export type HostConnectionStatus =
 	| 'creating-invite'
 	| 'invite-ready'
 
+export type AutoInviteStatus = 'failed' | 'finding' | 'idle'
+
 export type GuestConnectionStatus =
 	| 'connected'
 	| 'creating-reply'
+	| 'finding-link'
 	| 'needs-invite'
 	| 'reply-ready'
 
 export type HostConnectionState = {
 	side: 'host'
 	status: HostConnectionStatus
-	inviteLink: string
+	autoInviteLink: string
+	autoStatus: AutoInviteStatus
+	manualInviteLink: string
 	replyText: string
 	issue: string | null
 }

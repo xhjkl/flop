@@ -88,7 +88,8 @@ const App = () => {
 						onAcceptReply={actions.acceptReply}
 						onBecomeGuest={actions.becomeGuest}
 						onBecomeHost={actions.becomeHost}
-						onCopyInviteLink={actions.copyInviteLink}
+						onCopyAutoInviteLink={actions.copyAutoInviteLink}
+						onCopyManualInviteLink={actions.copyManualInviteLink}
 						onCopyReplyCode={actions.copyReplyCode}
 						onCreateReply={actions.createReply}
 						onSetInviteText={actions.setInviteText}

@@ -4,9 +4,17 @@ export type Participant = {
 	id: ParticipantId
 }
 
+export type SignalDescription = {
+	sdp: string
+	type: 'answer' | 'offer'
+}
+
 // Tiny room protocol: the host introduces people, then peers carry their own words and bytes.
 export type Packet =
 	| { type: 'hello' }
+	| { nonce: string; type: 'auth-challenge' }
+	| { type: 'auth-ok' }
+	| { mac: string; type: 'auth-response' }
 	| { text: string; type: 'blip' }
 	| {
 			cameraEnabled: boolean
@@ -36,13 +44,13 @@ export type Packet =
 	| {
 			type: 'peer-offer'
 			from: ParticipantId
-			signal: string
+			signal: SignalDescription
 			to: ParticipantId
 	  }
 	| {
 			type: 'peer-answer'
 			from: ParticipantId
-			signal: string
+			signal: SignalDescription
 			to: ParticipantId
 	  }
 	| { type: 'peer-left'; id: ParticipantId }
@@ -89,6 +97,16 @@ const isFileSize = (value: unknown): value is number => {
 	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
+const isSignalDescription = (value: unknown): value is SignalDescription => {
+	if (typeof value !== 'object' || value == null) return false
+
+	const signal = value as SignalDescription
+	return (
+		(signal.type === 'offer' || signal.type === 'answer') &&
+		typeof signal.sdp === 'string'
+	)
+}
+
 export const encodePacket = (message: Packet) => {
 	return JSON.stringify(message, encodeRoomValue)
 }
@@ -109,6 +127,12 @@ export const decodePacket = (text: string): Packet | null => {
 	switch (message.type) {
 		case 'hello':
 			return message
+		case 'auth-challenge':
+			return typeof message.nonce === 'string' ? message : null
+		case 'auth-ok':
+			return message
+		case 'auth-response':
+			return typeof message.mac === 'string' ? message : null
 		case 'blip':
 			return typeof message.text === 'string' ? message : null
 		case 'media-state':
@@ -141,7 +165,7 @@ export const decodePacket = (text: string): Packet | null => {
 		case 'peer-answer':
 			return typeof message.from === 'bigint' &&
 				typeof message.to === 'bigint' &&
-				typeof message.signal === 'string'
+				isSignalDescription(message.signal)
 				? message
 				: null
 		case 'peer-left':

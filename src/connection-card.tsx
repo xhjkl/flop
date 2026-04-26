@@ -33,6 +33,10 @@ const connectionBody = (connection: ConnectionState) => {
 		return 'Paste the invite from the other device. Then send one reply back.'
 	}
 
+	if (connection.status === 'finding-link') {
+		return 'Finding the host automatically. If this keeps waiting, ask for the invite code instead.'
+	}
+
 	return 'Send this reply back to the inviter. Once they paste it, the browsers connect directly.'
 }
 
@@ -172,7 +176,8 @@ const HostConnectionFields = (props: {
 	mode: HostInviteMode
 	onAcceptReply: (replyText?: string) => void
 	onBecomeGuest: () => void
-	onCopyInviteLink: () => void
+	onCopyAutoInviteLink: () => void
+	onCopyManualInviteLink: () => void
 	onSetReplyText: (replyText: string) => void
 }) => {
 	const busy = () =>
@@ -180,70 +185,67 @@ const HostConnectionFields = (props: {
 		props.connection.status === 'accepting-reply'
 
 	return (
-		<>
-			<div class="connection-mode-frame" data-mode={props.mode}>
-				<div class="connection-mode-rail">
-					<div
-						class="connection-mode-pane"
-						aria-hidden={props.mode === 'link' ? 'false' : 'true'}
-					>
-						<div class="connection-copy">
-							<p>
-								Send this link to the other device. Flop will try to find it
-								automatically.
-							</p>
-						</div>
-						<div class="connection-main">
-							<CopyBlock
-								label="link"
-								value=""
-								placeholder="automatic invite link is coming next"
-								copyLabel="copy link"
-								disabled
-								onCopy={() => null}
-							/>
-						</div>
+		<div class="connection-mode-frame" data-mode={props.mode}>
+			<div class="connection-mode-rail">
+				<div
+					class="connection-mode-pane"
+					aria-hidden={props.mode === 'link' ? 'false' : 'true'}
+				>
+					<div class="connection-copy">
+						<p>
+							Send this link to the other device. Flop will try to find it
+							automatically.
+						</p>
 					</div>
-					<div
-						class="connection-mode-pane"
-						aria-hidden={props.mode === 'code' ? 'false' : 'true'}
-					>
-						{/* Manual host flow: send one invite out, paste one reply back, admit one guest. */}
-						<div class="connection-copy">
-							<p>
-								Use this if the link does not connect. Send this invite code,
-								then paste their reply.
-							</p>
-							<ConnectionIssue connection={props.connection} />
-						</div>
-						<div class="connection-main">
-							<CopyBlock
-								label="invite code"
-								value={props.connection.inviteLink}
-								placeholder="invite code is being created"
-								copyLabel="copy code"
-								disabled={props.mode !== 'code'}
-								onCopy={props.onCopyInviteLink}
-							/>
-							<CodeInput
-								label="paste their reply here to let them in"
-								value={props.connection.replyText}
-								placeholder="paste reply"
-								disabled={busy() || props.mode !== 'code'}
-								onChange={props.onSetReplyText}
-								onSubmit={props.onAcceptReply}
-							/>
-						</div>
+					<div class="connection-main">
+						<CopyBlock
+							label="link"
+							value={props.connection.autoInviteLink}
+							placeholder="automatic invite link is coming next"
+							copyLabel="copy link"
+							onCopy={props.onCopyAutoInviteLink}
+						/>
 					</div>
 				</div>
+				<div
+					class="connection-mode-pane"
+					aria-hidden={props.mode === 'code' ? 'false' : 'true'}
+				>
+					{/* Manual host flow: send one invite out, paste one reply back, admit one guest. */}
+					<div class="connection-copy">
+						<p>
+							Use this if the invite link does not connect. Send this invite
+							code, then paste their reply.
+						</p>
+						<ConnectionIssue connection={props.connection} />
+					</div>
+					<div class="connection-main">
+						<CopyBlock
+							label="invite code"
+							value={props.connection.manualInviteLink}
+							placeholder="invite code is being created"
+							copyLabel="copy code"
+							disabled={props.mode !== 'code'}
+							onCopy={props.onCopyManualInviteLink}
+						/>
+						<CodeInput
+							label="paste their reply here to let them in"
+							value={props.connection.replyText}
+							placeholder="paste reply"
+							disabled={busy() || props.mode !== 'code'}
+							onChange={props.onSetReplyText}
+							onSubmit={props.onAcceptReply}
+						/>
+					</div>
+					<Show when={!props.hasPeers}>
+						<SideSwitch
+							label="join existing room instead"
+							onPress={props.onBecomeGuest}
+						/>
+					</Show>
+				</div>
 			</div>
-			<Show when={!props.hasPeers}>
-				<SideSwitch
-					label="join existing room instead"
-					onPress={props.onBecomeGuest}
-				/>
-			</Show>
-		</>
+		</div>
 	)
 }
 
@@ -265,18 +267,33 @@ const GuestConnectionFields = (props: {
 				<Match
 					when={
 						props.connection.status === 'needs-invite' ||
-						props.connection.status === 'creating-reply'
+						props.connection.status === 'creating-reply' ||
+						props.connection.status === 'finding-link'
 					}
 				>
 					<div class="connection-main">
-						<CodeInput
-							label="paste invite to create a reply"
-							value={props.connection.inviteText}
-							placeholder="paste invite"
-							disabled={creating()}
-							onChange={props.onSetInviteText}
-							onSubmit={props.onCreateReply}
-						/>
+						<Show
+							when={props.connection.status !== 'finding-link'}
+							fallback={
+								<CopyBlock
+									label="link"
+									value={props.connection.inviteText}
+									placeholder="finding host"
+									copyLabel="copy link"
+									disabled
+									onCopy={() => null}
+								/>
+							}
+						>
+							<CodeInput
+								label="paste invite to create a reply"
+								value={props.connection.inviteText}
+								placeholder="paste invite"
+								disabled={creating()}
+								onChange={props.onSetInviteText}
+								onSubmit={props.onCreateReply}
+							/>
+						</Show>
 					</div>
 					<Show when={canCreate()}>
 						<CardActions
@@ -329,7 +346,8 @@ export const ConnectionCard = (props: {
 	onAcceptReply: (replyText?: string) => void
 	onBecomeGuest: () => void
 	onBecomeHost: () => void
-	onCopyInviteLink: () => void
+	onCopyAutoInviteLink: () => void
+	onCopyManualInviteLink: () => void
 	onCopyReplyCode: () => void
 	onCreateReply: (inviteText?: string) => void
 	onSetInviteText: (inviteText: string) => void
@@ -376,7 +394,8 @@ export const ConnectionCard = (props: {
 							mode={hostInviteMode()}
 							onAcceptReply={props.onAcceptReply}
 							onBecomeGuest={props.onBecomeGuest}
-							onCopyInviteLink={props.onCopyInviteLink}
+							onCopyAutoInviteLink={props.onCopyAutoInviteLink}
+							onCopyManualInviteLink={props.onCopyManualInviteLink}
 							onSetReplyText={props.onSetReplyText}
 						/>
 					)}

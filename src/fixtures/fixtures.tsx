@@ -14,6 +14,7 @@ export type UiFixture = {
 const SAMPLE_OFFER =
 	'v=0\no=- 0 0 IN IP4 127.0.0.1\ns=flop\nt=0 0\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel'
 const SAMPLE_INVITE_LINK = `https://flop.local/#${encodeURIComponent(SAMPLE_OFFER)}`
+const SAMPLE_AUTO_LINK = 'https://flop.local/#ybybybybybybybybybybybybyb'
 const SAMPLE_REPLY =
 	'v=0\no=- 0 0 IN IP4 127.0.0.1\ns=flop-reply\nt=0 0\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel'
 const HOST_ID = '48b6a1e2c59d730f'
@@ -60,7 +61,8 @@ const connectionCard = (connection: ConnectionState, hasPeers = false) => {
 			onAcceptReply={noop}
 			onBecomeGuest={noop}
 			onBecomeHost={noop}
-			onCopyInviteLink={noop}
+			onCopyAutoInviteLink={noop}
+			onCopyManualInviteLink={noop}
 			onCopyReplyCode={noop}
 			onCreateReply={noop}
 			onSetInviteText={noopText}
@@ -117,16 +119,18 @@ export const uiFixtures: UiFixture[] = [
 					onSetBlipText={noopText}
 				>
 					<p>
-						Share an invite with another device, then send files
-						device-to-device. Use the button below to turn on camera and
-						microphone so other peers can see you.
+						Share an invite link to connect directly, then drop files here to
+						send them device-to-device. Use the button below to turn on camera
+						and microphone so other peers can see you.
 					</p>
 					{/* Future preflight? You'll get a quick mirror check before you go live. */}
 				</SelfMediaCard>
 				{connectionCard({
 					side: 'host',
 					status: 'invite-ready',
-					inviteLink: SAMPLE_INVITE_LINK,
+					autoInviteLink: SAMPLE_AUTO_LINK,
+					autoStatus: 'finding',
+					manualInviteLink: SAMPLE_INVITE_LINK,
 					replyText: '',
 					issue: null,
 				})}
@@ -194,7 +198,9 @@ export const uiFixtures: UiFixture[] = [
 					{
 						side: 'host',
 						status: 'invite-ready',
-						inviteLink: SAMPLE_INVITE_LINK,
+						autoInviteLink: SAMPLE_AUTO_LINK,
+						autoStatus: 'finding',
+						manualInviteLink: SAMPLE_INVITE_LINK,
 						replyText: '',
 						issue: null,
 					},
@@ -227,7 +233,9 @@ export const uiFixtures: UiFixture[] = [
 				{connectionCard({
 					side: 'host',
 					status: 'creating-invite',
-					inviteLink: '',
+					autoInviteLink: '',
+					autoStatus: 'failed',
+					manualInviteLink: '',
 					replyText: '',
 					issue: 'Could not create an invite.',
 				})}

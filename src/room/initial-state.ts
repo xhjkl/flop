@@ -18,7 +18,9 @@ export type RoomState = {
 export const emptyHostConnection = (): HostConnectionState => ({
 	side: 'host',
 	status: 'creating-invite',
-	inviteLink: '',
+	autoInviteLink: '',
+	autoStatus: 'idle',
+	manualInviteLink: '',
 	replyText: '',
 	issue: null,
 })
