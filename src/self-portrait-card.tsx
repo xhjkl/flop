@@ -15,19 +15,19 @@ const selfMediaFailureTitles = {
 	error: 'Could not start media',
 } satisfies Record<SelfMediaFailureState, string>
 
-function mediaFailureIssue(selfMedia: SelfMedia) {
+const mediaFailureIssue = (selfMedia: SelfMedia) => {
 	return (
 		selfMedia.issue ?? 'The browser could not open the camera and microphone.'
 	)
 }
 
-function mediaFailureTitle(status: SelfMediaStatus) {
+const mediaFailureTitle = (status: SelfMediaStatus) => {
 	return status in selfMediaFailureTitles
 		? selfMediaFailureTitles[status as SelfMediaFailureState]
 		: 'Could not start media'
 }
 
-function MediaFailureCard(props: {
+const MediaFailureCard = (props: {
 	activity: PortraitActivityState
 	blipComposer: BlipComposerState
 	canBlip: boolean
@@ -36,7 +36,7 @@ function MediaFailureCard(props: {
 	onEnableSelfMedia: () => void
 	onSendBlip: () => void
 	onSetBlipText: (text: string) => void
-}) {
+}) => {
 	return (
 		<SelfMediaCard
 			activity={props.activity}
@@ -54,7 +54,7 @@ function MediaFailureCard(props: {
 	)
 }
 
-export function SelfPortraitCard(props: {
+export const SelfPortraitCard = (props: {
 	activity: PortraitActivityState
 	canBlip: boolean
 	blipComposer: BlipComposerState
@@ -64,7 +64,7 @@ export function SelfPortraitCard(props: {
 	onSetBlipText: (text: string) => void
 	onToggleCamera: () => void
 	onToggleMicrophone: () => void
-}) {
+}) => {
 	return (
 		// Welcome and permission are one portrait so the first step never feels like a modal.
 		<Switch

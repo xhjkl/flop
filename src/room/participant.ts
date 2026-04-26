@@ -14,18 +14,18 @@ export type RoomParticipant = {
 	participantId: ParticipantId
 }
 
-export function emptyParticipantActivity(): PortraitActivityState {
+export const emptyParticipantActivity = (): PortraitActivityState => {
 	return { blip: null, files: [] }
 }
 
-export function participantKey(id: ParticipantId): ParticipantKey {
+export const participantKey = (id: ParticipantId): ParticipantKey => {
 	return participantIdToString(id)
 }
 
-export function mergeParticipant(
+export const mergeParticipant = (
 	participant: Participant,
 	existing?: RoomParticipant,
-): RoomParticipant {
+): RoomParticipant => {
 	const id = participantKey(participant.id)
 	return {
 		// Roster refreshes should not erase what a person just said or sent.
@@ -35,13 +35,15 @@ export function mergeParticipant(
 	}
 }
 
-export function rosterParticipant(participant: RoomParticipant): Participant {
+export const rosterParticipant = (
+	participant: RoomParticipant,
+): Participant => {
 	return {
 		id: participant.participantId,
 	}
 }
 
-export function randomParticipantId(): ParticipantId {
+export const randomParticipantId = (): ParticipantId => {
 	const bytes = new Uint8Array(8)
 	crypto.getRandomValues(bytes)
 	let id = 0n

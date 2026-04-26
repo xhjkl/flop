@@ -1,8 +1,8 @@
-export function copyText(text: string) {
+export const copyText = (text: string) => {
 	return navigator.clipboard?.writeText(text).catch(() => null) ?? null
 }
 
-function safeDecodeURIComponent(value: string) {
+const safeDecodeURIComponent = (value: string) => {
 	try {
 		return decodeURIComponent(value)
 	} catch {
@@ -10,14 +10,14 @@ function safeDecodeURIComponent(value: string) {
 	}
 }
 
-export function inviteCodeFromHash(hashText: string) {
+export const inviteCodeFromHash = (hashText: string) => {
 	const hash = hashText.replace(/^#/, '')
 	if (hash.trim() === '') return null
 
 	return safeDecodeURIComponent(hash)
 }
 
-export function inviteCodeFromInput(text: string) {
+export const inviteCodeFromInput = (text: string) => {
 	const input = text.trim()
 	if (input === '') return ''
 
@@ -36,11 +36,11 @@ export function inviteCodeFromInput(text: string) {
 	return input
 }
 
-export function readInviteFromHash() {
+export const readInviteFromHash = () => {
 	return inviteCodeFromHash(window.location.hash)
 }
 
-export function clearInviteHash() {
+export const clearInviteHash = () => {
 	if (window.location.hash === '') return
 
 	const url = new URL(window.location.href)
@@ -48,7 +48,7 @@ export function clearInviteHash() {
 	window.history.replaceState(null, '', url)
 }
 
-export function inviteLinkFromCode(inviteCode: string) {
+export const inviteLinkFromCode = (inviteCode: string) => {
 	const url = new URL(window.location.href)
 	url.hash = inviteCode
 	return url.href

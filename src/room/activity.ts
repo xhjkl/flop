@@ -24,10 +24,10 @@ export const FILE_CHUNK_BYTES = 16 * 1024
 // Keep data channels breathing while large drops are in flight.
 export const FILE_BUFFER_LOW_BYTES = 512 * 1024
 
-export function createIncomingFileTransfer(
+export const createIncomingFileTransfer = (
 	from: ParticipantId,
 	message: Extract<Packet, { type: 'file-start' }>,
-): IncomingFileTransfer {
+): IncomingFileTransfer => {
 	return {
 		chunks: [],
 		from,
@@ -38,7 +38,7 @@ export function createIncomingFileTransfer(
 	}
 }
 
-export function fileProgressState(file: FileProgress): PortraitFileState {
+export const fileProgressState = (file: FileProgress): PortraitFileState => {
 	const progress =
 		file.size <= 0
 			? 100
@@ -53,7 +53,7 @@ export function fileProgressState(file: FileProgress): PortraitFileState {
 	}
 }
 
-export function randomTransferId() {
+export const randomTransferId = () => {
 	const bytes = new Uint8Array(12)
 	crypto.getRandomValues(bytes)
 	return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')

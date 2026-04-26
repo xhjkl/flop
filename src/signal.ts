@@ -11,7 +11,7 @@ type SignalDescription = Pick<RTCSessionDescriptionInit, 'type' | 'sdp'> & {
 	sdp: string
 }
 
-function encodeSignalText(description: SignalDescription) {
+const encodeSignalText = (description: SignalDescription) => {
 	// The invite code is SDP type plus SDP body. JSON would only add ceremony here.
 	if (description.type === 'offer') return `o\n${description.sdp}`
 	if (description.type === 'answer') return `a\n${description.sdp}`
@@ -19,14 +19,14 @@ function encodeSignalText(description: SignalDescription) {
 	throw new Error('Unsupported signal description')
 }
 
-function decodeSignalText(value: string): SignalDescription {
+const decodeSignalText = (value: string): SignalDescription => {
 	if (value.startsWith('o\n')) return { type: 'offer', sdp: value.slice(2) }
 	if (value.startsWith('a\n')) return { type: 'answer', sdp: value.slice(2) }
 
 	throw new Error('Invalid signal description')
 }
 
-async function compressSignalText(value: string) {
+const compressSignalText = async (value: string) => {
 	if (typeof CompressionStream === 'undefined') return null
 
 	// Native deflate keeps URLs small without making the bundle pay for a codec.
@@ -38,7 +38,7 @@ async function compressSignalText(value: string) {
 	return bytesToBase64Url(compressed)
 }
 
-async function decompressSignalText(value: string) {
+const decompressSignalText = async (value: string) => {
 	if (typeof DecompressionStream === 'undefined') return null
 
 	const compressed = base64UrlToBytes(value)
@@ -49,9 +49,9 @@ async function decompressSignalText(value: string) {
 	return decoder.decode(decompressed)
 }
 
-export async function encodeSignal(
+export const encodeSignal = async (
 	description: SignalDescription,
-): Promise<string> {
+): Promise<string> => {
 	const signalText = encodeSignalText(description)
 
 	try {
@@ -62,7 +62,7 @@ export async function encodeSignal(
 	return bytesToBase64Url(encoder.encode(signalText))
 }
 
-export async function decodeSignal<T = unknown>(value: string): Promise<T> {
+export const decodeSignal = async <T = unknown>(value: string): Promise<T> => {
 	// Decode from friendliest to most packed, so localhost experiments stay easy to inspect.
 	try {
 		return decodeSignalText(value) as T

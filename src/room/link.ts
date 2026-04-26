@@ -17,11 +17,14 @@ export type RoomLink = {
 	role: LinkRole
 }
 
-export function isRendezvousLink(link: RoomLink) {
+export const isRendezvousLink = (link: RoomLink) => {
 	return link.role === 'host-rendezvous' || link.role === 'guest-rendezvous'
 }
 
-export function findRendezvousLink(links: Iterable<RoomLink>, role?: LinkRole) {
+export const findRendezvousLink = (
+	links: Iterable<RoomLink>,
+	role?: LinkRole,
+) => {
 	for (const link of links) {
 		if (!isRendezvousLink(link)) continue
 		if (role != null && link.role !== role) continue
@@ -31,10 +34,10 @@ export function findRendezvousLink(links: Iterable<RoomLink>, role?: LinkRole) {
 	return null
 }
 
-export function findParticipantLink(
+export const findParticipantLink = (
 	links: Iterable<RoomLink>,
 	key: ParticipantKey,
-) {
+) => {
 	for (const link of links) {
 		if (link.remoteId != null && participantKey(link.remoteId) === key) {
 			return link
@@ -44,6 +47,6 @@ export function findParticipantLink(
 	return null
 }
 
-export function liveIdentifiedLinks(links: Iterable<RoomLink>) {
+export const liveIdentifiedLinks = (links: Iterable<RoomLink>) => {
 	return [...links].filter((link) => link.live && link.remoteId != null)
 }

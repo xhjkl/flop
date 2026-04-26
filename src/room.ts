@@ -18,7 +18,6 @@ import {
 	type IncomingFileTransfer,
 	randomTransferId,
 } from './room/activity'
-import { mediaTracks, roomDebug } from './room/debug'
 import {
 	closedConnection,
 	emptyBlipComposer,
@@ -66,39 +65,11 @@ type RoomPeer = RoomParticipant & {
 	state: PeerState
 }
 
-function packetDebugDetails(packet: Packet) {
-	if (packet.type === 'file-chunk') return null
-
-	return {
-		from: 'from' in packet ? participantIdToString(packet.from) : null,
-		id:
-			'id' in packet
-				? typeof packet.id === 'bigint'
-					? participantIdToString(packet.id)
-					: packet.id
-				: null,
-		to: 'to' in packet ? participantIdToString(packet.to) : null,
-		type: packet.type,
-	}
-}
-
-function logPacket(
-	event: string,
-	packet: Packet,
-	details: Record<string, unknown> = {},
-) {
-	const packetDetails = packetDebugDetails(packet)
-	if (packetDetails == null) return
-
-	roomDebug(event, { ...details, ...packetDetails })
-}
-
-function sendPacket(peer: Peer, packet: Packet) {
-	logPacket('packet.send', packet)
+const sendPacket = (peer: Peer, packet: Packet) => {
 	return peer.send(encodePacket(packet))
 }
 
-export function createRoom() {
+export const createRoom = () => {
 	const incomingFiles = new Map<string, IncomingFileTransfer>()
 	let fileUrls = new Set<string>()
 	let pendingLocalBlip: string | null = null
@@ -130,6 +101,10 @@ export function createRoom() {
 		return participantKeys().filter((key) => key !== local)
 	})
 
+	const participantByKey = (key: ParticipantKey) => {
+		return participants[key] ?? null
+	}
+
 	const selfActivity = createMemo(() => {
 		const key = localKey()
 		return key == null
@@ -137,13 +112,13 @@ export function createRoom() {
 			: (participantByKey(key)?.activity ?? emptyParticipantActivity())
 	})
 
-	function isHostRoom() {
+	const isHostRoom = () => {
 		return (
 			localParticipantId != null && localParticipantId === hostParticipantId
 		)
 	}
 
-	function isGuestRoom() {
+	const isGuestRoom = () => {
 		return (
 			localParticipantId != null &&
 			hostParticipantId != null &&
@@ -151,15 +126,11 @@ export function createRoom() {
 		)
 	}
 
-	function participantByKey(key: ParticipantKey) {
-		return participants[key] ?? null
-	}
-
-	function touchLinks() {
+	const touchLinks = () => {
 		setLinkRevision((revision) => revision + 1)
 	}
 
-	function peerByKey(key: ParticipantKey): RoomPeer | null {
+	const peerByKey = (key: ParticipantKey): RoomPeer | null => {
 		const participant = participantByKey(key)
 		if (participant == null) return null
 
@@ -174,30 +145,30 @@ export function createRoom() {
 		}
 	}
 
-	function participantById(participantId: ParticipantId | null) {
+	const participantById = (participantId: ParticipantId | null) => {
 		return participantId == null
 			? null
 			: participantByKey(participantKey(participantId))
 	}
 
-	function nextLinkId(role: LinkRole): LinkId {
+	const nextLinkId = (role: LinkRole): LinkId => {
 		linkSequence++
 		return `${role}:${linkSequence}`
 	}
 
-	function currentRendezvousLink(role?: LinkRole) {
+	const currentRendezvousLink = (role?: LinkRole) => {
 		return findRendezvousLink(links.values(), role)
 	}
 
-	function linkByParticipantKey(key: ParticipantKey) {
+	const linkByParticipantKey = (key: ParticipantKey) => {
 		return findParticipantLink(links.values(), key)
 	}
 
-	function linkedPeers() {
+	const linkedPeers = () => {
 		return [...links.values()].map((link) => link.peer)
 	}
 
-	function removeLink(link: RoomLink) {
+	const removeLink = (link: RoomLink) => {
 		if (links.get(link.id) !== link) return
 
 		link.live = false
@@ -205,7 +176,7 @@ export function createRoom() {
 		touchLinks()
 	}
 
-	function closeLink(link: RoomLink) {
+	const closeLink = (link: RoomLink) => {
 		removeLink(link)
 
 		try {
@@ -213,12 +184,12 @@ export function createRoom() {
 		} catch {}
 	}
 
-	function closeRendezvousLink(role?: LinkRole) {
+	const closeRendezvousLink = (role?: LinkRole) => {
 		const link = currentRendezvousLink(role)
 		if (link != null) closeLink(link)
 	}
 
-	function closeAllLinks() {
+	const closeAllLinks = () => {
 		const closingLinks = [...links.values()]
 		links.clear()
 		for (const link of closingLinks) link.live = false
@@ -231,11 +202,11 @@ export function createRoom() {
 		}
 	}
 
-	function participantLink(participantId: ParticipantId) {
+	const participantLink = (participantId: ParticipantId) => {
 		return linkByParticipantKey(participantKey(participantId))
 	}
 
-	function adoptLink(link: RoomLink, participantId: ParticipantId) {
+	const adoptLink = (link: RoomLink, participantId: ParticipantId) => {
 		if (links.get(link.id) !== link) return false
 		if (link.remoteId != null && link.remoteId !== participantId) return false
 
@@ -251,7 +222,7 @@ export function createRoom() {
 		return true
 	}
 
-	function replaceParticipants(roster: Participant[]) {
+	const replaceParticipants = (roster: Participant[]) => {
 		const nextKeys = roster.map((person) => participantKey(person.id))
 		const nextKeySet = new Set(nextKeys)
 		const host =
@@ -278,7 +249,7 @@ export function createRoom() {
 		setParticipantKeys(nextKeys)
 	}
 
-	function deleteParticipant(participantId: ParticipantId) {
+	const deleteParticipant = (participantId: ParticipantId) => {
 		const key = participantKey(participantId)
 		const link = participantLink(participantId)
 
@@ -289,7 +260,7 @@ export function createRoom() {
 		return link
 	}
 
-	function allocateParticipantId() {
+	const allocateParticipantId = () => {
 		let id = randomParticipantId()
 
 		while (
@@ -303,7 +274,7 @@ export function createRoom() {
 		return id
 	}
 
-	function resetHostParticipants() {
+	const resetHostParticipants = () => {
 		pendingLocalBlip = null
 		localParticipantId = randomParticipantId()
 		hostParticipantId = localParticipantId
@@ -316,7 +287,9 @@ export function createRoom() {
 		setState('themeSeed', host.id)
 	}
 
-	function resetGuestParticipants(options: { keepPendingBlip?: boolean } = {}) {
+	const resetGuestParticipants = (
+		options: { keepPendingBlip?: boolean } = {},
+	) => {
 		if (!options.keepPendingBlip) pendingLocalBlip = null
 		localParticipantId = null
 		hostParticipantId = null
@@ -326,25 +299,25 @@ export function createRoom() {
 		setLocalKey(null)
 	}
 
-	function roomRoster() {
+	const roomRoster = () => {
 		return participantKeys()
 			.map((key) => participants[key])
 			.filter((person): person is RoomParticipant => person != null)
 			.map(rosterParticipant)
 	}
 
-	function liveParticipantLinkCount() {
+	const liveParticipantLinkCount = () => {
 		return liveParticipantLinks().length
 	}
 
-	function sendToParticipant(participantId: ParticipantId, packet: Packet) {
+	const sendToParticipant = (participantId: ParticipantId, packet: Packet) => {
 		const link = participantLink(participantId)
 		if (link == null || !link.live) return false
 
 		return sendPacket(link.peer, packet)
 	}
 
-	function sendToLinks(targetLinks: RoomLink[], packet: Packet) {
+	const sendToLinks = (targetLinks: RoomLink[], packet: Packet) => {
 		let sent = 0
 
 		for (const link of targetLinks) {
@@ -354,10 +327,10 @@ export function createRoom() {
 		return sent
 	}
 
-	function broadcastPacket(
+	const broadcastPacket = (
 		packet: Packet,
 		except: ParticipantId | null = null,
-	) {
+	) => {
 		const exceptKey = except == null ? null : participantKey(except)
 
 		for (const key of participantKeys()) {
@@ -370,7 +343,9 @@ export function createRoom() {
 		}
 	}
 
-	function broadcastMembershipChange(options: { left?: ParticipantId } = {}) {
+	const broadcastMembershipChange = (
+		options: { left?: ParticipantId } = {},
+	) => {
 		// Membership is a protocol commit, not any participant-store mutation.
 		if (options.left != null) {
 			broadcastPacket({ type: 'peer-left', id: options.left })
@@ -378,11 +353,13 @@ export function createRoom() {
 		broadcastPacket({ type: 'roster', roster: roomRoster() })
 	}
 
-	function liveParticipantLinks() {
+	const liveParticipantLinks = () => {
 		return liveIdentifiedLinks(links.values())
 	}
 
-	function selfMediaState(media: SelfMedia = state.selfMedia): PeerMediaState {
+	const selfMediaState = (
+		media: SelfMedia = state.selfMedia,
+	): PeerMediaState => {
 		return {
 			cameraEnabled:
 				media.status === 'live' && media.cameraAvailable && media.cameraEnabled,
@@ -393,10 +370,10 @@ export function createRoom() {
 		}
 	}
 
-	function setPeerMediaState(
+	const setPeerMediaState = (
 		participantId: ParticipantId,
 		mediaState: PeerMediaState,
-	) {
+	) => {
 		const link = participantLink(participantId)
 		if (link == null) return
 
@@ -404,7 +381,7 @@ export function createRoom() {
 		touchLinks()
 	}
 
-	function setParticipantBlip(participantId: ParticipantId, text: string) {
+	const setParticipantBlip = (participantId: ParticipantId, text: string) => {
 		const key = participantKey(participantId)
 		const person = participants[key]
 		if (person == null) return
@@ -413,55 +390,55 @@ export function createRoom() {
 		setParticipants(key, 'activity', 'blip', blip === '' ? null : blip)
 	}
 
-	function localBlip() {
+	const localBlip = () => {
 		return (
 			participantById(localParticipantId)?.activity.blip ?? pendingLocalBlip
 		)
 	}
 
-	function applyPendingLocalBlip() {
+	const applyPendingLocalBlip = () => {
 		if (localParticipantId == null || pendingLocalBlip == null) return
 
 		setParticipantBlip(localParticipantId, pendingLocalBlip)
 		pendingLocalBlip = null
 	}
 
-	function sendLocalBlipToPeer(peer: Peer) {
+	const sendLocalBlipToPeer = (peer: Peer) => {
 		const blip = localBlip()
 		if (blip == null) return false
 
 		return sendPacket(peer, { type: 'blip', text: blip })
 	}
 
-	function sendLocalMediaStateToPeer(
+	const sendLocalMediaStateToPeer = (
 		peer: Peer,
 		mediaState = selfMediaState(),
-	) {
+	) => {
 		return sendPacket(peer, { ...mediaState, type: 'media-state' })
 	}
 
-	function publishLocalBlip() {
+	const publishLocalBlip = () => {
 		const blip = localBlip()
 		if (blip == null) return 0
 
 		return sendToLinks(liveParticipantLinks(), { type: 'blip', text: blip })
 	}
 
-	function publishLocalMediaState(mediaState = selfMediaState()) {
+	const publishLocalMediaState = (mediaState = selfMediaState()) => {
 		return sendToLinks(liveParticipantLinks(), {
 			...mediaState,
 			type: 'media-state',
 		})
 	}
 
-	function setBlipIssue(issue: string | null) {
+	const setBlipIssue = (issue: string | null) => {
 		setState('blipComposer', 'issue', issue)
 	}
 
-	function upsertParticipantFile(
+	const upsertParticipantFile = (
 		participantId: ParticipantId,
 		file: FileProgress,
-	) {
+	) => {
 		const key = participantKey(participantId)
 		const person = participants[key]
 		if (person == null) return
@@ -477,7 +454,7 @@ export function createRoom() {
 		})
 	}
 
-	function markLocalSendingFilesError() {
+	const markLocalSendingFilesError = () => {
 		const key = localKey()
 		if (key == null) return
 
@@ -491,7 +468,7 @@ export function createRoom() {
 		)
 	}
 
-	function disposeFileUrls() {
+	const disposeFileUrls = () => {
 		for (const url of fileUrls) {
 			URL.revokeObjectURL(url)
 		}
@@ -499,19 +476,14 @@ export function createRoom() {
 		fileUrls = new Set()
 	}
 
-	function handlePeerBlip(participantId: ParticipantId, text: string) {
-		roomDebug('blip.receive', {
-			empty: text.trim() === '',
-			from: participantIdToString(participantId),
-			textLength: text.length,
-		})
+	const handlePeerBlip = (participantId: ParticipantId, text: string) => {
 		setParticipantBlip(participantId, text)
 	}
 
-	function handleFileStart(
+	const handleFileStart = (
 		participantId: ParticipantId,
 		message: Extract<Packet, { type: 'file-start' }>,
-	) {
+	) => {
 		const transfer = createIncomingFileTransfer(participantId, message)
 
 		incomingFiles.set(message.id, transfer)
@@ -525,7 +497,9 @@ export function createRoom() {
 		})
 	}
 
-	function handleFileChunk(message: Extract<Packet, { type: 'file-chunk' }>) {
+	const handleFileChunk = (
+		message: Extract<Packet, { type: 'file-chunk' }>,
+	) => {
 		const transfer = incomingFiles.get(message.id)
 		if (transfer == null) return
 
@@ -559,7 +533,7 @@ export function createRoom() {
 		})
 	}
 
-	function handleFileEnd(message: Extract<Packet, { type: 'file-end' }>) {
+	const handleFileEnd = (message: Extract<Packet, { type: 'file-end' }>) => {
 		const transfer = incomingFiles.get(message.id)
 		if (transfer == null) return
 
@@ -579,7 +553,10 @@ export function createRoom() {
 		})
 	}
 
-	function handleCommonMessage(participantId: ParticipantId, message: Packet) {
+	const handleCommonMessage = (
+		participantId: ParticipantId,
+		message: Packet,
+	) => {
 		// Blips and files are symmetric; only connection setup needs host/guest ceremony.
 		switch (message.type) {
 			case 'blip':
@@ -605,7 +582,7 @@ export function createRoom() {
 		}
 	}
 
-	function clearPeerParticipants() {
+	const clearPeerParticipants = () => {
 		const local = localKey()
 		const self = local == null ? null : participants[local]
 
@@ -615,16 +592,16 @@ export function createRoom() {
 		setParticipantKeys(local == null ? [] : [local])
 	}
 
-	function markRoomClosed() {
+	const markRoomClosed = () => {
 		closeAllLinks()
 		clearPeerParticipants()
 		setState('connection', closedConnection())
 	}
 
-	function removeParticipantLink(
+	const removeParticipantLink = (
 		participantId: ParticipantId,
 		options: { peer?: Peer | null } = {},
-	) {
+	) => {
 		const key = participantKey(participantId)
 		const link = participantLink(participantId)
 		if (link == null) return
@@ -652,15 +629,15 @@ export function createRoom() {
 		}
 	}
 
-	function assignGuestParticipant(): Participant {
+	const assignGuestParticipant = (): Participant => {
 		return { id: allocateParticipantId() }
 	}
 
-	function createLink(
+	const createLink = (
 		role: LinkRole,
 		debugLabel: string,
 		remoteId: ParticipantId | null = null,
-	) {
+	) => {
 		const id = nextLinkId(role)
 		const peer = createPeer({
 			debugLabel,
@@ -691,7 +668,7 @@ export function createRoom() {
 		return link
 	}
 
-	function handleLinkOpen(linkId: LinkId) {
+	const handleLinkOpen = (linkId: LinkId) => {
 		const link = links.get(linkId)
 		if (link == null) return
 
@@ -709,7 +686,7 @@ export function createRoom() {
 		}
 	}
 
-	function handleLinkClose(linkId: LinkId) {
+	const handleLinkClose = (linkId: LinkId) => {
 		const link = links.get(linkId)
 		if (link == null) return
 
@@ -726,7 +703,7 @@ export function createRoom() {
 		}
 	}
 
-	function handleLinkMessage(linkId: LinkId, text: string) {
+	const handleLinkMessage = (linkId: LinkId, text: string) => {
 		const link = links.get(linkId)
 		if (link == null) return
 
@@ -746,16 +723,13 @@ export function createRoom() {
 		}
 	}
 
-	function handlePeerMessage(link: RoomLink, message: Packet) {
+	const handlePeerMessage = (link: RoomLink, message: Packet) => {
 		if (link.remoteId == null) return
 
-		logPacket('packet.receive', message, {
-			fromPeer: participantIdToString(link.remoteId),
-		})
 		handleCommonMessage(link.remoteId, message)
 	}
 
-	function createMeshLink(participantId: ParticipantId) {
+	const createMeshLink = (participantId: ParticipantId) => {
 		const link = createLink(
 			'mesh',
 			`mesh:${participantIdToString(participantId)}`,
@@ -770,12 +744,12 @@ export function createRoom() {
 		return link
 	}
 
-	function sendToHost(message: Packet) {
+	const sendToHost = (message: Packet) => {
 		if (hostParticipantId == null) return false
 		return sendToParticipant(hostParticipantId, message)
 	}
 
-	async function createMeshOffer(participantId: ParticipantId) {
+	const createMeshOffer = async (participantId: ParticipantId) => {
 		if (
 			!isGuestRoom() ||
 			localParticipantId == null ||
@@ -806,7 +780,7 @@ export function createRoom() {
 		}
 	}
 
-	function startMissingMeshOffers() {
+	const startMissingMeshOffers = () => {
 		if (
 			!isGuestRoom() ||
 			localParticipantId == null ||
@@ -833,9 +807,9 @@ export function createRoom() {
 		}
 	}
 
-	async function acceptMeshOffer(
+	const acceptMeshOffer = async (
 		message: Extract<Packet, { type: 'peer-offer' }>,
-	) {
+	) => {
 		if (
 			!isGuestRoom() ||
 			localParticipantId == null ||
@@ -868,9 +842,9 @@ export function createRoom() {
 		}
 	}
 
-	async function acceptMeshAnswer(
+	const acceptMeshAnswer = async (
 		message: Extract<Packet, { type: 'peer-answer' }>,
-	) {
+	) => {
 		if (localParticipantId == null || message.to !== localParticipantId) return
 
 		const link = participantLink(message.from)
@@ -883,7 +857,7 @@ export function createRoom() {
 		}
 	}
 
-	function applyRoster(roster: Participant[]) {
+	const applyRoster = (roster: Participant[]) => {
 		if (
 			hostParticipantId != null &&
 			!roster.some((p) => p.id === hostParticipantId)
@@ -896,7 +870,7 @@ export function createRoom() {
 		startMissingMeshOffers()
 	}
 
-	function removeRosterParticipant(participantId: ParticipantId) {
+	const removeRosterParticipant = (participantId: ParticipantId) => {
 		if (participantId === hostParticipantId) {
 			markRoomClosed()
 			return
@@ -905,12 +879,8 @@ export function createRoom() {
 		deleteParticipant(participantId)?.peer.close()
 	}
 
-	function handleGuestMessage(link: RoomLink, message: Packet) {
+	const handleGuestMessage = (link: RoomLink, message: Packet) => {
 		const senderId = hostParticipantId ?? link.remoteId
-		logPacket('packet.receive', message, {
-			fromPeer: senderId == null ? null : participantIdToString(senderId),
-			side: 'guest',
-		})
 		if (senderId != null && handleCommonMessage(senderId, message)) return
 
 		switch (message.type) {
@@ -960,7 +930,7 @@ export function createRoom() {
 		}
 	}
 
-	function sendHostWelcome(participantId: ParticipantId) {
+	const sendHostWelcome = (participantId: ParticipantId) => {
 		if (localParticipantId == null) return
 		sendToParticipant(participantId, {
 			type: 'welcome',
@@ -975,7 +945,7 @@ export function createRoom() {
 		}
 	}
 
-	function handleHostPacket(participantId: ParticipantId, message: Packet) {
+	const handleHostPacket = (participantId: ParticipantId, message: Packet) => {
 		if (handleCommonMessage(participantId, message)) return
 		switch (message.type) {
 			case 'hello':
@@ -1000,7 +970,7 @@ export function createRoom() {
 		}
 	}
 
-	function admitHostRendezvous(link: RoomLink) {
+	const admitHostRendezvous = (link: RoomLink) => {
 		const existingId = link.remoteId
 		if (existingId != null) {
 			return { fresh: false, participantId: existingId }
@@ -1027,7 +997,7 @@ export function createRoom() {
 		return { fresh: true, participantId: participant.id }
 	}
 
-	function handleHostRendezvousMessage(link: RoomLink, message: Packet) {
+	const handleHostRendezvousMessage = (link: RoomLink, message: Packet) => {
 		let participantId = link.remoteId
 		let fresh = false
 		if (participantId == null && message.type === 'hello') {
@@ -1038,11 +1008,6 @@ export function createRoom() {
 			fresh = admission.fresh
 		}
 
-		logPacket('packet.receive', message, {
-			fromPeer:
-				participantId == null ? null : participantIdToString(participantId),
-			side: 'host',
-		})
 		if (participantId == null) return
 
 		handleHostPacket(participantId, message)
@@ -1052,9 +1017,9 @@ export function createRoom() {
 		}
 	}
 
-	async function startHostInvite(
+	const startHostInvite = async (
 		options: { resetPeers: boolean } = { resetPeers: true },
-	) {
+	) => {
 		const version = ++signalingVersion
 		let nextLink: RoomLink | null = null
 
@@ -1102,7 +1067,7 @@ export function createRoom() {
 		}
 	}
 
-	function becomeGuest() {
+	const becomeGuest = () => {
 		signalingVersion++
 		clearInviteHash()
 		resetGuestParticipants()
@@ -1110,7 +1075,7 @@ export function createRoom() {
 		setState('blipComposer', emptyBlipComposer())
 	}
 
-	async function createReply(inviteText?: string) {
+	const createReply = async (inviteText?: string) => {
 		const inviteInput = (
 			inviteText ??
 			(state.connection.side === 'guest' ? state.connection.inviteText : '')
@@ -1157,7 +1122,7 @@ export function createRoom() {
 		}
 	}
 
-	async function acceptReply(replyText?: string) {
+	const acceptReply = async (replyText?: string) => {
 		const replyCode = (
 			replyText ??
 			(state.connection.side === 'host' ? state.connection.replyText : '')
@@ -1192,7 +1157,7 @@ export function createRoom() {
 		}
 	}
 
-	function sendBlip(text = state.blipComposer.text) {
+	const sendBlip = (text = state.blipComposer.text) => {
 		const blip = text.trim()
 		const currentBlip = localBlip()
 		if (blip === '' && currentBlip == null) return
@@ -1204,42 +1169,23 @@ export function createRoom() {
 			setParticipantBlip(localParticipantId, blip)
 		}
 
-		const sent = sendToLinks(liveParticipantLinks(), {
+		sendToLinks(liveParticipantLinks(), {
 			type: 'blip',
 			text: blip,
-		})
-		roomDebug('blip.send', {
-			empty: blip === '',
-			participant:
-				localParticipantId == null
-					? null
-					: participantIdToString(localParticipantId),
-			sent,
-			textLength: blip.length,
 		})
 		setState('blipComposer', 'text', blip)
 		setBlipIssue(null)
 	}
 
-	function publishSelfMedia(stream: MediaStream | null) {
+	const publishSelfMedia = (stream: MediaStream | null) => {
 		const peers = linkedPeers()
-		const linkCount = links.size
-		roomDebug('media.publish', {
-			links: linkCount,
-			linkedPeers: peers.length,
-			unidentifiedLinks: [...links.values()].filter(
-				(link) => link.remoteId == null,
-			).length,
-			streamId: stream?.id ?? null,
-			tracks: mediaTracks(stream),
-		})
 
 		for (const peer of peers) {
 			peer.setLocalMedia(stream)
 		}
 	}
 
-	async function sendFileToPeers(file: File, peers: RoomLink[]) {
+	const sendFileToPeers = async (file: File, peers: RoomLink[]) => {
 		const id = randomTransferId()
 
 		if (localParticipantId == null) return
@@ -1303,7 +1249,7 @@ export function createRoom() {
 		})
 	}
 
-	async function sendFiles(files: File[]) {
+	const sendFiles = async (files: File[]) => {
 		if (files.length === 0) return
 
 		const peers = liveParticipantLinks()
@@ -1322,7 +1268,7 @@ export function createRoom() {
 		}
 	}
 
-	function disposeSelfMedia() {
+	const disposeSelfMedia = () => {
 		selfMediaVersion++
 		publishSelfMedia(null)
 		stopSelfMedia(state.selfMedia)
@@ -1331,11 +1277,10 @@ export function createRoom() {
 		publishLocalMediaState(selfMediaState(selfMedia))
 	}
 
-	async function enableSelfMedia() {
+	const enableSelfMedia = async () => {
 		if (state.selfMedia.status === 'requesting') return
 
 		// Camera permission belongs to the self portrait, not to page load.
-		roomDebug('media.enable.start')
 		const version = ++selfMediaVersion
 		publishSelfMedia(null)
 		stopSelfMedia(state.selfMedia)
@@ -1350,19 +1295,13 @@ export function createRoom() {
 			return
 		}
 
-		roomDebug('media.enable.done', {
-			status: selfMedia.status,
-			streamId: selfMedia.stream?.id ?? null,
-			tracks: mediaTracks(selfMedia.stream),
-		})
 		setState('selfMedia', selfMedia)
 		publishSelfMedia(selfMedia.stream)
 		publishLocalMediaState(selfMediaState(selfMedia))
 	}
 
-	function setTracksEnabled(kind: 'audio' | 'video', enabled: boolean) {
+	const setTracksEnabled = (kind: 'audio' | 'video', enabled: boolean) => {
 		if (!setSelfMediaTracksEnabled(state.selfMedia, kind, enabled)) return
-		roomDebug('media.track-enabled', { enabled, kind })
 
 		const selfMedia = {
 			...state.selfMedia,
@@ -1373,12 +1312,12 @@ export function createRoom() {
 		publishLocalMediaState(selfMediaState(selfMedia))
 	}
 
-	function toggleCamera() {
+	const toggleCamera = () => {
 		if (!state.selfMedia.cameraAvailable) return
 		setTracksEnabled('video', !state.selfMedia.cameraEnabled)
 	}
 
-	function toggleMicrophone() {
+	const toggleMicrophone = () => {
 		if (!state.selfMedia.microphoneAvailable) return
 		setTracksEnabled('audio', !state.selfMedia.microphoneEnabled)
 	}

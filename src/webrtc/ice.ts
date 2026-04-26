@@ -7,24 +7,7 @@ export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 export const ICE_GATHER_TIMEOUT_MS = 2500
 export const DISCONNECT_GRACE_MS = 5000
 
-export function summarizeIceCandidate(candidate: string) {
-	const parts = candidate.split(/\s+/)
-	const type = candidate.match(/\styp\s+(\S+)/)?.[1] ?? null
-	const protocol = parts[2]?.toLowerCase() ?? null
-	const address = parts[4] ?? ''
-
-	return {
-		family: address.includes(':')
-			? 'ipv6'
-			: address.includes('.')
-				? 'ipv4'
-				: null,
-		protocol,
-		type,
-	}
-}
-
-export function candidateTypeCounts(sdp: string) {
+export const candidateTypeCounts = (sdp: string) => {
 	const counts: Record<string, number> = {}
 
 	for (const match of sdp.matchAll(/^a=candidate:.*\styp\s+(\S+)/gm)) {
@@ -35,12 +18,12 @@ export function candidateTypeCounts(sdp: string) {
 	return counts
 }
 
-export function waitForIce(
+export const waitForIce = (
 	pc: RTCPeerConnection,
 	timeoutMs: number | null = null,
 	isEnough: (pc: RTCPeerConnection) => boolean = (pc) =>
 		pc.iceGatheringState === 'complete',
-) {
+) => {
 	if (pc.iceGatheringState === 'complete') return Promise.resolve()
 	if (isEnough(pc)) return Promise.resolve()
 
@@ -87,6 +70,6 @@ export function waitForIce(
 	})
 }
 
-export function hasServerReflexiveCandidate(pc: RTCPeerConnection) {
+export const hasServerReflexiveCandidate = (pc: RTCPeerConnection) => {
 	return candidateTypeCounts(pc.localDescription?.sdp ?? '').srflx != null
 }

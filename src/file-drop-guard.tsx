@@ -1,22 +1,24 @@
 import { onCleanup, onMount } from 'solid-js'
 
-function dragHasFiles(event: DragEvent) {
+const dragHasFiles = (event: DragEvent) => {
 	return Array.from(event.dataTransfer?.types ?? []).includes('Files')
 }
 
-function droppedFiles(event: DragEvent) {
+const droppedFiles = (event: DragEvent) => {
 	return Array.from(event.dataTransfer?.files ?? [])
 }
 
-export function FileDropGuard(props: { onDropFiles: (files: File[]) => void }) {
+export const FileDropGuard = (props: {
+	onDropFiles: (files: File[]) => void
+}) => {
 	onMount(() => {
 		// The canvas is the drop target; the browser should not navigate away with the file.
-		function preventBrowserFileOpen(event: DragEvent) {
+		const preventBrowserFileOpen = (event: DragEvent) => {
 			if (!dragHasFiles(event)) return
 			event.preventDefault()
 		}
 
-		function dropFiles(event: DragEvent) {
+		const dropFiles = (event: DragEvent) => {
 			if (!dragHasFiles(event)) return
 
 			const files = droppedFiles(event)

@@ -18,7 +18,7 @@ export type SelfMedia = {
 	microphoneEnabled: boolean
 }
 
-export function emptySelfMedia(): SelfMedia {
+export const emptySelfMedia = (): SelfMedia => {
 	return {
 		status: 'ready',
 		issue: null,
@@ -30,17 +30,17 @@ export function emptySelfMedia(): SelfMedia {
 	}
 }
 
-export function stopSelfMedia(media: SelfMedia) {
+export const stopSelfMedia = (media: SelfMedia) => {
 	for (const track of media.stream?.getTracks() ?? []) {
 		track.stop()
 	}
 }
 
-export function setSelfMediaTracksEnabled(
+export const setSelfMediaTracksEnabled = (
 	media: SelfMedia,
 	kind: 'audio' | 'video',
 	enabled: boolean,
-) {
+) => {
 	const tracks =
 		kind === 'video'
 			? (media.stream?.getVideoTracks() ?? [])
@@ -54,7 +54,7 @@ export function setSelfMediaTracksEnabled(
 	return true
 }
 
-export async function captureSelfMedia(): Promise<SelfMedia> {
+export const captureSelfMedia = async (): Promise<SelfMedia> => {
 	if (navigator.mediaDevices?.getUserMedia == null) {
 		return {
 			...emptySelfMedia(),
@@ -86,10 +86,12 @@ export async function captureSelfMedia(): Promise<SelfMedia> {
 	}
 }
 
-function classifySelfMediaFailure(error: unknown): {
+const classifySelfMediaFailure = (
+	error: unknown,
+): {
 	status: SelfMediaStatus
 	issue: string
-} {
+} => {
 	const name = error instanceof DOMException ? error.name : namedError(error)
 
 	switch (name) {
@@ -125,7 +127,7 @@ function classifySelfMediaFailure(error: unknown): {
 	}
 }
 
-function namedError(error: unknown) {
+const namedError = (error: unknown) => {
 	return typeof error === 'object' &&
 		error != null &&
 		'name' in error &&

@@ -41,7 +41,7 @@ export const emptyBlipComposer = (): BlipComposerState => ({
 	text: '',
 })
 
-export function emptyRoomState(themeSeed: string): RoomState {
+export const emptyRoomState = (themeSeed: string): RoomState => {
 	return {
 		blipComposer: emptyBlipComposer(),
 		connection: emptyHostConnection(),

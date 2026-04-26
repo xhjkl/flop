@@ -1,6 +1,6 @@
 import { createEffect, onCleanup } from 'solid-js'
 
-export function BeforeUnloadGuard(props: { when: boolean }) {
+export const BeforeUnloadGuard = (props: { when: boolean }) => {
 	createEffect(() => {
 		if (!props.when) return
 

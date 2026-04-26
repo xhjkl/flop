@@ -6,7 +6,7 @@ import type {
 	HostConnectionState,
 } from './state'
 
-function connectionTitle(connection: ConnectionState) {
+const connectionTitle = (connection: ConnectionState) => {
 	if (connection.side === 'closed') return 'room closed'
 	if (connection.side === 'guest' && connection.status === 'connected') {
 		return 'connected'
@@ -14,7 +14,7 @@ function connectionTitle(connection: ConnectionState) {
 	return connection.side === 'host' ? 'invite' : 'reply'
 }
 
-function connectionBody(connection: ConnectionState) {
+const connectionBody = (connection: ConnectionState) => {
 	if (connection.side === 'closed') {
 		return 'This direct connection is closed. Host a fresh room or join an existing one.'
 	}
@@ -34,7 +34,7 @@ function connectionBody(connection: ConnectionState) {
 	return 'Send this reply back to the inviter. Once they paste it, the browsers connect directly.'
 }
 
-function ConnectionIssue(props: { connection: ConnectionState }) {
+const ConnectionIssue = (props: { connection: ConnectionState }) => {
 	return (
 		<Show when={props.connection.side !== 'closed' && props.connection.issue}>
 			{(issue) => <p class="connection-issue">{issue()}</p>}
@@ -42,18 +42,18 @@ function ConnectionIssue(props: { connection: ConnectionState }) {
 	)
 }
 
-function CopyBlock(props: {
+const CopyBlock = (props: {
 	label: string
 	value: string
 	placeholder: string
 	copyLabel: string
 	onCopy: () => void
-}) {
+}) => {
 	let copiedTimeout: ReturnType<typeof setTimeout> | null = null
 	const [copied, setCopied] = createSignal(false)
 	const empty = () => props.value.trim() === ''
 
-	function copy() {
+	const copy = () => {
 		props.onCopy()
 		setCopied(true)
 		if (copiedTimeout != null) clearTimeout(copiedTimeout)
@@ -83,20 +83,20 @@ function CopyBlock(props: {
 	)
 }
 
-function CodeInput(props: {
+const CodeInput = (props: {
 	label: string
 	value: string
 	placeholder: string
 	disabled?: boolean
 	onChange: (text: string) => void
 	onSubmit: (text?: string) => void
-}) {
-	function submit(text?: string) {
+}) => {
+	const submit = (text?: string) => {
 		if ((text ?? props.value).trim() === '') return
 		props.onSubmit(text)
 	}
 
-	function submitPaste(event: ClipboardEvent) {
+	const submitPaste = (event: ClipboardEvent) => {
 		const text = event.clipboardData?.getData('text') ?? ''
 		if (text.trim() === '') return
 
@@ -105,7 +105,7 @@ function CodeInput(props: {
 		submit(text)
 	}
 
-	function submitEnter(event: KeyboardEvent) {
+	const submitEnter = (event: KeyboardEvent) => {
 		if (event.key !== 'Enter') return
 		event.preventDefault()
 		submit()
@@ -127,7 +127,7 @@ function CodeInput(props: {
 	)
 }
 
-function SideSwitch(props: { label: string; onPress: () => void }) {
+const SideSwitch = (props: { label: string; onPress: () => void }) => {
 	return (
 		<div class="connection-side-switch">
 			<button type="button" onClick={props.onPress}>
@@ -137,14 +137,14 @@ function SideSwitch(props: { label: string; onPress: () => void }) {
 	)
 }
 
-function HostConnectionFields(props: {
+const HostConnectionFields = (props: {
 	connection: HostConnectionState
 	hasPeers: boolean
 	onAcceptReply: (replyText?: string) => void
 	onBecomeGuest: () => void
 	onCopyInviteLink: () => void
 	onSetReplyText: (replyText: string) => void
-}) {
+}) => {
 	const busy = () =>
 		props.connection.status === 'creating-invite' ||
 		props.connection.status === 'accepting-reply'
@@ -179,13 +179,13 @@ function HostConnectionFields(props: {
 	)
 }
 
-function GuestConnectionFields(props: {
+const GuestConnectionFields = (props: {
 	connection: GuestConnectionState
 	onBecomeHost: () => void
 	onCopyReplyCode: () => void
 	onCreateReply: (inviteText?: string) => void
 	onSetInviteText: (inviteText: string) => void
-}) {
+}) => {
 	const creating = () => props.connection.status === 'creating-reply'
 	const canCreate = () =>
 		creating() || props.connection.inviteText.trim() !== ''
@@ -241,10 +241,10 @@ function GuestConnectionFields(props: {
 	)
 }
 
-function ClosedConnectionFields(props: {
+const ClosedConnectionFields = (props: {
 	onBecomeGuest: () => void
 	onBecomeHost: () => void
-}) {
+}) => {
 	return (
 		<CardActions
 			actions={[
@@ -255,7 +255,7 @@ function ClosedConnectionFields(props: {
 	)
 }
 
-export function ConnectionCard(props: {
+export const ConnectionCard = (props: {
 	connection: ConnectionState
 	hasPeers?: boolean
 	onAcceptReply: (replyText?: string) => void
@@ -266,7 +266,7 @@ export function ConnectionCard(props: {
 	onCreateReply: (inviteText?: string) => void
 	onSetInviteText: (inviteText: string) => void
 	onSetReplyText: (replyText: string) => void
-}) {
+}) => {
 	const hostConnection = () =>
 		props.connection.side === 'host' ? props.connection : null
 	const guestConnection = () =>

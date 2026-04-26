@@ -14,7 +14,7 @@ const ROOM_HUES = [
 	354, // burgundy
 ]
 
-function hashSeed(seed: string | null): number | null {
+const hashSeed = (seed: string | null): number | null => {
 	if (seed == null || seed === '') return null
 
 	let hash = 97
@@ -25,12 +25,12 @@ function hashSeed(seed: string | null): number | null {
 	return hash
 }
 
-export function hueFromSeed(seed: string | null, offset = 0): number {
+export const hueFromSeed = (seed: string | null, offset = 0): number => {
 	const hue = hashSeed(seed) ?? DEFAULT_HUE
 	return (hue + offset) % 360
 }
 
-export function themeHueFromSeed(seed: string | null): number {
+export const themeHueFromSeed = (seed: string | null): number => {
 	const hash = hashSeed(seed)
 	if (hash == null) return ROOM_HUES[1]
 

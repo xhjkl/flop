@@ -8,13 +8,13 @@ import { SelfPortraitCard } from './self-portrait-card'
 import type { PortraitFileState } from './state'
 import './app.css'
 
-function hasBusyFile(files: PortraitFileState[]) {
+const hasBusyFile = (files: PortraitFileState[]) => {
 	return files.some(
 		(file) => file.state === 'sending' || file.state === 'receiving',
 	)
 }
 
-function hasBusyFiles(room: RoomHandle) {
+const hasBusyFiles = (room: RoomHandle) => {
 	if (hasBusyFile(room.selfActivity().files)) return true
 
 	return room.peerKeys().some((key) => {
@@ -23,7 +23,7 @@ function hasBusyFiles(room: RoomHandle) {
 	})
 }
 
-function shouldWarnBeforeUnload(room: RoomHandle) {
+const shouldWarnBeforeUnload = (room: RoomHandle) => {
 	const state = room.state
 	const connection = state.connection
 	// A refresh is cheap until a real peer, code, or file is on the line.
@@ -37,7 +37,7 @@ function shouldWarnBeforeUnload(room: RoomHandle) {
 	)
 }
 
-export default function App() {
+const App = () => {
 	const room = createRoom()
 	const actions = room.actions
 	const state = room.state
@@ -99,3 +99,5 @@ export default function App() {
 		</>
 	)
 }
+
+export default App

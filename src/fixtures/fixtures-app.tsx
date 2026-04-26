@@ -4,18 +4,18 @@ import { getFixture, uiFixtures } from './fixtures'
 import '../app.css'
 import './fixtures.css'
 
-function readFixtureId() {
+const readFixtureId = () => {
 	return new URLSearchParams(window.location.search).get('fixture')
 }
 
-function writeFixtureId(id: string | null) {
+const writeFixtureId = (id: string | null) => {
 	const url = new URL(window.location.href)
 	if (id == null) url.searchParams.delete('fixture')
 	else url.searchParams.set('fixture', id)
 	window.history.replaceState(null, '', url)
 }
 
-export default function FixturesApp() {
+const FixturesApp = () => {
 	const [fixtureId, setFixtureId] = createSignal<string | null>(readFixtureId())
 
 	const activeFixture = createMemo(() => getFixture(fixtureId()))
@@ -71,3 +71,5 @@ export default function FixturesApp() {
 		</div>
 	)
 }
+
+export default FixturesApp

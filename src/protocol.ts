@@ -49,12 +49,12 @@ export type Packet =
 
 const PARTICIPANT_ID_KEYS = new Set(['from', 'hostId', 'id', 'selfId', 'to'])
 
-export function participantIdToString(id: ParticipantId) {
+export const participantIdToString = (id: ParticipantId) => {
 	// BigInt is nicer inside the app; fixed hex is nicer at the JSON edge.
 	return id.toString(16).padStart(16, '0')
 }
 
-function parseParticipantId(value: string): ParticipantId | null {
+const parseParticipantId = (value: string): ParticipantId | null => {
 	if (value.length < 1 || value.length > 16) return null
 
 	try {
@@ -64,36 +64,36 @@ function parseParticipantId(value: string): ParticipantId | null {
 	}
 }
 
-function encodeRoomValue(_key: string, value: unknown) {
+const encodeRoomValue = (_key: string, value: unknown) => {
 	return typeof value === 'bigint' ? participantIdToString(value) : value
 }
 
-function decodeRoomValue(key: string, value: unknown) {
+const decodeRoomValue = (key: string, value: unknown) => {
 	if (!PARTICIPANT_ID_KEYS.has(key) || typeof value !== 'string') return value
 
 	return parseParticipantId(value) ?? value
 }
 
-function isParticipant(value: unknown): value is Participant {
+const isParticipant = (value: unknown): value is Participant => {
 	if (typeof value !== 'object' || value == null) return false
 
 	const participant = value as Participant
 	return typeof participant.id === 'bigint'
 }
 
-function isRoster(value: unknown): value is Participant[] {
+const isRoster = (value: unknown): value is Participant[] => {
 	return Array.isArray(value) && value.every(isParticipant)
 }
 
-function isFileSize(value: unknown): value is number {
+const isFileSize = (value: unknown): value is number => {
 	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
-export function encodePacket(message: Packet) {
+export const encodePacket = (message: Packet) => {
 	return JSON.stringify(message, encodeRoomValue)
 }
 
-export function decodePacket(text: string): Packet | null {
+export const decodePacket = (text: string): Packet | null => {
 	let value: unknown
 
 	try {

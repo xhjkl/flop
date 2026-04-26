@@ -35,11 +35,11 @@ const selfMediaStateLabels = {
 	error: 'capture failed',
 } satisfies Record<SelfMediaStatus, string>
 
-function hasLiveSelfPreview(media: SelfMedia) {
+const hasLiveSelfPreview = (media: SelfMedia) => {
 	return media.status === 'live' && media.stream != null
 }
 
-function hasActiveSelfPreview(media: SelfMedia) {
+const hasActiveSelfPreview = (media: SelfMedia) => {
 	return (
 		media.status === 'live' &&
 		media.stream != null &&
@@ -48,85 +48,13 @@ function hasActiveSelfPreview(media: SelfMedia) {
 	)
 }
 
-function describeStream(stream: MediaStream | null) {
-	return {
-		streamId: stream?.id ?? null,
-		tracks:
-			stream?.getTracks().map((track) => ({
-				enabled: track.enabled,
-				id: track.id,
-				kind: track.kind,
-				muted: track.muted,
-				readyState: track.readyState,
-			})) ?? [],
-	}
-}
-
-function describeVideoElement(element: HTMLVideoElement) {
-	return {
-		ended: element.ended,
-		hasSrcObject: element.srcObject != null,
-		muted: element.muted,
-		networkState: element.networkState,
-		paused: element.paused,
-		readyState: element.readyState,
-		videoHeight: element.videoHeight,
-		videoWidth: element.videoWidth,
-	}
-}
-
-function mediaDebugValue(_key: string, value: unknown): unknown {
-	return value instanceof Error
-		? { message: value.message, name: value.name }
-		: value
-}
-
-function mediaDebug(
-	event: string,
-	details: Record<string, unknown> = {},
-	level: 'debug' | 'warn' = 'debug',
-) {
-	console[level](
-		'[flop:media]',
-		JSON.stringify({ event, ...details }, mediaDebugValue),
-	)
-}
-
-function playVideo(
-	label: string,
-	element: HTMLVideoElement,
-	stream: MediaStream,
-) {
-	void element
-		.play()
-		.then(() => {
-			mediaDebug('video.play.ok', {
-				...describeVideoElement(element),
-				label,
-				...describeStream(stream),
-			})
-		})
-		.catch((error: unknown) => {
-			mediaDebug(
-				'video.play.failed',
-				{
-					error,
-					...describeVideoElement(element),
-					label,
-					...describeStream(stream),
-				},
-				'warn',
-			)
-		})
-}
-
-function StreamVideo(props: {
+const StreamVideo = (props: {
 	active?: boolean
 	class: string
 	label: string
 	muted?: boolean
 	stream?: MediaStream | null
-}) {
+}) => {
 	let video: HTMLVideoElement | null = null
 
 	createEffect(() => {
@@ -136,14 +64,9 @@ function StreamVideo(props: {
 
 		if (element.srcObject !== stream) {
 			element.srcObject = stream
-			mediaDebug('video.srcObject', {
-				...describeVideoElement(element),
-				label: props.label,
-				...describeStream(stream),
-			})
 		}
 		if (stream != null && props.active !== false) {
-			playVideo(props.label, element, stream)
+			void element.play().catch(() => {})
 		}
 	})
 
@@ -166,45 +89,12 @@ function StreamVideo(props: {
 			}
 			autoplay
 			muted={props.muted}
-			onCanPlay={() => {
-				if (video == null) return
-				mediaDebug('video.canplay', {
-					...describeVideoElement(video),
-					label: props.label,
-				})
-			}}
-			onError={() => {
-				if (video == null) return
-				mediaDebug(
-					'video.error',
-					{
-						...describeVideoElement(video),
-						label: props.label,
-						message: video.error?.message ?? null,
-					},
-					'warn',
-				)
-			}}
-			onLoadedMetadata={() => {
-				if (video == null) return
-				mediaDebug('video.loadedmetadata', {
-					...describeVideoElement(video),
-					label: props.label,
-				})
-			}}
-			onPlaying={() => {
-				if (video == null) return
-				mediaDebug('video.playing', {
-					...describeVideoElement(video),
-					label: props.label,
-				})
-			}}
 			playsinline
 		/>
 	)
 }
 
-export function CardActions(props: { actions: CardAction[] }) {
+export const CardActions = (props: { actions: CardAction[] }) => {
 	return (
 		<Show when={props.actions.length > 0}>
 			<div class="card-actions">
@@ -224,10 +114,10 @@ export function CardActions(props: { actions: CardAction[] }) {
 	)
 }
 
-export function Room(props: {
+export const Room = (props: {
 	themeSeed?: string | null
 	children?: JSX.Element
-}) {
+}) => {
 	return (
 		// The whole app is one gallery strip; every flow should earn its portrait.
 		<main
@@ -241,7 +131,7 @@ export function Room(props: {
 	)
 }
 
-function fileChipLabel(file: PortraitFileState) {
+const fileChipLabel = (file: PortraitFileState) => {
 	switch (file.state) {
 		case 'sending':
 			return `sending ${file.name}`
@@ -254,7 +144,7 @@ function fileChipLabel(file: PortraitFileState) {
 	}
 }
 
-function FileChip(props: { file: PortraitFileState }) {
+const FileChip = (props: { file: PortraitFileState }) => {
 	const body = () => (
 		<>
 			<span>{fileChipLabel(props.file)}</span>
@@ -290,7 +180,7 @@ function FileChip(props: { file: PortraitFileState }) {
 	)
 }
 
-function PortraitActivity(props: { activity: PortraitActivityState }) {
+const PortraitActivity = (props: { activity: PortraitActivityState }) => {
 	return (
 		<Show
 			when={
@@ -310,23 +200,23 @@ function PortraitActivity(props: { activity: PortraitActivityState }) {
 	)
 }
 
-function filesActivity(activity: PortraitActivityState | undefined) {
+const filesActivity = (activity: PortraitActivityState | undefined) => {
 	return { blip: null, files: activity?.files ?? [] }
 }
 
-function BlipComposer(props: {
+const BlipComposer = (props: {
 	canSend: boolean
 	composer: BlipComposerState
 	onSend: () => void
 	onSetText: (text: string) => void
 	showWhenIdle?: boolean
-}) {
+}) => {
 	let committedTimeout: ReturnType<typeof setTimeout> | null = null
 	const [dirty, setDirty] = createSignal(false)
 	const [editing, setEditing] = createSignal(false)
 	const [committed, setCommitted] = createSignal(false)
 
-	function markCommitted() {
+	const markCommitted = () => {
 		setDirty(false)
 		setEditing(false)
 		setCommitted(true)
@@ -334,7 +224,7 @@ function BlipComposer(props: {
 		committedTimeout = setTimeout(() => setCommitted(false), 520)
 	}
 
-	function send() {
+	const send = () => {
 		if (!props.canSend || !dirty()) {
 			setEditing(false)
 			return
@@ -344,12 +234,12 @@ function BlipComposer(props: {
 		markCommitted()
 	}
 
-	function submit(event: SubmitEvent) {
+	const submit = (event: SubmitEvent) => {
 		event.preventDefault()
 		send()
 	}
 
-	function submitEnter(event: KeyboardEvent) {
+	const submitEnter = (event: KeyboardEvent) => {
 		if (event.key !== 'Enter' || event.isComposing) return
 		if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
 		event.preventDefault()
@@ -396,13 +286,13 @@ function BlipComposer(props: {
 	)
 }
 
-function SelfBlipComposer(props: {
+const SelfBlipComposer = (props: {
 	canSend?: boolean
 	composer?: BlipComposerState
 	onSend?: () => void
 	onSetText?: (text: string) => void
 	showWhenIdle?: boolean
-}) {
+}) => {
 	const blipProps = () => {
 		const composer = props.composer
 		const onSend = props.onSend
@@ -434,13 +324,13 @@ function SelfBlipComposer(props: {
 	)
 }
 
-export function PersonCard(props: {
+export const PersonCard = (props: {
 	activity: PortraitActivityState
 	colorSeed: string
 	mediaState?: PeerMediaState | null
 	mediaStream?: MediaStream | null
 	state: PeerState
-}) {
+}) => {
 	const videoActive = () =>
 		props.mediaStream != null && props.mediaState?.cameraEnabled !== false
 
@@ -465,7 +355,7 @@ export function PersonCard(props: {
 	)
 }
 
-export function SelfMediaCard(props: {
+export const SelfMediaCard = (props: {
 	activity?: PortraitActivityState
 	canBlip?: boolean
 	blipComposer?: BlipComposerState
@@ -477,7 +367,7 @@ export function SelfMediaCard(props: {
 	microphoneToggle?: PressAction
 	onSendBlip?: () => void
 	onSetBlipText?: (text: string) => void
-}) {
+}) => {
 	return (
 		<article
 			class="portrait-card self-card"
@@ -562,11 +452,11 @@ export function SelfMediaCard(props: {
 	)
 }
 
-function ToggleButton(props: {
+const ToggleButton = (props: {
 	label: string
 	enabled: boolean
 	action: PressAction
-}) {
+}) => {
 	return (
 		<button
 			type="button"

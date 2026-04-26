@@ -43,16 +43,16 @@ const liveMedia: SelfMedia = {
 	microphoneEnabled: true,
 }
 
-function fixture(
+const fixture = (
 	id: string,
 	title: string,
 	description: string,
 	render: () => JSX.Element,
-): UiFixture {
+): UiFixture => {
 	return { id, title, description, render }
 }
 
-function connectionCard(connection: ConnectionState, hasPeers = false) {
+const connectionCard = (connection: ConnectionState, hasPeers = false) => {
 	return (
 		<ConnectionCard
 			connection={connection}
@@ -70,7 +70,7 @@ function connectionCard(connection: ConnectionState, hasPeers = false) {
 }
 
 // Fixtures are sculpting shortcuts, not a second product model.
-function selfCard(activity = emptyActivity) {
+const selfCard = (activity = emptyActivity) => {
 	return (
 		<SelfMediaCard
 			activity={activity}
@@ -84,7 +84,7 @@ function selfCard(activity = emptyActivity) {
 	)
 }
 
-function liveSelfCard(activity = emptyActivity) {
+const liveSelfCard = (activity = emptyActivity) => {
 	return (
 		<SelfMediaCard
 			activity={activity}
@@ -236,7 +236,7 @@ export const uiFixtures: UiFixture[] = [
 	),
 ]
 
-export function getFixture(id: string | null): UiFixture | null {
+export const getFixture = (id: string | null): UiFixture | null => {
 	if (id == null) return null
 	return uiFixtures.find((fixture) => fixture.id === id) ?? null
 }
