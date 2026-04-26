@@ -24,12 +24,16 @@ type TrackerOptions = {
 
 const TRACKERS = [
 	'wss://tracker.openwebtorrent.com',
-	'wss://tracker.btorrent.xyz',
 	'wss://tracker.webtorrent.dev',
+	'wss://tracker.files.fm:7073/announce',
 ]
 
-const ANNOUNCE_INTERVAL_MS = 14_000
+const ANNOUNCE_OFFER_COUNT = 5
+const DEFAULT_ANNOUNCE_INTERVAL_MS = 30_000
 const OFFER_ID_BYTES = 20
+const RECONNECT_MAXIMUM_MS = 60_000
+const RECONNECT_MINIMUM_MS = 10_000
+const RECONNECT_VARIANCE_MS = 5_000
 
 const warnTracker = (event: string, details: Record<string, unknown> = {}) => {
 	warnLog('tracker', event, details)
@@ -90,10 +94,14 @@ export const createTrackerRendezvous = (
 	const peerId = `-FL0001-${randomBinaryString(12)}`
 	const sockets = new Set<WebSocket>()
 	const socketUrls = new WeakMap<WebSocket, string>()
+	const announceIntervals = new Map<string, number>()
 	const endpointStatuses = new Map<string, EndpointStatus>(
 		trackerUrls.map((url) => [url, 'pending']),
 	)
+	const reconnectAttempts = new Map<string, number>()
+	const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>()
 	const timers = new Set<ReturnType<typeof setTimeout>>()
+	const trackerIds = new Map<string, string>()
 	let closed = false
 	let currentStatus: TrackerStatus | null = null
 
@@ -110,6 +118,8 @@ export const createTrackerRendezvous = (
 		const statuses = [...endpointStatuses.values()]
 		if (statuses.some((status) => status === 'open')) {
 			setStatus('finding')
+		} else if (statuses.some((status) => status === 'pending')) {
+			setStatus('finding')
 		} else if (
 			statuses.length === 0 ||
 			statuses.every((status) => status === 'failed')
@@ -123,26 +133,24 @@ export const createTrackerRendezvous = (
 		updateStatus()
 	}
 
+	const trackerBaseMessage = (url: string): Record<string, unknown> => {
+		const trackerId = trackerIds.get(url)
+		return {
+			action: 'announce',
+			info_hash: infoHash,
+			peer_id: peerId,
+			...(trackerId == null ? {} : { trackerid: trackerId }),
+		}
+	}
+
 	const send = (socket: WebSocket, message: Record<string, unknown>) => {
 		if (socket.readyState !== WebSocket.OPEN) return
 
 		const url = socketUrls.get(socket) ?? socket.url
 		try {
-			socket.send(
-				JSON.stringify({
-					action: 'announce',
-					downloaded: 0,
-					info_hash: infoHash,
-					left: 0,
-					peer_id: peerId,
-					port: 0,
-					uploaded: 0,
-					...message,
-				}),
-			)
+			socket.send(JSON.stringify({ ...trackerBaseMessage(url), ...message }))
 		} catch (error) {
 			warnTracker('socket.send.failed', { error, url })
-			markEndpoint(url, 'failed')
 			socket.close()
 		}
 	}
@@ -155,29 +163,62 @@ export const createTrackerRendezvous = (
 		timers.add(timer)
 	}
 
+	const scheduleReconnect = (url: string) => {
+		if (closed) return
+		if (reconnectTimers.has(url)) return
+
+		const attempt = reconnectAttempts.get(url) ?? 0
+		const delay =
+			Math.min(2 ** attempt * RECONNECT_MINIMUM_MS, RECONNECT_MAXIMUM_MS) +
+			Math.floor(Math.random() * RECONNECT_VARIANCE_MS)
+		infoTracker('socket.reconnect.scheduled', { delay, url })
+		const timer = setTimeout(() => {
+			timers.delete(timer)
+			reconnectTimers.delete(url)
+			if (closed) return
+
+			reconnectAttempts.set(url, attempt + 1)
+			openSocket(url)
+		}, delay)
+		reconnectTimers.set(url, timer)
+		timers.add(timer)
+	}
+
+	const announceDelay = (socket: WebSocket) => {
+		const url = socketUrls.get(socket) ?? socket.url
+		return announceIntervals.get(url) ?? DEFAULT_ANNOUNCE_INTERVAL_MS
+	}
+
 	const announceWithOffer = (socket: WebSocket) => {
 		if (options.createOffer == null) return
 
-		const offerId = randomOfferId()
-		void options
-			.createOffer(offerId)
-			.then((offer) => {
-				if (closed || offer == null) return
+		const offers = Array.from({ length: ANNOUNCE_OFFER_COUNT }, () => {
+			const offerId = randomOfferId()
+			return options.createOffer?.(offerId).then((offer) => {
+				return offer == null ? null : { offer, offer_id: offerId }
+			})
+		})
+
+		void Promise.all(offers)
+			.then((items) => {
+				if (closed) return
+
+				const nextOffers = items.filter((item) => item != null)
+				if (nextOffers.length === 0) return
 
 				infoTracker('announce.sent', {
-					offers: 1,
+					offers: nextOffers.length,
 					role: options.role,
 					url: socketUrls.get(socket) ?? socket.url,
 				})
 				send(socket, {
-					event: 'started',
-					numwant: 1,
-					offers: [{ offer, offer_id: offerId }],
+					downloaded: 0,
+					numwant: nextOffers.length,
+					offers: nextOffers,
+					uploaded: 0,
 				})
 			})
-			.catch((error) => {
-				warnTracker('offer.create.failed', { error, offerId })
-			})
+			.catch((error) => warnTracker('offer.create.failed', { error }))
 	}
 
 	const announce = (socket: WebSocket) => {
@@ -186,7 +227,7 @@ export const createTrackerRendezvous = (
 		announceWithOffer(socket)
 
 		if (!closed) {
-			schedule(() => announce(socket), ANNOUNCE_INTERVAL_MS)
+			schedule(() => announce(socket), announceDelay(socket))
 		}
 	}
 
@@ -198,6 +239,19 @@ export const createTrackerRendezvous = (
 				length: typeof data === 'string' ? data.length : null,
 				url,
 			})
+			return
+		}
+
+		if (
+			typeof message.info_hash === 'string' &&
+			message.info_hash !== infoHash
+		) {
+			warnTracker('message.info-hash.mismatch', { url })
+			return
+		}
+
+		if (typeof message.peer_id === 'string' && message.peer_id === peerId) {
+			infoTracker('message.self.ignored', { url })
 			return
 		}
 
@@ -217,8 +271,29 @@ export const createTrackerRendezvous = (
 			})
 		}
 
+		const trackerId = message['tracker id']
+		if (typeof trackerId === 'string') {
+			trackerIds.set(url, trackerId)
+			infoTracker('tracker-id.received', { url })
+		}
+
+		const nextInterval =
+			typeof message.interval === 'number'
+				? message.interval
+				: typeof message['min interval'] === 'number'
+					? message['min interval']
+					: null
+		if (nextInterval != null && nextInterval > 0) {
+			const nextIntervalMs = nextInterval * 1000
+			if (announceIntervals.get(url) !== nextIntervalMs) {
+				announceIntervals.set(url, nextIntervalMs)
+				infoTracker('announce.interval', { intervalMs: nextIntervalMs, url })
+			}
+		}
+
 		if (
 			typeof message.offer_id === 'string' &&
+			typeof message.peer_id === 'string' &&
 			isSignalDescription(message.answer)
 		) {
 			infoTracker('answer.received', { url })
@@ -243,6 +318,7 @@ export const createTrackerRendezvous = (
 		) {
 			infoTracker('offer.received', { url })
 			options.onOffer?.(message.offer, (answer) => {
+				infoTracker('answer.sent', { url })
 				send(socket, {
 					answer,
 					offer_id: message.offer_id,
@@ -258,11 +334,16 @@ export const createTrackerRendezvous = (
 	}
 
 	const openSocket = (url: string) => {
+		if (closed) return
+
+		markEndpoint(url, 'pending')
 		let socket: WebSocket
 		try {
 			socket = new WebSocket(url)
 		} catch (error) {
 			warnTracker('socket.create.failed', { error, url })
+			markEndpoint(url, 'failed')
+			scheduleReconnect(url)
 			return
 		}
 		sockets.add(socket)
@@ -270,6 +351,7 @@ export const createTrackerRendezvous = (
 
 		socket.onopen = () => {
 			infoTracker('socket.open', { url })
+			reconnectAttempts.set(url, 0)
 			markEndpoint(url, 'open')
 			announce(socket)
 		}
@@ -278,9 +360,8 @@ export const createTrackerRendezvous = (
 			sockets.delete(socket)
 			if (closed) return
 
-			if (endpointStatuses.get(url) !== 'failed') {
-				markEndpoint(url, 'failed')
-			}
+			markEndpoint(url, 'failed')
+			scheduleReconnect(url)
 		}
 		socket.onerror = (event) => {
 			warnTracker('socket.error', { type: event.type, url })
@@ -300,6 +381,7 @@ export const createTrackerRendezvous = (
 			setStatus('idle')
 			for (const timer of timers) clearTimeout(timer)
 			timers.clear()
+			reconnectTimers.clear()
 			for (const socket of sockets) socket.close()
 			sockets.clear()
 		},

@@ -280,6 +280,19 @@ export const createRoom = () => {
 		return true
 	}
 
+	const closeSiblingRendezvousLinks = (link: RoomLink) => {
+		for (const candidate of [...links.values()]) {
+			if (
+				candidate !== link &&
+				candidate.remoteId == null &&
+				candidate.role === link.role &&
+				candidate.source === link.source
+			) {
+				closeLink(candidate)
+			}
+		}
+	}
+
 	const replaceParticipants = (roster: Participant[]) => {
 		const nextKeys = roster.map((person) => participantKey(person.id))
 		const nextKeySet = new Set(nextKeys)
@@ -1185,6 +1198,7 @@ export const createRoom = () => {
 					markRoomClosed()
 					return
 				}
+				closeSiblingRendezvousLinks(link)
 				setState('connection', {
 					...(state.connection.side === 'guest'
 						? state.connection
@@ -1305,6 +1319,7 @@ export const createRoom = () => {
 			deleteParticipant(participant.id)
 			return null
 		}
+		closeSiblingRendezvousLinks(link)
 
 		if (state.connection.side === 'host') {
 			setState('connection', {
@@ -1365,12 +1380,6 @@ export const createRoom = () => {
 	const createTrackerOffer = async (offerId: string) => {
 		const role = trackerRendezvousRole()
 		if (role == null) return null
-		if (
-			role === 'guest-rendezvous' &&
-			currentRendezvousLink('guest-rendezvous', 'tracker') != null
-		) {
-			return null
-		}
 
 		const link = createLink(role, { source: 'tracker' })
 		trackerOffers.set(offerId, link)
@@ -1438,14 +1447,13 @@ export const createRoom = () => {
 			return
 		}
 
-		if (
-			role === 'guest-rendezvous' &&
-			currentRendezvousLink('guest-rendezvous', 'tracker') != null
-		) {
-			return
-		}
-
 		const link = createLink(role, { source: 'tracker' })
+		setTimeout(() => {
+			if (links.get(link.id) !== link || link.remoteId != null) return
+
+			closeLink(link)
+		}, 45_000)
+
 		void link.peer
 			.createAnswer(offer)
 			.then((answer) => {
