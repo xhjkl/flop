@@ -1,4 +1,17 @@
 import { decodeSignal, encodeSignal } from './signal'
+import { bindChannel } from './webrtc/channel'
+import { type RtcDebug, rtcDebug } from './webrtc/debug'
+import {
+	candidateTypeCounts,
+	DEFAULT_ICE_SERVERS,
+	DISCONNECT_GRACE_MS,
+	hasServerReflexiveCandidate,
+	ICE_GATHER_TIMEOUT_MS,
+	summarizeIceCandidate,
+	waitForIce,
+} from './webrtc/ice'
+import { firstTrack } from './webrtc/media'
+import { logSelectedCandidatePair } from './webrtc/stats'
 
 export type Peer = {
 	createOffer: () => Promise<string>
@@ -19,147 +32,6 @@ type PeerOptions = {
 	iceServers?: RTCIceServer[]
 }
 
-const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
-	{ urls: 'stun:stun.l.google.com:19302' },
-	{ urls: 'stun:stun.cloudflare.com:3478' },
-]
-
-// STUN helps peers find each other; it is not a relay and should not become a server path.
-const ICE_GATHER_TIMEOUT_MS = 2500
-const DISCONNECT_GRACE_MS = 5000
-
-function debugValue(_key: string, value: unknown): unknown {
-	if (value instanceof Error) {
-		return {
-			message: value.message,
-			name: value.name,
-		}
-	}
-
-	return value
-}
-
-function rtcDebug(event: string, details: Record<string, unknown> = {}) {
-	console.debug('[flop:rtc]', JSON.stringify({ event, ...details }, debugValue))
-}
-
-type RtcDebug = typeof rtcDebug
-
-function summarizeIceCandidate(candidate: string) {
-	const parts = candidate.split(/\s+/)
-	const type = candidate.match(/\styp\s+(\S+)/)?.[1] ?? null
-	const protocol = parts[2]?.toLowerCase() ?? null
-	const address = parts[4] ?? ''
-
-	return {
-		family: address.includes(':')
-			? 'ipv6'
-			: address.includes('.')
-				? 'ipv4'
-				: null,
-		protocol,
-		type,
-	}
-}
-
-function candidateTypeCounts(sdp: string) {
-	const counts: Record<string, number> = {}
-
-	for (const match of sdp.matchAll(/^a=candidate:.*\styp\s+(\S+)/gm)) {
-		const type = match[1] ?? 'unknown'
-		counts[type] = (counts[type] ?? 0) + 1
-	}
-
-	return counts
-}
-
-function waitForIce(
-	pc: RTCPeerConnection,
-	timeoutMs: number | null = null,
-	isEnough: (pc: RTCPeerConnection) => boolean = (pc) =>
-		pc.iceGatheringState === 'complete',
-) {
-	if (pc.iceGatheringState === 'complete') return Promise.resolve()
-	if (isEnough(pc)) return Promise.resolve()
-
-	return new Promise<void>((resolve) => {
-		let timeoutId: ReturnType<typeof setTimeout> | null = null
-
-		const cleanup = () => {
-			pc.removeEventListener('icecandidate', handleCandidate)
-			pc.removeEventListener('icegatheringstatechange', handleChange)
-			pc.removeEventListener('signalingstatechange', handleSignalChange)
-			if (timeoutId != null) clearTimeout(timeoutId)
-		}
-
-		const maybeResolve = () => {
-			if (pc.iceGatheringState !== 'complete' && !isEnough(pc)) return
-			cleanup()
-			resolve()
-		}
-
-		const handleCandidate = () => {
-			maybeResolve()
-		}
-
-		const handleChange = () => {
-			maybeResolve()
-		}
-
-		const handleSignalChange = () => {
-			if (pc.signalingState !== 'closed') return
-			cleanup()
-			resolve()
-		}
-
-		pc.addEventListener('icecandidate', handleCandidate)
-		pc.addEventListener('icegatheringstatechange', handleChange)
-		pc.addEventListener('signalingstatechange', handleSignalChange)
-
-		if (timeoutMs != null) {
-			timeoutId = setTimeout(() => {
-				cleanup()
-				resolve()
-			}, timeoutMs)
-		}
-	})
-}
-
-function hasServerReflexiveCandidate(pc: RTCPeerConnection) {
-	return candidateTypeCounts(pc.localDescription?.sdp ?? '').srflx != null
-}
-
-function bindChannel(
-	channel: RTCDataChannel,
-	options: PeerOptions,
-	onClose: () => void,
-	debug: RtcDebug,
-) {
-	channel.onopen = () => {
-		debug('datachannel.open', {
-			bufferedAmount: channel.bufferedAmount,
-			channel: channel.label,
-		})
-		options.onOpen?.()
-	}
-	channel.onclose = () => {
-		debug('datachannel.close', { channel: channel.label })
-		onClose()
-	}
-	channel.onerror = (event) => {
-		debug('datachannel.error', { channel: channel.label, type: event.type })
-	}
-	channel.onmessage = (event) => {
-		if (typeof event.data !== 'string') return
-
-		debug('datachannel.message', {
-			channel: channel.label,
-			length: event.data.length,
-		})
-		options.onMessage?.(event.data)
-	}
-}
-
 async function encodeLocalDescription(pc: RTCPeerConnection, debug: RtcDebug) {
 	// Manual signaling has no trickle path; one srflx candidate is enough to stop making people wait.
 	await waitForIce(pc, ICE_GATHER_TIMEOUT_MS, hasServerReflexiveCandidate)
@@ -175,22 +47,6 @@ async function encodeLocalDescription(pc: RTCPeerConnection, debug: RtcDebug) {
 	})
 
 	return encodeSignal(description)
-}
-
-function firstTrack(stream: MediaStream | null, kind: 'audio' | 'video') {
-	return kind === 'audio'
-		? (stream?.getAudioTracks()[0] ?? null)
-		: (stream?.getVideoTracks()[0] ?? null)
-}
-
-function statString(stat: Record<string, unknown>, key: string) {
-	const value = stat[key]
-	return typeof value === 'string' ? value : null
-}
-
-function statNumber(stat: Record<string, unknown>, key: string) {
-	const value = stat[key]
-	return typeof value === 'number' ? value : null
 }
 
 export function createPeer(options: PeerOptions = {}): Peer {
@@ -220,59 +76,6 @@ export function createPeer(options: PeerOptions = {}): Peer {
 			typeof server.urls === 'string' ? [server.urls] : server.urls,
 		),
 	})
-
-	async function logSelectedCandidatePair(reason: string) {
-		try {
-			const report = await pc.getStats()
-			const stats = [...report.values()] as Array<Record<string, unknown>>
-			const candidates = new Map<string, Record<string, unknown>>()
-			let selectedPair: Record<string, unknown> | null = null
-
-			for (const stat of stats) {
-				if (
-					stat.type === 'local-candidate' ||
-					stat.type === 'remote-candidate'
-				) {
-					const id = statString(stat, 'id')
-					if (id != null) candidates.set(id, stat)
-				}
-
-				if (
-					stat.type === 'candidate-pair' &&
-					(stat.selected === true ||
-						(stat.state === 'succeeded' && stat.nominated === true))
-				) {
-					selectedPair = stat
-				}
-			}
-
-			if (selectedPair == null) return
-
-			const localCandidate = candidates.get(
-				statString(selectedPair, 'localCandidateId') ?? '',
-			)
-			const remoteCandidate = candidates.get(
-				statString(selectedPair, 'remoteCandidateId') ?? '',
-			)
-
-			debug('candidate-pair', {
-				bytesReceived: statNumber(selectedPair, 'bytesReceived'),
-				bytesSent: statNumber(selectedPair, 'bytesSent'),
-				localType:
-					localCandidate == null
-						? null
-						: statString(localCandidate, 'candidateType'),
-				remoteType:
-					remoteCandidate == null
-						? null
-						: statString(remoteCandidate, 'candidateType'),
-				reason,
-				state: statString(selectedPair, 'state'),
-			})
-		} catch (error) {
-			debug('stats.failed', { error })
-		}
-	}
 
 	function clearDisconnectTimeout() {
 		if (disconnectTimeout == null) return
@@ -332,7 +135,7 @@ export function createPeer(options: PeerOptions = {}): Peer {
 
 		if (connectionState === 'connected' || iceState === 'connected') {
 			clearDisconnectTimeout()
-			void logSelectedCandidatePair('connected')
+			void logSelectedCandidatePair(pc, debug, 'connected')
 			return
 		}
 
@@ -342,20 +145,25 @@ export function createPeer(options: PeerOptions = {}): Peer {
 			iceState === 'failed' ||
 			iceState === 'closed'
 		) {
-			void logSelectedCandidatePair('closed-or-failed')
+			void logSelectedCandidatePair(pc, debug, 'closed-or-failed')
 			emitClose()
 			return
 		}
 
 		if (connectionState === 'disconnected' || iceState === 'disconnected') {
-			void logSelectedCandidatePair('disconnected')
+			void logSelectedCandidatePair(pc, debug, 'disconnected')
 			scheduleDisconnectClose()
 		}
 	}
 
 	function attachChannel(nextChannel: RTCDataChannel) {
 		channel = nextChannel
-		bindChannel(nextChannel, options, emitClose, debug)
+		bindChannel(
+			nextChannel,
+			{ onOpen: options.onOpen, onMessage: options.onMessage },
+			emitClose,
+			debug,
+		)
 	}
 
 	pc.addEventListener('connectionstatechange', handleConnectionHealth)

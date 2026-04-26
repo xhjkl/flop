@@ -1,5 +1,5 @@
-import { createEffect, createSignal, For, Show } from 'solid-js'
-import { Room } from '../room-ui'
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
+import { Room } from '../portraits'
 import { getFixture, uiFixtures } from './fixtures'
 import '../app.css'
 import './fixtures.css'
@@ -18,7 +18,7 @@ function writeFixtureId(id: string | null) {
 export default function FixturesApp() {
 	const [fixtureId, setFixtureId] = createSignal<string | null>(readFixtureId())
 
-	const activeFixture = () => getFixture(fixtureId())
+	const activeFixture = createMemo(() => getFixture(fixtureId()))
 
 	createEffect(() => {
 		writeFixtureId(fixtureId())
@@ -56,16 +56,17 @@ export default function FixturesApp() {
 					<small>
 						ids: {uiFixtures.map((fixture) => fixture.id).join(', ')}
 					</small>
-					<Show when={activeFixture()?.description}>
-						{(description) => <small>{description()}</small>}
+					<Show keyed when={activeFixture()?.description}>
+						{(description) => <small>{description}</small>}
 					</Show>
 				</div>
 			</section>
 			<Show
+				keyed
 				when={activeFixture()}
 				fallback={<Room themeSeed="fixtures-idle" />}
 			>
-				{(fixture) => fixture().render()}
+				{(fixture) => fixture.render()}
 			</Show>
 		</div>
 	)

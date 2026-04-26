@@ -7,13 +7,13 @@ import {
 	Show,
 } from 'solid-js'
 import { hueFromSeed, themeHueFromSeed } from './hue'
+import type { SelfMedia, SelfMediaStatus } from './self-media'
 import type {
 	BlipComposerState,
 	PeerState,
 	PortraitActivityState,
 	PortraitFileState,
-} from './room-types'
-import type { SelfMedia, SelfMediaStatus } from './self-media'
+} from './state'
 
 export type PressAction = {
 	onPress?: () => void
@@ -88,22 +88,22 @@ function playVideo(
 }
 
 export function CardActions(props: { actions: CardAction[] }) {
-	if (props.actions.length === 0) return null
-
 	return (
-		<div class="card-actions">
-			<For each={props.actions}>
-				{(action) => (
-					<button
-						type="button"
-						onClick={() => action.onPress?.()}
-						disabled={action.disabled ?? false}
-					>
-						{action.label}
-					</button>
-				)}
-			</For>
-		</div>
+		<Show when={props.actions.length > 0}>
+			<div class="card-actions">
+				<For each={props.actions}>
+					{(action) => (
+						<button
+							type="button"
+							onClick={() => action.onPress?.()}
+							disabled={action.disabled ?? false}
+						>
+							{action.label}
+						</button>
+					)}
+				</For>
+			</div>
+		</Show>
 	)
 }
 
@@ -286,32 +286,34 @@ function SelfBlipComposer(props: {
 	onSetText?: (text: string) => void
 	showWhenIdle?: boolean
 }) {
-	if (
-		props.composer == null ||
-		props.onSend == null ||
-		props.onSetText == null
-	) {
-		return null
-	}
+	const blipProps = () => {
+		const composer = props.composer
+		const onSend = props.onSend
+		const onSetText = props.onSetText
+		if (composer == null || onSend == null || onSetText == null) return null
 
-	if (
-		!(props.canSend ?? false) &&
-		!(props.showWhenIdle ?? false) &&
-		props.composer.issue == null &&
-		props.composer.text.trim() === ''
-	) {
-		// Some fixtures still hide the label; the app keeps blips always available.
-		return null
+		const visible =
+			(props.canSend ?? false) ||
+			(props.showWhenIdle ?? false) ||
+			composer.issue != null ||
+			composer.text.trim() !== ''
+		if (!visible) return null
+
+		return { composer, onSend, onSetText }
 	}
 
 	return (
-		<BlipComposer
-			canSend={props.canSend ?? false}
-			composer={props.composer}
-			onSend={props.onSend}
-			onSetText={props.onSetText}
-			showWhenIdle={props.showWhenIdle}
-		/>
+		<Show when={blipProps()}>
+			{(blip) => (
+				<BlipComposer
+					canSend={props.canSend ?? false}
+					composer={blip().composer}
+					onSend={blip().onSend}
+					onSetText={blip().onSetText}
+					showWhenIdle={props.showWhenIdle}
+				/>
+			)}
+		</Show>
 	)
 }
 

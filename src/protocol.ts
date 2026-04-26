@@ -7,7 +7,7 @@ export type Participant = {
 }
 
 // Tiny room protocol: the host introduces people, then peers carry their own words and bytes.
-export type RoomMessage =
+export type Packet =
 	| { type: 'hello' }
 	| { text: string; type: 'blip' }
 	| {
@@ -90,11 +90,11 @@ function isFileSize(value: unknown): value is number {
 	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
-export function encodeRoomMessage(message: RoomMessage) {
+export function encodePacket(message: Packet) {
 	return JSON.stringify(message, encodeRoomValue)
 }
 
-export function decodeRoomMessage(text: string): RoomMessage | null {
+export function decodePacket(text: string): Packet | null {
 	let value: unknown
 
 	try {
@@ -106,7 +106,7 @@ export function decodeRoomMessage(text: string): RoomMessage | null {
 	if (typeof value !== 'object' || value == null) return null
 
 	// Data channels are friendly, not trusted. Keep bad packets boring.
-	const message = value as RoomMessage
+	const message = value as Packet
 	switch (message.type) {
 		case 'hello':
 			return message

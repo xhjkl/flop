@@ -1,219 +1,62 @@
-import { onCleanup, onMount } from 'solid-js'
+import { createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 import { base64ToBytes, bytesToBase64 } from './binary'
 import {
-	decodeRoomMessage,
-	encodeRoomMessage,
+	decodePacket,
+	encodePacket,
+	type Packet,
 	type Participant,
 	type ParticipantId,
 	participantIdToString,
-	type RoomMessage,
-} from './room-protocol'
-import type {
-	BlipComposerState,
-	ConnectionState,
-	PeerState,
-	PortraitActivityState,
-	PortraitFileState,
-} from './room-types'
+} from './protocol'
+import {
+	createIncomingFileTransfer,
+	FILE_BUFFER_LOW_BYTES,
+	FILE_CHUNK_BYTES,
+	type FileProgress,
+	fileProgressState,
+	type IncomingFileTransfer,
+	randomTransferId,
+} from './room/activity'
+import { mediaTracks, roomDebug } from './room/debug'
+import {
+	emptyBlipComposer,
+	emptyGuestConnection,
+	emptyHostConnection,
+	emptyRoomViewState,
+} from './room/initial-state'
+import {
+	clearInviteHash,
+	copyText,
+	inviteCodeFromInput,
+	inviteLinkFromCode,
+	readInviteFromHash,
+} from './room/invite'
+import {
+	createParticipant,
+	emptyParticipantActivity,
+	type ParticipantKey,
+	participantKey,
+	publicParticipant,
+	type RoomParticipant,
+	randomParticipantId,
+} from './room/participant'
 import {
 	captureSelfMedia,
 	emptySelfMedia,
-	type SelfMedia,
 	setSelfMediaTracksEnabled,
 	stopSelfMedia,
 } from './self-media'
+import type { PortraitFileState } from './state'
 import { createPeer, type Peer } from './webrtc'
-
-export type RoomPeer = {
-	activity: PortraitActivityState
-	id: string
-	mediaStream: MediaStream | null
-	mediaVersion: number
-	state: PeerState
-}
-
-export type RoomState = {
-	blipComposer: BlipComposerState
-	connection: ConnectionState
-	peers: RoomPeer[]
-	selfMedia: SelfMedia
-	selfActivity: PortraitActivityState
-	themeSeed: string
-}
 
 type PeerLink = {
 	live: boolean
 	peer: Peer
 }
 
-type IncomingFileTransfer = {
-	chunks: ArrayBuffer[]
-	from: ParticipantId
-	mime: string
-	name: string
-	receivedBytes: number
-	size: number
-}
-
-type FileProgress = {
-	id: string
-	name: string
-	receivedBytes: number
-	size: number
-	state: PortraitFileState['state']
-	url: string | null
-}
-
-type PersonActivity = {
-	blip: string | null
-	files: FileProgress[]
-}
-
-// The UI cares about people. A WebRTC link is just one possible thing a person has.
-type RoomPerson = Participant & {
-	activity: PersonActivity
-	link: PeerLink | null
-	mediaStream: MediaStream | null
-	mediaVersion: number
-}
-
-const FILE_CHUNK_BYTES = 16 * 1024
-const FILE_BUFFER_LOW_BYTES = 512 * 1024
-
-const emptyHostConnection = (): ConnectionState => ({
-	phase: 'creating-invite',
-	inviteLink: '',
-	inviteText: '',
-	replyCode: '',
-	replyText: '',
-	issue: null,
-})
-
-const emptyGuestConnection = (): ConnectionState => ({
-	phase: 'needs-invite',
-	inviteLink: '',
-	inviteText: '',
-	replyCode: '',
-	replyText: '',
-	issue: null,
-})
-
-const emptyBlipComposer = (): BlipComposerState => ({
-	issue: null,
-	text: '',
-})
-
-function emptyPersonActivity(): PersonActivity {
-	return { blip: null, files: [] }
-}
-
-function createPerson(participant: Participant): RoomPerson {
-	return {
-		...participant,
-		activity: emptyPersonActivity(),
-		link: null,
-		mediaStream: null,
-		mediaVersion: 0,
-	}
-}
-
-function publicParticipant(person: RoomPerson): Participant {
-	return { id: person.id, name: person.name, role: person.role }
-}
-
-function copyText(text: string) {
-	return navigator.clipboard?.writeText(text).catch(() => null) ?? null
-}
-
-function safeDecodeURIComponent(value: string) {
-	try {
-		return decodeURIComponent(value)
-	} catch {
-		return value
-	}
-}
-
-function inviteCodeFromHash(hashText: string) {
-	const hash = hashText.replace(/^#/, '')
-	if (hash.trim() === '') return null
-
-	return safeDecodeURIComponent(hash)
-}
-
-function inviteCodeFromInput(text: string) {
-	const input = text.trim()
-	if (input === '') return ''
-
-	// People paste full links, hashes, and raw codes. Make all of them feel like the same gesture.
-	try {
-		const url = new URL(input)
-		const inviteCode = inviteCodeFromHash(url.hash)
-		if (inviteCode != null) return inviteCode
-	} catch {}
-
-	if (input.startsWith('#')) {
-		const inviteCode = inviteCodeFromHash(input)
-		if (inviteCode != null) return inviteCode
-	}
-
-	return input
-}
-
-function readInviteFromHash() {
-	return inviteCodeFromHash(window.location.hash)
-}
-
-function clearInviteHash() {
-	if (window.location.hash === '') return
-
-	const url = new URL(window.location.href)
-	url.hash = ''
-	window.history.replaceState(null, '', url)
-}
-
-function inviteLinkFromCode(inviteCode: string) {
-	const url = new URL(window.location.href)
-	url.hash = inviteCode
-	return url.href
-}
-
-function randomParticipantId(): ParticipantId {
-	const bytes = new Uint8Array(8)
-	crypto.getRandomValues(bytes)
-	let id = 0n
-
-	for (const byte of bytes) {
-		id = (id << 8n) | BigInt(byte)
-	}
-
-	return id
-}
-
-function sendRoomMessage(peer: Peer, message: RoomMessage) {
-	return peer.send(encodeRoomMessage(message))
-}
-
-function roomDebug(event: string, details: Record<string, unknown> = {}) {
-	console.debug('[flop:room]', JSON.stringify({ event, ...details }))
-}
-
-function mediaTracks(stream: MediaStream | null) {
-	return (
-		stream?.getTracks().map((track) => ({
-			enabled: track.enabled,
-			id: track.id,
-			kind: track.kind,
-			muted: track.muted,
-			readyState: track.readyState,
-		})) ?? []
-	)
-}
-
-function randomTransferId() {
-	const bytes = new Uint8Array(12)
-	crypto.getRandomValues(bytes)
-	return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+function sendPacket(peer: Peer, packet: Packet) {
+	return peer.send(encodePacket(packet))
 }
 
 export function createRoom() {
@@ -226,22 +69,38 @@ export function createRoom() {
 	// Host identity is the closest thing we have to room identity, so it also paints the room.
 	let localParticipantId: ParticipantId | null = randomParticipantId()
 	let hostParticipantId: ParticipantId | null = localParticipantId
-	let people = new Map<ParticipantId, RoomPerson>([
-		[
-			localParticipantId,
-			createPerson({ id: localParticipantId, name: 'Room host', role: 'host' }),
-		],
-	])
 	let connectionVersion = 0
 	let selfMediaVersion = 0
+	const hostParticipant = createParticipant({
+		id: localParticipantId,
+		name: 'Room host',
+		role: 'host',
+	})
+	const participantLinks = new Map<ParticipantKey, PeerLink>()
+	const [participantKeys, setParticipantKeys] = createSignal<ParticipantKey[]>([
+		hostParticipant.id,
+	])
+	const [localKey, setLocalKey] = createSignal<ParticipantKey | null>(
+		hostParticipant.id,
+	)
+	const [participants, setParticipants] = createStore<
+		Partial<Record<ParticipantKey, RoomParticipant>>
+	>({
+		[hostParticipant.id]: hostParticipant,
+	})
 
-	const [state, setState] = createStore<RoomState>({
-		blipComposer: emptyBlipComposer(),
-		connection: emptyHostConnection(),
-		peers: [],
-		selfMedia: emptySelfMedia(),
-		selfActivity: { blip: null, files: [] },
-		themeSeed: participantIdToString(localParticipantId),
+	const [state, setState] = createStore(emptyRoomViewState(hostParticipant.id))
+
+	const peerKeys = createMemo(() => {
+		const local = localKey()
+		return participantKeys().filter((key) => key !== local)
+	})
+
+	const selfActivity = createMemo(() => {
+		const key = localKey()
+		return key == null
+			? emptyParticipantActivity()
+			: (participantByKey(key)?.activity ?? emptyParticipantActivity())
 	})
 
 	function isHostRoom() {
@@ -268,20 +127,34 @@ export function createRoom() {
 		} catch {}
 	}
 
+	function participantByKey(key: ParticipantKey) {
+		return participants[key] ?? null
+	}
+
+	function participantById(participantId: ParticipantId | null) {
+		return participantId == null
+			? null
+			: participantByKey(participantKey(participantId))
+	}
+
 	function linkedPeers() {
-		return [...people.values()]
-			.map((person) => person.link?.peer)
-			.filter((peer): peer is Peer => peer != null)
+		return [...participantLinks.values()].map((link) => link.peer)
 	}
 
 	function closePeerLinks() {
 		const closingPeers = linkedPeers()
 
-		for (const person of people.values()) {
-			person.link = null
-			person.mediaStream = null
-			person.mediaVersion++
+		for (const key of participantKeys()) {
+			const person = participants[key]
+			if (person == null) continue
+
+			setParticipants(key, {
+				mediaStream: null,
+				mediaVersion: person.mediaVersion + 1,
+				state: 'waiting',
+			})
 		}
+		participantLinks.clear()
 
 		for (const closingPeer of closingPeers) {
 			try {
@@ -296,57 +169,73 @@ export function createRoom() {
 	}
 
 	function participantLink(participantId: ParticipantId) {
-		return people.get(participantId)?.link ?? null
+		return participantLinks.get(participantKey(participantId)) ?? null
 	}
 
 	function setParticipantLink(
 		participantId: ParticipantId,
 		link: PeerLink | null,
 	) {
-		const person = people.get(participantId)
+		const key = participantKey(participantId)
+		const person = participants[key]
 		if (person == null) return false
 
-		person.link = link
 		if (link == null) {
-			person.mediaStream = null
-			person.mediaVersion++
+			participantLinks.delete(key)
+			setParticipants(key, {
+				mediaStream: null,
+				mediaVersion: person.mediaVersion + 1,
+				state: 'waiting',
+			})
+			return true
 		}
+
+		participantLinks.set(key, link)
+		setParticipants(key, 'state', link.live ? 'live' : 'waiting')
 		return true
 	}
 
-	function replacePeople(roster: Participant[]) {
-		const previous = people
-		// The roster says who exists; local activity and live links stay attached by id.
-		people = new Map(
-			roster.map((participant): [ParticipantId, RoomPerson] => {
-				const existing = previous.get(participant.id)
+	function replaceParticipants(roster: Participant[]) {
+		const nextKeys = roster.map((person) => participantKey(person.id))
+		const nextKeySet = new Set(nextKeys)
+		const host =
+			hostParticipantId == null ? null : participantKey(hostParticipantId)
+		const nextParticipants: Partial<Record<ParticipantKey, RoomParticipant>> =
+			{}
 
-				return [
-					participant.id,
-					{
-						...participant,
-						activity: existing?.activity ?? emptyPersonActivity(),
-						link: existing?.link ?? null,
-						mediaStream: existing?.mediaStream ?? null,
-						mediaVersion: existing?.mediaVersion ?? 0,
-					},
-				]
-			}),
-		)
-
-		for (const [participantId, person] of previous) {
-			if (participantId === hostParticipantId || people.has(participantId)) {
+		for (const key of participantKeys()) {
+			if (key === host || nextKeySet.has(key)) {
 				continue
 			}
 
-			person.link?.peer.close()
+			participantLinks.get(key)?.peer.close()
+			participantLinks.delete(key)
 		}
+
+		for (const person of roster) {
+			const key = participantKey(person.id)
+			const existing = participants[key]
+			const link = participantLinks.get(key)
+
+			nextParticipants[key] = {
+				...createParticipant(person, existing),
+				state: link?.live ? 'live' : 'waiting',
+			}
+		}
+
+		setParticipants(reconcile(nextParticipants))
+		setParticipantKeys(nextKeys)
 	}
 
-	function deletePerson(participantId: ParticipantId) {
-		const person = people.get(participantId)
-		people.delete(participantId)
-		return person
+	function deleteParticipant(participantId: ParticipantId) {
+		const key = participantKey(participantId)
+		const link = participantLinks.get(key) ?? null
+
+		participantLinks.delete(key)
+		setParticipantKeys((keys) => keys.filter((item) => item !== key))
+		setParticipants(key, undefined)
+
+		return link
 	}
 
 	function allocateParticipantId() {
@@ -355,7 +244,7 @@ export function createRoom() {
 		while (
 			id === localParticipantId ||
 			id === hostParticipantId ||
-			people.has(id)
+			participants[participantKey(id)] != null
 		) {
 			id = randomParticipantId()
 		}
@@ -368,18 +257,17 @@ export function createRoom() {
 		localParticipantId = randomParticipantId()
 		hostParticipantId = localParticipantId
 		participantSequence = 0
-		people = new Map([
-			[
-				localParticipantId,
-				createPerson({
-					id: localParticipantId,
-					name: 'Room host',
-					role: 'host',
-				}),
-			],
-		])
-		setState('themeSeed', participantIdToString(localParticipantId))
-		refreshSelfActivity()
+		participantLinks.clear()
+
+		const host = createParticipant({
+			id: localParticipantId,
+			name: 'Room host',
+			role: 'host',
+		})
+		setParticipants(reconcile({ [host.id]: host }))
+		setParticipantKeys([host.id])
+		setLocalKey(host.id)
+		setState('themeSeed', host.id)
 	}
 
 	function resetGuestParticipants(options: { keepPendingBlip?: boolean } = {}) {
@@ -387,151 +275,95 @@ export function createRoom() {
 		localParticipantId = null
 		hostParticipantId = null
 		participantSequence = 0
-		people = new Map()
-		refreshSelfActivity()
-		setState('peers', [])
+		participantLinks.clear()
+		setParticipants(reconcile({}))
+		setParticipantKeys([])
+		setLocalKey(null)
 	}
 
 	function roomRoster() {
-		return [...people.values()].map(publicParticipant)
+		return participantKeys()
+			.map((key) => participants[key])
+			.filter((person): person is RoomParticipant => person != null)
+			.map(publicParticipant)
 	}
 
 	function livePeerCount() {
 		return livePeerLinks().length
 	}
 
-	function fileProgressState(file: FileProgress): PortraitFileState {
-		const progress =
-			file.size <= 0
-				? 100
-				: Math.min(100, Math.round((file.receivedBytes / file.size) * 100))
-
-		return {
-			id: file.id,
-			name: file.name,
-			progress,
-			state: file.state,
-			url: file.url,
-		}
-	}
-
-	function activityState(activity: PersonActivity): PortraitActivityState {
-		return {
-			blip: activity.blip,
-			files: activity.files.map(fileProgressState),
-		}
-	}
-
-	function activityForParticipant(
-		participantId: ParticipantId | null,
-	): PortraitActivityState {
-		const person = participantId == null ? null : people.get(participantId)
-		return person == null
-			? { blip: null, files: [] }
-			: activityState(person.activity)
-	}
-
-	function refreshSelfActivity() {
-		setState('selfActivity', activityForParticipant(localParticipantId))
-	}
-
-	function refreshPeerCards() {
-		// Keep portrait identity stable; remounting a live <video> is enough to interrupt playback.
-		const peers: RoomPeer[] = [...people.values()]
-			.filter((person) => person.id !== localParticipantId)
-			.map((person) => {
-				const id = participantIdToString(person.id)
-				return {
-					activity: activityState(person.activity),
-					id,
-					mediaStream: person.mediaStream,
-					mediaVersion: person.mediaVersion,
-					state: person.link?.live ? 'live' : 'waiting',
-				}
-			})
-
-		setState('peers', reconcile(peers, { key: 'id' }))
-	}
-
-	function refreshParticipantMedia(participantId: ParticipantId) {
-		if (participantId === localParticipantId) refreshSelfActivity()
-		else refreshPeerCards()
-	}
-
 	function setParticipantMedia(
 		participantId: ParticipantId,
 		stream: MediaStream | null,
 	) {
-		const person = people.get(participantId)
+		const key = participantKey(participantId)
+		const person = participants[key]
 		if (person == null) return
 
-		person.mediaStream = stream
-		person.mediaVersion++
-		refreshParticipantMedia(participantId)
+		setParticipants(key, {
+			mediaStream: stream,
+			mediaVersion: person.mediaVersion + 1,
+		})
 	}
 
-	function sendToParticipant(
-		participantId: ParticipantId,
-		message: RoomMessage,
-	) {
+	function sendToParticipant(participantId: ParticipantId, packet: Packet) {
 		const link = participantLink(participantId)
 		if (link == null || !link.live) return false
 
-		return sendRoomMessage(link.peer, message)
+		return sendPacket(link.peer, packet)
 	}
 
-	function sendToLinks(links: PeerLink[], message: RoomMessage) {
+	function sendToLinks(links: PeerLink[], packet: Packet) {
 		let sent = 0
 
 		for (const link of links) {
-			if (link.live && sendRoomMessage(link.peer, message)) sent++
+			if (link.live && sendPacket(link.peer, packet)) sent++
 		}
 
 		return sent
 	}
 
-	function broadcast(
-		message: RoomMessage,
+	function broadcastPacket(
+		packet: Packet,
 		except: ParticipantId | null = null,
 	) {
-		for (const person of people.values()) {
-			if (person.id === except || person.link == null || !person.link.live) {
+		const exceptKey = except == null ? null : participantKey(except)
+
+		for (const key of participantKeys()) {
+			const link = participantLinks.get(key)
+			if (key === exceptKey || link == null || !link.live) {
 				continue
 			}
 
-			sendRoomMessage(person.link.peer, message)
+			sendPacket(link.peer, packet)
 		}
 	}
 
-	function broadcastRoster() {
-		broadcast({ type: 'roster', roster: roomRoster() })
+	function broadcastMembershipChange(options: { left?: ParticipantId } = {}) {
+		// Membership is a protocol commit, not any participant-store mutation.
+		if (options.left != null) {
+			broadcastPacket({ type: 'peer-left', id: options.left })
+		}
+		broadcastPacket({ type: 'roster', roster: roomRoster() })
 	}
 
 	function livePeerLinks() {
-		return [...people.values()]
-			.map((person) => person.link)
-			.filter((link): link is PeerLink => link?.live === true)
-	}
-
-	function refreshParticipantActivity(participantId: ParticipantId) {
-		if (participantId === localParticipantId) refreshSelfActivity()
-		else refreshPeerCards()
+		return [...participantLinks.values()].filter((link) => link.live)
 	}
 
 	function setParticipantBlip(participantId: ParticipantId, text: string) {
-		const person = people.get(participantId)
+		const key = participantKey(participantId)
+		const person = participants[key]
 		if (person == null) return
 
 		const blip = text.trim()
-		person.activity.blip = blip === '' ? null : blip
-
-		refreshParticipantActivity(participantId)
+		setParticipants(key, 'activity', 'blip', blip === '' ? null : blip)
 	}
 
 	function localBlip() {
-		const localPerson =
-			localParticipantId == null ? null : people.get(localParticipantId)
-		return localPerson?.activity.blip ?? pendingLocalBlip
+		return (
+			participantById(localParticipantId)?.activity.blip ?? pendingLocalBlip
+		)
 	}
 
 	function applyPendingLocalBlip() {
@@ -545,7 +377,7 @@ export function createRoom() {
 		const blip = localBlip()
 		if (blip == null) return false
 
-		return sendRoomMessage(peer, { type: 'blip', text: blip })
+		return sendPacket(peer, { type: 'blip', text: blip })
 	}
 
 	function publishLocalBlip() {
@@ -563,28 +395,33 @@ export function createRoom() {
 		participantId: ParticipantId,
 		file: FileProgress,
 	) {
-		const person = people.get(participantId)
+		const key = participantKey(participantId)
+		const person = participants[key]
 		if (person == null) return
 
-		const index = person.activity.files.findIndex((item) => item.id === file.id)
-		if (index === -1) person.activity.files = [...person.activity.files, file]
-		else {
-			person.activity.files = person.activity.files.map((item, itemIndex) =>
-				itemIndex === index ? file : item,
+		const nextFile = fileProgressState(file)
+		setParticipants(key, 'activity', 'files', (files) => {
+			const index = files.findIndex((item) => item.id === file.id)
+			if (index === -1) return [...files, nextFile]
+
+			return files.map((item, itemIndex) =>
+				itemIndex === index ? nextFile : item,
 			)
-		}
-		refreshParticipantActivity(participantId)
+		})
 	}
 
 	function markLocalSendingFilesError() {
-		const person =
-			localParticipantId == null ? null : people.get(localParticipantId)
+		const key = localKey()
+		if (key == null) return
+
+		const person = participants[key]
 		if (person == null) return
 
-		person.activity.files = person.activity.files.map((file) =>
-			file.state === 'sending' ? { ...file, state: 'error' } : file,
+		setParticipants(key, 'activity', 'files', (files: PortraitFileState[]) =>
+			files.map((file) =>
+				file.state === 'sending' ? { ...file, state: 'error' } : file,
+			),
 		)
-		refreshSelfActivity()
 	}
 
 	function disposeFileUrls() {
@@ -606,16 +443,9 @@ export function createRoom() {
 
 	function handleFileStart(
 		participantId: ParticipantId,
-		message: Extract<RoomMessage, { type: 'file-start' }>,
+		message: Extract<Packet, { type: 'file-start' }>,
 	) {
-		const transfer: IncomingFileTransfer = {
-			chunks: [],
-			from: participantId,
-			mime: message.mime,
-			name: message.name,
-			receivedBytes: 0,
-			size: message.size,
-		}
+		const transfer = createIncomingFileTransfer(participantId, message)
 
 		incomingFiles.set(message.id, transfer)
 		upsertParticipantFile(participantId, {
@@ -628,9 +458,7 @@ export function createRoom() {
 		})
 	}
 
-	function handleFileChunk(
-		message: Extract<RoomMessage, { type: 'file-chunk' }>,
-	) {
+	function handleFileChunk(message: Extract<Packet, { type: 'file-chunk' }>) {
 		const transfer = incomingFiles.get(message.id)
 		if (transfer == null) return
 
@@ -664,7 +492,7 @@ export function createRoom() {
 		})
 	}
 
-	function handleFileEnd(message: Extract<RoomMessage, { type: 'file-end' }>) {
+	function handleFileEnd(message: Extract<Packet, { type: 'file-end' }>) {
 		const transfer = incomingFiles.get(message.id)
 		if (transfer == null) return
 
@@ -684,10 +512,7 @@ export function createRoom() {
 		})
 	}
 
-	function handleCommonMessage(
-		participantId: ParticipantId,
-		message: RoomMessage,
-	) {
+	function handleCommonMessage(participantId: ParticipantId, message: Packet) {
 		// Blips and files are symmetric; only connection setup needs host/guest ceremony.
 		switch (message.type) {
 			case 'blip':
@@ -707,10 +532,20 @@ export function createRoom() {
 		}
 	}
 
+	function clearPeerParticipants() {
+		const local = localKey()
+		const self = local == null ? null : participants[local]
+
+		setParticipants(
+			reconcile(local != null && self != null ? { [local]: self } : {}),
+		)
+		setParticipantKeys(local == null ? [] : [local])
+	}
+
 	function markRoomClosed() {
 		closePendingPeer()
 		closePeerLinks()
-		setState('peers', [])
+		clearPeerParticipants()
 		setState('connection', {
 			...state.connection,
 			phase: 'closed',
@@ -720,16 +555,21 @@ export function createRoom() {
 
 	function removePeerLink(
 		participantId: ParticipantId,
-		options: { participantLeft?: boolean; peer?: Peer | null } = {},
+		options: { peer?: Peer | null } = {},
 	) {
-		const person = people.get(participantId)
-		if (person?.link == null) return
-		if (options.peer != null && person.link.peer !== options.peer) return
+		const key = participantKey(participantId)
+		const person = participants[key]
+		const link = participantLinks.get(key)
+		if (person == null || link == null) return
+		if (options.peer != null && link.peer !== options.peer) return
 
-		person.link = null
-		person.activity = emptyPersonActivity()
-		person.mediaStream = null
-		person.mediaVersion++
+		participantLinks.delete(key)
+		setParticipants(key, {
+			activity: emptyParticipantActivity(),
+			mediaStream: null,
+			mediaVersion: person.mediaVersion + 1,
+			state: 'waiting',
+		})
 
 		if (isGuestRoom() && participantId === hostParticipantId) {
 			markRoomClosed()
@@ -737,16 +577,14 @@ export function createRoom() {
 		}
 
 		// Guests can come and go. A guest only loses the room when the host disappears.
-		if (isHostRoom() || options.participantLeft) {
-			people.delete(participantId)
+		if (isHostRoom()) {
+			setParticipantKeys((keys) => keys.filter((item) => item !== key))
+			setParticipants(key, undefined)
 		}
 
 		if (isHostRoom()) {
-			broadcast({ type: 'peer-left', id: participantId })
-			broadcastRoster()
+			broadcastMembershipChange({ left: participantId })
 		}
-
-		refreshPeerCards()
 
 		if (isHostRoom() && livePeerCount() === 0 && pendingPeer == null) {
 			void startHostInvite({ resetPeers: false })
@@ -805,7 +643,6 @@ export function createRoom() {
 				if (remoteMediaStream != null) {
 					setParticipantMedia(participantId, remoteMediaStream)
 				}
-				refreshPeerCards()
 			},
 			remoteId: () => remoteParticipantId,
 		}
@@ -864,12 +701,12 @@ export function createRoom() {
 		if (link == null) return
 
 		link.live = true
+		setParticipants(participantKey(participantId), 'state', 'live')
 		sendLocalBlipToPeer(link.peer)
-		refreshPeerCards()
 	}
 
 	function handlePeerMessage(participantId: ParticipantId, text: string) {
-		const message = decodeRoomMessage(text)
+		const message = decodePacket(text)
 		if (message == null) return
 
 		handleCommonMessage(participantId, message)
@@ -892,11 +729,10 @@ export function createRoom() {
 			return null
 		}
 
-		refreshPeerCards()
 		return peer
 	}
 
-	function sendToHost(message: RoomMessage) {
+	function sendToHost(message: Packet) {
 		if (hostParticipantId == null) return false
 		return sendToParticipant(hostParticipantId, message)
 	}
@@ -938,24 +774,27 @@ export function createRoom() {
 			return
 		}
 
-		for (const participant of people.values()) {
+		for (const key of participantKeys()) {
+			const participant = participants[key]
+			if (participant == null) continue
+
 			if (
 				participant.role !== 'guest' ||
-				participant.id === localParticipantId ||
-				participant.id === hostParticipantId ||
-				participant.link != null ||
+				participant.participantId === localParticipantId ||
+				participant.participantId === hostParticipantId ||
+				participantLinks.has(key) ||
 				// Deterministic tie-break: only one guest dials for each guest-to-guest edge.
-				localParticipantId < participant.id
+				localParticipantId < participant.participantId
 			) {
 				continue
 			}
 
-			void createMeshOffer(participant.id)
+			void createMeshOffer(participant.participantId)
 		}
 	}
 
 	async function acceptMeshOffer(
-		message: Extract<RoomMessage, { type: 'peer-offer' }>,
+		message: Extract<Packet, { type: 'peer-offer' }>,
 	) {
 		if (
 			!isGuestRoom() ||
@@ -987,7 +826,7 @@ export function createRoom() {
 	}
 
 	async function acceptMeshAnswer(
-		message: Extract<RoomMessage, { type: 'peer-answer' }>,
+		message: Extract<Packet, { type: 'peer-answer' }>,
 	) {
 		if (localParticipantId == null || message.to !== localParticipantId) return
 
@@ -1010,8 +849,7 @@ export function createRoom() {
 			return
 		}
 
-		replacePeople(roster)
-		refreshPeerCards()
+		replaceParticipants(roster)
 		startMissingMeshOffers()
 	}
 
@@ -1021,16 +859,14 @@ export function createRoom() {
 			return
 		}
 
-		const person = deletePerson(participantId)
-		person?.link?.peer.close()
-		refreshPeerCards()
+		deleteParticipant(participantId)?.peer.close()
 	}
 
 	function handleGuestMessage(
 		text: string,
 		handle?: { markLive: (participantId: ParticipantId) => void },
 	) {
-		const message = decodeRoomMessage(text)
+		const message = decodePacket(text)
 		if (message == null) return
 		const senderId = hostParticipantId
 		if (senderId != null && handleCommonMessage(senderId, message)) return
@@ -1042,13 +878,12 @@ export function createRoom() {
 				hostParticipantId = message.hostId
 				clearInviteHash()
 				setState('themeSeed', participantIdToString(message.hostId))
-				replacePeople(message.roster)
+				setLocalKey(participantKey(message.selfId))
+				replaceParticipants(message.roster)
 				applyPendingLocalBlip()
 				handle?.markLive(message.hostId)
 				setState('connection', 'phase', 'connected')
 				setState('connection', 'issue', null)
-				refreshSelfActivity()
-				refreshPeerCards()
 				publishLocalBlip()
 				startMissingMeshOffers()
 				break
@@ -1074,7 +909,7 @@ export function createRoom() {
 	}
 
 	function handleHostMessage(participantId: ParticipantId, text: string) {
-		const message = decodeRoomMessage(text)
+		const message = decodePacket(text)
 		if (message == null) return
 		if (handleCommonMessage(participantId, message)) return
 
@@ -1110,14 +945,18 @@ export function createRoom() {
 		markLive: (participantId: ParticipantId) => void,
 	) {
 		const participant = assignGuestParticipant()
-		people.set(participant.id, createPerson(participant))
+		const person = createParticipant(participant)
+		setParticipants(person.id, person)
+		setParticipantKeys((keys) =>
+			keys.includes(person.id) ? keys : [...keys, person.id],
+		)
 		markLive(participant.id)
 
 		setState('connection', 'issue', null)
 		setState('connection', 'replyText', '')
 
 		if (localParticipantId != null) {
-			sendRoomMessage(peer, {
+			sendPacket(peer, {
 				type: 'welcome',
 				hostId: localParticipantId,
 				selfId: participant.id,
@@ -1126,7 +965,7 @@ export function createRoom() {
 			sendLocalBlipToPeer(peer)
 		}
 
-		broadcastRoster()
+		broadcastMembershipChange()
 		// Keep the host ready for the next person without asking them to regenerate by hand.
 		void startHostInvite({ resetPeers: false })
 	}
@@ -1144,7 +983,6 @@ export function createRoom() {
 				resetHostParticipants()
 				clearInviteHash()
 				setState('blipComposer', emptyBlipComposer())
-				setState('peers', [])
 			} else if (localParticipantId == null || hostParticipantId == null) {
 				resetHostParticipants()
 			}
@@ -1211,7 +1049,7 @@ export function createRoom() {
 			const nextPeer = openPendingPeer({
 				debugLabel: 'guest:reply',
 				onOpen: (peer) => {
-					sendRoomMessage(peer, { type: 'hello' })
+					sendPacket(peer, { type: 'hello' })
 				},
 				onMessage: (_peer, text, handle) => {
 					handleGuestMessage(text, handle)
@@ -1462,6 +1300,9 @@ export function createRoom() {
 
 	return {
 		state,
+		participant: participantByKey,
+		peerKeys,
+		selfActivity,
 		becomeGuest,
 		becomeHost: () => {
 			void startHostInvite()
@@ -1489,3 +1330,5 @@ export function createRoom() {
 		toggleMicrophone,
 	}
 }
+
+export type RoomLogic = ReturnType<typeof createRoom>

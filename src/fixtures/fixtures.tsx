@@ -1,8 +1,8 @@
 import type { JSX } from 'solid-js'
-import { ConnectionCard } from '../room-cards'
-import type { ConnectionState, PortraitActivityState } from '../room-types'
-import { PersonCard, Room, SelfMediaCard } from '../room-ui'
+import { ConnectionCard } from '../connection-card'
+import { PersonCard, Room, SelfMediaCard } from '../portraits'
 import type { SelfMedia } from '../self-media'
+import type { ConnectionState, PortraitActivityState } from '../state'
 
 export type UiFixture = {
 	id: string
