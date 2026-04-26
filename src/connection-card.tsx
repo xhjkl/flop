@@ -345,7 +345,12 @@ const GuestConnectionFields = (props: {
 					</div>
 				</Match>
 			</Switch>
-			<Show when={props.connection.status !== 'connected'}>
+			<Show
+				when={
+					props.connection.status !== 'connected' &&
+					props.connection.status !== 'finding-link'
+				}
+			>
 				<SideSwitch label="host a room instead" onPress={props.onBecomeHost} />
 			</Show>
 		</>
