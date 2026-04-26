@@ -49,34 +49,50 @@
 .portrait-app {
 	--h-contrast: calc(var(--h) + 168);
 	--h-glow: calc(var(--h) + 18);
-	--bg: hsl(var(--h) 64% 20%);
-	--bg-deep: hsl(var(--h) 56% 11%);
-	--surface: hsl(var(--h) 62% 24%);
-	--surface-strong: hsl(var(--h) 66% 27%);
-	--surface-glow: hsl(var(--h-glow) 76% 74% / 0.08);
-	--fg: hsl(var(--h-contrast) 34% 90%);
-	--fg-strong: hsl(var(--h-contrast) 44% 95%);
-	--muted: hsl(var(--h-contrast) 22% 78%);
-	--line: hsl(var(--h-contrast) 34% 78% / 0.42);
-	--line-strong: hsl(var(--h-contrast) 44% 84% / 0.62);
-	--line-glass: hsl(var(--h-contrast) 34% 78% / 0.24);
-	--line-soft: hsl(var(--h-contrast) 30% 78% / 0.2);
-	--accent: hsl(var(--h-contrast) 66% 80%);
-	--accent-soft: hsl(var(--h-contrast) 56% 80% / 0.16);
-	--accent-ink: hsl(var(--h) 48% 10%);
-	--ok: var(--accent);
-	--warn: hsl(calc(var(--h) + 50) 82% 78%);
-	--surface-field: color-mix(in srgb, var(--bg-deep) 72%, var(--surface));
-	--surface-code: color-mix(in srgb, var(--bg-deep) 70%, var(--surface));
-	--surface-glass: color-mix(in srgb, var(--bg-deep) 70%, transparent);
-	--surface-glass-strong: color-mix(in srgb, var(--bg-deep) 74%, transparent);
-	--surface-hover: hsl(var(--h-contrast) 56% 80% / 0.18);
-	--surface-pop: hsl(var(--h-contrast) 58% 80% / 0.2);
-	--line-live: color-mix(in srgb, var(--ok) 62%, var(--line));
-	--line-warn: color-mix(in srgb, var(--warn) 62%, var(--line));
-	--shadow-card-outer: 0 1rem 2.4rem hsl(var(--h) 30% 5% / 0.13);
+	--room: oklch(0.72 0.17 var(--h));
+	--room-loud: oklch(0.8 0.2 var(--h));
+	--room-soft: oklch(0.58 0.12 var(--h));
+	--wall: oklch(0.28 0.09 var(--h));
+	--wall-deep: oklch(0.15 0.055 var(--h));
+	--paper: var(--room);
+	--paper-lift: color-mix(in oklch, var(--paper) 88%, white);
+	--pit: oklch(0.16 0.055 var(--h));
+	--ink: oklch(0.13 0.025 var(--h));
+	--ink-soft: color-mix(in oklch, var(--ink) 68%, var(--paper));
+	--chalk: oklch(0.94 0.025 var(--h));
+	--chalk-soft: oklch(0.78 0.04 var(--h));
+	--bg: var(--wall);
+	--bg-deep: var(--pit);
+	--surface: var(--paper);
+	--surface-strong: var(--paper-lift);
+	--surface-glow: transparent;
+	--fg: var(--ink);
+	--fg-strong: var(--ink);
+	--muted: var(--ink-soft);
+	--fg-inverse: var(--chalk);
+	--muted-inverse: var(--chalk-soft);
+	--line: color-mix(in oklch, var(--ink) 42%, var(--paper));
+	--line-strong: color-mix(in oklch, var(--ink) 72%, var(--paper));
+	--line-glass: oklch(0.92 0.04 var(--h) / 0.26);
+	--line-soft: color-mix(in oklch, var(--ink) 26%, transparent);
+	--line-inverse: oklch(0.92 0.04 var(--h) / 0.3);
+	--accent: var(--ink);
+	--accent-soft: color-mix(in oklch, var(--ink) 8%, transparent);
+	--accent-ink: var(--paper);
+	--ok: oklch(0.76 0.16 150);
+	--warn: oklch(0.78 0.18 32);
+	--surface-field: color-mix(in oklch, var(--paper) 82%, white);
+	--surface-code: var(--pit);
+	--surface-glass: oklch(0.15 0.04 var(--h) / 0.84);
+	--surface-glass-strong: oklch(0.12 0.04 var(--h) / 0.9);
+	--surface-hover: color-mix(in oklch, var(--ink) 8%, transparent);
+	--surface-pop: color-mix(in oklch, var(--room-loud) 36%, transparent);
+	--line-live: color-mix(in oklch, var(--ink) 70%, var(--ok));
+	--line-warn: color-mix(in oklch, var(--ink) 56%, var(--warn));
+	--shadow-card-outer: 0 1rem 2.4rem oklch(0 0 0 / 0.14);
 	--shadow-card:
-		inset 0 1px 0 hsl(var(--h-glow) 64% 88% / 0.08), var(--shadow-card-outer);
+		inset 0 1px 0 color-mix(in oklch, white 18%, transparent),
+		var(--shadow-card-outer);
 }
 
 * {
@@ -105,27 +121,56 @@ video {
 }
 
 button {
-	border: 1px solid var(--line);
+	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-control);
-	background-color: var(--accent-soft);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, white 18%, transparent),
+			transparent 58%
+		),
+		var(--accent-soft);
 	padding: var(--space-field) var(--space-card);
 	cursor: pointer;
 	color: var(--fg-strong);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 22%, transparent),
+		0 2px 0 color-mix(in oklch, var(--line-strong) 76%, transparent);
 	transition:
 		background-color var(--motion-tap),
 		border-color var(--motion-tap),
-		color var(--motion-tap);
+		box-shadow var(--motion-tap),
+		color var(--motion-tap),
+		transform var(--motion-fast);
 }
 
 button:hover:not(:disabled),
 button:focus-visible {
 	border-color: var(--accent);
-	background-color: var(--surface-hover);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, white 24%, transparent),
+			transparent 54%
+		),
+		color-mix(in oklch, var(--ink) 12%, transparent);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 28%, transparent),
+		0 3px 0 color-mix(in oklch, var(--line-strong) 82%, transparent);
+	transform: translateY(-1px);
+}
+
+button:active:not(:disabled) {
+	box-shadow:
+		inset 0 1px 2px color-mix(in oklch, black 20%, transparent),
+		0 0 0 transparent;
+	transform: translateY(1px);
 }
 
 button:disabled {
 	opacity: 0.45;
 	cursor: default;
+	box-shadow: none;
 }
 
 input,
@@ -134,6 +179,11 @@ textarea {
 	border: 1px solid var(--line);
 	border-radius: var(--radius-control);
 	background-color: var(--surface-field);
+}
+
+input::placeholder,
+textarea::placeholder {
+	color: color-mix(in oklch, var(--ink) 58%, var(--paper));
 }
 
 input {
@@ -205,7 +255,11 @@ textarea {
 	border: 1px solid var(--line);
 	border-radius: var(--radius-card);
 	background: var(--surface);
-	box-shadow: var(--shadow-card);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 24%, transparent),
+		inset 0 -1px 0 color-mix(in oklch, var(--ink) 18%, transparent),
+		0 0 0 1px color-mix(in oklch, white 10%, transparent),
+		var(--shadow-card-outer);
 }
 
 .portrait-face {
@@ -297,8 +351,12 @@ textarea {
 	border: 0;
 	background: transparent;
 	padding: 0;
-	color: var(--muted);
+	color: color-mix(in oklch, var(--ink) 46%, transparent);
+	box-shadow: none;
 	text-decoration: none;
+	transition:
+		color var(--motion-tap),
+		transform var(--motion-fast);
 }
 
 .connection-mode-heading button[data-active="true"] {
@@ -308,7 +366,14 @@ textarea {
 .connection-mode-heading button:hover:not(:disabled),
 .connection-mode-heading button:focus-visible {
 	background: transparent;
+	box-shadow: none;
 	color: var(--fg-strong);
+	transform: translateY(-1px);
+}
+
+.connection-mode-heading button:active:not(:disabled) {
+	box-shadow: none;
+	transform: translateY(0);
 }
 
 .connection-mode-heading span {
@@ -336,7 +401,11 @@ textarea {
 }
 
 .connection-copy .connection-issue {
-	color: var(--warn);
+	border: 1px solid var(--line-warn);
+	border-radius: var(--radius-control);
+	background: color-mix(in oklch, var(--warn) 18%, var(--paper));
+	padding: var(--space-touch) var(--space-field);
+	color: color-mix(in oklch, var(--ink) 78%, var(--warn));
 }
 
 .connection-main {
@@ -389,25 +458,40 @@ textarea {
 	gap: var(--space-field);
 	padding: var(--space-touch) var(--space-touch) var(--space-touch)
 		var(--space-field);
-	border-bottom: 1px solid var(--line);
-	color: var(--muted);
+	border-bottom: 1px solid var(--line-inverse);
+	color: var(--muted-inverse);
 	font-size: var(--text-small);
 }
 
 .connection-copy-head button {
 	padding: var(--space-label) var(--space-touch);
-	border-color: transparent;
-	background-color: var(--accent-soft);
+	border-color: var(--line-inverse);
+	background-color: color-mix(in oklch, var(--chalk) 10%, transparent);
+	color: var(--fg-inverse);
 	font-size: var(--text-caption);
 	transition:
 		background-color var(--motion-tap),
+		border-color var(--motion-tap),
 		color var(--motion-tap),
 		transform 160ms ease;
 }
 
+.connection-copy-head button:hover:not(:disabled),
+.connection-copy-head button:focus-visible {
+	border-color: var(--fg-inverse);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, white 18%, transparent),
+			transparent 58%
+		),
+		color-mix(in oklch, var(--chalk) 16%, transparent);
+	color: var(--fg-inverse);
+}
+
 .connection-copy-head button[data-copied="true"] {
 	background-color: var(--surface-pop);
-	color: var(--fg-strong);
+	color: var(--fg-inverse);
 	transform: scale(1.03);
 	animation: copied-pop var(--motion-pop);
 }
@@ -436,7 +520,7 @@ textarea {
 	white-space: pre-wrap;
 	overflow-wrap: normal;
 	word-break: break-all;
-	color: var(--fg);
+	color: var(--fg-inverse);
 	font-family: var(--font-code);
 	font-size: var(--text-caption);
 	line-height: var(--leading-copy);
@@ -445,7 +529,7 @@ textarea {
 .connection-copy-block[data-empty="true"] pre {
 	display: grid;
 	place-items: center;
-	color: var(--muted);
+	color: var(--muted-inverse);
 	text-align: center;
 }
 
@@ -486,8 +570,12 @@ textarea {
 	border-radius: var(--radius-pill);
 	background: var(--surface-glass);
 	padding: var(--space-touch) var(--space-field);
-	color: var(--fg-strong);
+	color: var(--fg-inverse);
 	line-height: var(--leading-tight);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 18%, transparent),
+		inset 0 -1px 0 color-mix(in oklch, black 26%, transparent),
+		0 1px 0 color-mix(in oklch, black 18%, transparent);
 }
 
 .file-chip {
@@ -533,6 +621,24 @@ textarea {
 	justify-content: center;
 	text-align: center;
 	backdrop-filter: var(--glass-blur);
+	cursor: text;
+	transition:
+		border-color var(--motion-tap),
+		box-shadow var(--motion-tap),
+		transform var(--motion-fast);
+}
+
+.portrait-blip:hover {
+	border-color: color-mix(in oklch, var(--fg-inverse) 58%, transparent);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 24%, transparent),
+		inset 0 -1px 0 color-mix(in oklch, black 28%, transparent),
+		0 2px 0 color-mix(in oklch, black 20%, transparent);
+	transform: translateY(-1px);
+}
+
+.blip-composer textarea::placeholder {
+	color: var(--muted-inverse);
 }
 
 .blip-issue {
@@ -548,7 +654,7 @@ textarea {
 	block-size: auto;
 	max-block-size: 5rem;
 	min-inline-size: 0;
-	color: var(--muted);
+	color: var(--muted-inverse);
 	resize: none;
 	text-align: center;
 	font-size: var(--text-caption);
@@ -562,14 +668,14 @@ textarea {
 }
 
 .blip-composer textarea[data-editing="true"] {
-	border-color: var(--accent);
-	background: color-mix(in srgb, var(--bg-deep) 54%, var(--accent-soft));
-	color: var(--fg-strong);
+	border-color: var(--fg-inverse);
+	background: var(--surface-glass-strong);
+	color: var(--fg-inverse);
 }
 
 .blip-composer textarea[data-committed="true"] {
 	background-color: var(--surface-pop);
-	color: var(--fg-strong);
+	color: var(--fg-inverse);
 	transform: scale(1.03);
 	animation: copied-pop var(--motion-pop);
 }
@@ -726,7 +832,11 @@ textarea {
 	border: 1px solid var(--line-soft);
 	border-radius: var(--radius-pill);
 	background: var(--surface-glass-strong);
+	color: var(--fg-inverse);
 	backdrop-filter: var(--glass-blur);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 18%, transparent),
+		inset 0 -1px 0 color-mix(in oklch, black 28%, transparent);
 }
 
 .self-toggle-label {
@@ -739,7 +849,7 @@ textarea {
 	inline-size: var(--toggle-track-inline);
 	block-size: var(--toggle-track-block);
 	border-radius: var(--radius-pill);
-	background: color-mix(in srgb, var(--surface) 76%, var(--bg-deep));
+	background: color-mix(in oklch, var(--chalk) 16%, transparent);
 	transition:
 		background-color var(--motion-tap),
 		box-shadow var(--motion-tap);
@@ -752,20 +862,20 @@ textarea {
 	inline-size: var(--toggle-knob-size);
 	block-size: var(--toggle-knob-size);
 	border-radius: 50%;
-	background: var(--fg-strong);
+	background: var(--fg-inverse);
 	transition:
 		background-color var(--motion-tap),
 		transform var(--motion-fast);
 }
 
 .self-toggle[data-enabled="true"] .self-toggle-switch {
-	background: var(--accent);
-	box-shadow: 0 0 0.75rem hsl(var(--h-contrast) 58% 80% / 0.18);
+	background: var(--room-loud);
+	box-shadow: 0 0 0.75rem color-mix(in oklch, var(--room-loud) 24%, transparent);
 }
 
 .self-toggle[data-enabled="true"] .self-toggle-knob {
 	transform: translateX(var(--toggle-knob-travel));
-	background: var(--accent-ink);
+	background: var(--ink);
 }
 
 .person-card[data-state="live"] {

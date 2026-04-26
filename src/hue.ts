@@ -1,17 +1,15 @@
-const DEFAULT_HUE = 110
+const DEFAULT_HUE = 204
 // Room color is host identity snapped to a curated set, not a raw rainbow spin.
 const ROOM_HUES = [
-	23, // tangerine
-	50, // dark jasmine
-	136, // emerald
-	168, // jade
-	194, // lagoon
-	224, // azure
-	254, // indigo
-	284, // violet
-	314, // orchid
+	18, // tomato
+	42, // marigold
+	118, // wasabi
+	152, // green
+	184, // pool
+	214, // blue
+	262, // grape
+	304, // magenta
 	338, // cherry
-	354, // burgundy
 ]
 
 const hashSeed = (seed: string | null): number | null => {
@@ -32,7 +30,7 @@ export const hueFromSeed = (seed: string | null, offset = 0): number => {
 
 export const themeHueFromSeed = (seed: string | null): number => {
 	const hash = hashSeed(seed)
-	if (hash == null) return ROOM_HUES[1]
+	if (hash == null) return DEFAULT_HUE
 
 	return ROOM_HUES[hash % ROOM_HUES.length]
 }

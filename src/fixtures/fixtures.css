@@ -17,8 +17,10 @@
 	display: grid;
 	gap: var(--space-field);
 	padding: var(--space-card) var(--space-page) 0;
-	border-bottom: 1px solid var(--line);
-	background: hsl(var(--h) 22% 10% / 0.94);
+	border-bottom: 1px solid var(--line-inverse);
+	background: var(--pit);
+	color: var(--fg-inverse);
+	box-shadow: 0 1px 0 color-mix(in oklch, white 10%, transparent);
 }
 
 .fixture-banner {
@@ -30,7 +32,7 @@
 
 .fixture-banner span,
 .fixture-meta small {
-	color: var(--muted);
+	color: var(--muted-inverse);
 }
 
 .fixture-actions {
@@ -39,9 +41,27 @@
 	gap: var(--space-touch);
 }
 
+.fixture-actions button {
+	border-color: var(--line-inverse);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, white 12%, transparent),
+			transparent 58%
+		),
+		color-mix(in oklch, var(--chalk) 8%, transparent);
+	color: var(--fg-inverse);
+}
+
 .fixture-actions button.active {
-	border-color: var(--accent);
-	background: hsl(var(--h-contrast) 56% 84% / 0.14);
+	border-color: var(--fg-inverse);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, white 18%, transparent),
+			transparent 58%
+		),
+		color-mix(in oklch, var(--room-loud) 34%, transparent);
 }
 
 .fixture-meta {
