@@ -9,6 +9,11 @@ export type Packet =
 	| { type: 'hello' }
 	| { text: string; type: 'blip' }
 	| {
+			cameraEnabled: boolean
+			microphoneEnabled: boolean
+			type: 'media-state'
+	  }
+	| {
 			id: string
 			mime: string
 			name: string
@@ -106,6 +111,11 @@ export function decodePacket(text: string): Packet | null {
 			return message
 		case 'blip':
 			return typeof message.text === 'string' ? message : null
+		case 'media-state':
+			return typeof message.cameraEnabled === 'boolean' &&
+				typeof message.microphoneEnabled === 'boolean'
+				? message
+				: null
 		case 'file-start':
 			return typeof message.id === 'string' &&
 				typeof message.mime === 'string' &&

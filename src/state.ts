@@ -1,5 +1,10 @@
 export type PeerState = 'live' | 'waiting'
 
+export type PeerMediaState = {
+	cameraEnabled: boolean
+	microphoneEnabled: boolean
+}
+
 export type HostConnectionStatus =
 	| 'accepting-reply'
 	| 'creating-invite'

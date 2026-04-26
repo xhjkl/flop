@@ -10,6 +10,7 @@ import { hueFromSeed, themeHueFromSeed } from './hue'
 import type { SelfMedia, SelfMediaStatus } from './self-media'
 import type {
 	BlipComposerState,
+	PeerMediaState,
 	PeerState,
 	PortraitActivityState,
 	PortraitFileState,
@@ -436,17 +437,22 @@ function SelfBlipComposer(props: {
 export function PersonCard(props: {
 	activity: PortraitActivityState
 	colorSeed: string
+	mediaState?: PeerMediaState | null
 	mediaStream?: MediaStream | null
 	state: PeerState
 }) {
+	const videoActive = () =>
+		props.mediaStream != null && props.mediaState?.cameraEnabled !== false
+
 	return (
 		<article class="portrait-card person-card" data-state={props.state}>
 			<div
 				class="portrait-face person-face"
-				data-has-video={props.mediaStream != null ? 'true' : 'false'}
+				data-has-video={videoActive() ? 'true' : 'false'}
 				style={{ '--card-h': `${hueFromSeed(props.colorSeed)}` }}
 			>
 				<StreamVideo
+					active={videoActive()}
 					class="remote-video"
 					label={`remote:${props.colorSeed}`}
 					stream={props.mediaStream ?? null}
