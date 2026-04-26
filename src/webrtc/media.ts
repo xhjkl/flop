@@ -40,9 +40,11 @@ export function transceiverSummary(pc: RTCPeerConnection) {
 export function descriptionSummary(
 	description: RTCSessionDescription | RTCSessionDescriptionInit | null,
 ) {
+	const sdp = description?.sdp?.replace(/\r\n/g, '\n') ?? ''
+
 	return {
 		media:
-			description?.sdp?.match(/^m=.*(?:\n(?!m=).*)*/gm)?.map((section) => ({
+			sdp.match(/^m=.*(?:\n(?!m=).*)*/gm)?.map((section) => ({
 				direction:
 					section.match(/^a=(sendrecv|sendonly|recvonly|inactive)$/m)?.[1] ??
 					null,

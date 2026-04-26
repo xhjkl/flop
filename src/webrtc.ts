@@ -29,6 +29,8 @@ export type Peer = {
 	waitForBufferBelow: (bytes: number) => Promise<void>
 }
 
+type MediaKind = 'audio' | 'video'
+
 type PeerOptions = {
 	debugLabel?: string
 	onOpen?: () => void
@@ -61,18 +63,13 @@ export function createPeer(options: PeerOptions = {}): Peer {
 	const pc = new RTCPeerConnection({
 		iceServers: options.iceServers ?? DEFAULT_ICE_SERVERS,
 	})
-	// Stable sendrecv slots let camera/mic start later without a second invite ceremony.
-	const audioSender = pc.addTransceiver('audio', {
-		direction: 'sendrecv',
-	}).sender
-	const videoSender = pc.addTransceiver('video', {
-		direction: 'sendrecv',
-	}).sender
+	const senders: Partial<Record<MediaKind, RTCRtpSender>> = {}
 	const remoteStream = new MediaStream()
 	const remoteTracks = new Map<string, MediaStreamTrack>()
 	let channel: RTCDataChannel | null = null
 	let closeEmitted = false
 	let disconnectTimeout: ReturnType<typeof setTimeout> | null = null
+	let localMedia: MediaStream | null = null
 	const debugPeer = options.debugLabel ?? 'peer'
 
 	const debug: RtcDebug = (event, details = {}) => {
@@ -177,6 +174,65 @@ export function createPeer(options: PeerOptions = {}): Peer {
 		)
 	}
 
+	function transceiverKind(transceiver: RTCRtpTransceiver): MediaKind | null {
+		const kind = transceiver.receiver.track.kind
+		return kind === 'audio' || kind === 'video' ? kind : null
+	}
+
+	function negotiatedOrFirstTransceiver(kind: MediaKind) {
+		const transceivers = pc
+			.getTransceivers()
+			.filter(
+				(transceiver) =>
+					transceiverKind(transceiver) === kind &&
+					transceiver.direction !== 'stopped',
+			)
+
+		return (
+			transceivers.find((transceiver) => transceiver.mid != null) ??
+			transceivers[0] ??
+			null
+		)
+	}
+
+	function ensureSender(kind: MediaKind) {
+		// Answerers must reuse the transceiver created by the offer. Creating our own
+		// early produces orphan senders that never put RTP on the wire.
+		const transceiver =
+			negotiatedOrFirstTransceiver(kind) ??
+			pc.addTransceiver(kind, { direction: 'sendrecv' })
+
+		if (transceiver.direction !== 'sendrecv') {
+			transceiver.direction = 'sendrecv'
+		}
+
+		senders[kind] = transceiver.sender
+		debug('sender.slot', {
+			kind,
+			transceivers: transceiverSummary(pc),
+		})
+		return transceiver.sender
+	}
+
+	function replaceLocalTracks() {
+		replaceSenderTrack(
+			'audio',
+			senders.audio ?? null,
+			firstTrack(localMedia, 'audio'),
+		)
+		replaceSenderTrack(
+			'video',
+			senders.video ?? null,
+			firstTrack(localMedia, 'video'),
+		)
+	}
+
+	function prepareMediaSlots() {
+		ensureSender('audio')
+		ensureSender('video')
+		replaceLocalTracks()
+	}
+
 	pc.addEventListener('connectionstatechange', handleConnectionHealth)
 	pc.addEventListener('iceconnectionstatechange', handleConnectionHealth)
 	pc.addEventListener('icecandidate', (event) => {
@@ -248,6 +304,7 @@ export function createPeer(options: PeerOptions = {}): Peer {
 	async function createOffer() {
 		debug('offer.create')
 		attachChannel(pc.createDataChannel('data'))
+		prepareMediaSlots()
 		const offer = await pc.createOffer()
 		await pc.setLocalDescription(offer)
 		return encodeLocalDescription(pc, debug)
@@ -271,6 +328,7 @@ export function createPeer(options: PeerOptions = {}): Peer {
 			description: descriptionSummary(pc.remoteDescription ?? offer),
 			transceivers: transceiverSummary(pc),
 		})
+		prepareMediaSlots()
 
 		const answer = await pc.createAnswer()
 		await pc.setLocalDescription(answer)
@@ -294,15 +352,25 @@ export function createPeer(options: PeerOptions = {}): Peer {
 	}
 
 	function setLocalMedia(stream: MediaStream | null) {
-		replaceSenderTrack('audio', audioSender, firstTrack(stream, 'audio'))
-		replaceSenderTrack('video', videoSender, firstTrack(stream, 'video'))
+		localMedia = stream
+		debug('local-media.set', streamSummary(stream))
+		replaceLocalTracks()
 	}
 
 	function replaceSenderTrack(
-		kind: 'audio' | 'video',
-		sender: RTCRtpSender,
+		kind: MediaKind,
+		sender: RTCRtpSender | null,
 		track: MediaStreamTrack | null,
 	) {
+		if (sender == null) {
+			debug('replaceTrack.deferred', {
+				kind,
+				track: trackSummary(track),
+				transceivers: transceiverSummary(pc),
+			})
+			return
+		}
+
 		debug('replaceTrack.start', {
 			kind,
 			track: trackSummary(track),
