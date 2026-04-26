@@ -1,4 +1,4 @@
-import { warnLog } from '../log'
+import { infoLog, warnLog } from '../log'
 import type { SignalDescription } from '../signal'
 
 export type TrackerStatus = 'failed' | 'finding' | 'idle'
@@ -29,10 +29,14 @@ const TRACKERS = [
 ]
 
 const ANNOUNCE_INTERVAL_MS = 14_000
-const OFFER_ID_BYTES = 12
+const OFFER_ID_BYTES = 20
 
 const warnTracker = (event: string, details: Record<string, unknown> = {}) => {
 	warnLog('tracker', event, details)
+}
+
+const infoTracker = (event: string, details: Record<string, unknown> = {}) => {
+	infoLog('tracker', event, details)
 }
 
 const bytesToBinaryString = (bytes: Uint8Array) => {
@@ -54,10 +58,7 @@ const randomBinaryString = (length: number) => {
 const randomOfferId = () => {
 	const bytes = new Uint8Array(OFFER_ID_BYTES)
 	crypto.getRandomValues(bytes)
-	return btoa(bytesToBinaryString(bytes))
-		.replaceAll('+', '-')
-		.replaceAll('/', '_')
-		.replaceAll('=', '')
+	return bytesToBinaryString(bytes)
 }
 
 const isSignalDescription = (value: unknown): value is SignalDescription => {
@@ -155,6 +156,11 @@ export const createTrackerRendezvous = (
 	}
 
 	const announceGuest = (socket: WebSocket) => {
+		infoTracker('announce.sent', {
+			offers: 0,
+			role: options.role,
+			url: socketUrls.get(socket) ?? socket.url,
+		})
 		send(socket, { event: 'started', numwant: 0 })
 	}
 
@@ -167,6 +173,11 @@ export const createTrackerRendezvous = (
 			.then((offer) => {
 				if (closed || offer == null) return
 
+				infoTracker('announce.sent', {
+					offers: 1,
+					role: options.role,
+					url: socketUrls.get(socket) ?? socket.url,
+				})
 				send(socket, {
 					event: 'started',
 					numwant: 1,
@@ -220,8 +231,19 @@ export const createTrackerRendezvous = (
 			typeof message.offer_id === 'string' &&
 			isSignalDescription(message.answer)
 		) {
+			infoTracker('answer.received', { url })
 			options.onAnswer?.(message.offer_id, message.answer)
 			return
+		}
+
+		if (message.action === 'announce') {
+			infoTracker('announce.accepted', {
+				complete:
+					typeof message.complete === 'number' ? message.complete : null,
+				incomplete:
+					typeof message.incomplete === 'number' ? message.incomplete : null,
+				url,
+			})
 		}
 
 		if (
@@ -229,6 +251,7 @@ export const createTrackerRendezvous = (
 			typeof message.peer_id === 'string' &&
 			isSignalDescription(message.offer)
 		) {
+			infoTracker('offer.received', { url })
 			options.onOffer?.(message.offer, (answer) => {
 				send(socket, {
 					answer,
@@ -256,6 +279,7 @@ export const createTrackerRendezvous = (
 		socketUrls.set(socket, url)
 
 		socket.onopen = () => {
+			infoTracker('socket.open', { url })
 			markEndpoint(url, 'open')
 			announce(socket)
 		}

@@ -39,6 +39,14 @@ export const warnLog = (
 	console.warn(`[flop:${scope}] ${logLine(event, details)}`)
 }
 
+export const infoLog = (
+	scope: string,
+	event: string,
+	details: Record<string, unknown> = {},
+) => {
+	console.info(`[flop:${scope}] ${logLine(event, details)}`)
+}
+
 export const errorLog = (
 	scope: string,
 	event: string,
