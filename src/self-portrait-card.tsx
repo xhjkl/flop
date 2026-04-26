@@ -28,15 +28,25 @@ function mediaFailureTitle(status: SelfMediaStatus) {
 }
 
 function MediaFailureCard(props: {
+	activity: PortraitActivityState
+	blipComposer: BlipComposerState
+	canBlip: boolean
 	title: string
 	media: SelfMedia
 	onEnableSelfMedia: () => void
+	onSendBlip: () => void
+	onSetBlipText: (text: string) => void
 }) {
 	return (
 		<SelfMediaCard
+			activity={props.activity}
+			blipComposer={props.blipComposer}
+			canBlip={props.canBlip}
 			media={props.media}
 			title={props.title}
 			actions={[{ label: 'try again', onPress: props.onEnableSelfMedia }]}
+			onSendBlip={props.onSendBlip}
+			onSetBlipText={props.onSetBlipText}
 		>
 			<p>{mediaFailureIssue(props.media)}</p>
 			<p>Fix it and try again here.</p>
@@ -60,9 +70,14 @@ export function SelfPortraitCard(props: {
 		<Switch
 			fallback={
 				<MediaFailureCard
+					activity={props.activity}
+					blipComposer={props.blipComposer}
+					canBlip={props.canBlip}
 					title={mediaFailureTitle(props.media.status)}
 					media={props.media}
 					onEnableSelfMedia={props.onEnableSelfMedia}
+					onSendBlip={props.onSendBlip}
+					onSetBlipText={props.onSetBlipText}
 				/>
 			}
 		>

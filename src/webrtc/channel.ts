@@ -24,6 +24,7 @@ export function bindChannel(
 	}
 	channel.onerror = (event) => {
 		debug('datachannel.error', { channel: channel.label, type: event.type })
+		onClose()
 	}
 	channel.onmessage = (event) => {
 		if (typeof event.data !== 'string') return

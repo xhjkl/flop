@@ -626,15 +626,11 @@ export function createRoom() {
 		options: { peer?: Peer | null } = {},
 	) {
 		const key = participantKey(participantId)
-		const person = participants[key]
 		const link = participantLink(participantId)
 		if (link == null) return
 		if (options.peer != null && link.peer !== options.peer) return
 
 		removeLink(link)
-		if (person != null) {
-			setParticipants(key, 'activity', emptyParticipantActivity())
-		}
 
 		if (isGuestRoom() && participantId === hostParticipantId) {
 			markRoomClosed()
@@ -645,18 +641,14 @@ export function createRoom() {
 		if (isHostRoom()) {
 			setParticipantKeys((keys) => keys.filter((item) => item !== key))
 			setParticipants(key, undefined)
-		}
-
-		if (isHostRoom()) {
 			broadcastMembershipChange({ left: participantId })
-		}
 
-		if (
-			isHostRoom() &&
-			liveParticipantLinkCount() === 0 &&
-			currentRendezvousLink('host-rendezvous') == null
-		) {
-			void startHostInvite({ resetPeers: false })
+			if (
+				liveParticipantLinkCount() === 0 &&
+				currentRendezvousLink('host-rendezvous') == null
+			) {
+				void startHostInvite({ resetPeers: false })
+			}
 		}
 	}
 
@@ -798,7 +790,10 @@ export function createRoom() {
 
 		try {
 			const signal = await link.peer.createOffer()
-			if (participantLink(participantId) !== link) return
+			if (participantLink(participantId) !== link) {
+				closeLink(link)
+				return
+			}
 
 			sendToHost({
 				type: 'peer-offer',
@@ -807,7 +802,7 @@ export function createRoom() {
 				signal,
 			})
 		} catch {
-			removeParticipantLink(participantId, { peer: link.peer })
+			closeLink(link)
 		}
 	}
 
@@ -857,7 +852,10 @@ export function createRoom() {
 
 		try {
 			const signal = await link.peer.createAnswer(message.signal)
-			if (participantLink(message.from) !== link) return
+			if (participantLink(message.from) !== link) {
+				closeLink(link)
+				return
+			}
 
 			sendToHost({
 				type: 'peer-answer',
@@ -866,7 +864,7 @@ export function createRoom() {
 				signal,
 			})
 		} catch {
-			removeParticipantLink(message.from, { peer: link.peer })
+			closeLink(link)
 		}
 	}
 
@@ -881,7 +879,7 @@ export function createRoom() {
 		try {
 			await link.peer.acceptAnswer(message.signal)
 		} catch {
-			removeParticipantLink(message.from, { peer: link.peer })
+			closeLink(link)
 		}
 	}
 
@@ -1058,21 +1056,22 @@ export function createRoom() {
 		options: { resetPeers: boolean } = { resetPeers: true },
 	) {
 		const version = ++signalingVersion
+		let nextLink: RoomLink | null = null
 
 		try {
-			closeRendezvousLink('host-rendezvous')
-
 			if (options.resetPeers) {
 				resetHostParticipants()
 				clearInviteHash()
 				setState('blipComposer', emptyBlipComposer())
 			} else if (localParticipantId == null || hostParticipantId == null) {
 				resetHostParticipants()
+			} else {
+				closeRendezvousLink('host-rendezvous')
 			}
 
 			setState('connection', emptyHostConnection())
 
-			const nextLink = createLink(
+			nextLink = createLink(
 				'host-rendezvous',
 				options.resetPeers ? 'host:invite' : 'host:next-invite',
 			)
@@ -1081,6 +1080,7 @@ export function createRoom() {
 				version !== signalingVersion ||
 				currentRendezvousLink('host-rendezvous') !== nextLink
 			) {
+				closeLink(nextLink)
 				return
 			}
 
@@ -1091,6 +1091,7 @@ export function createRoom() {
 				inviteLink,
 			})
 		} catch {
+			if (nextLink != null) closeLink(nextLink)
 			if (version !== signalingVersion) return
 			setState('connection', {
 				...(state.connection.side === 'host'
@@ -1103,7 +1104,6 @@ export function createRoom() {
 
 	function becomeGuest() {
 		signalingVersion++
-		closeAllLinks()
 		clearInviteHash()
 		resetGuestParticipants()
 		setState('connection', emptyGuestConnection())
@@ -1119,9 +1119,9 @@ export function createRoom() {
 		if (inviteCode === '') return
 
 		const version = ++signalingVersion
+		let nextLink: RoomLink | null = null
 
 		try {
-			closeAllLinks()
 			resetGuestParticipants({ keepPendingBlip: true })
 			setState('connection', {
 				...emptyGuestConnection(),
@@ -1129,12 +1129,13 @@ export function createRoom() {
 				inviteText: inviteInput,
 			})
 
-			const nextLink = createLink('guest-rendezvous', 'guest:reply')
+			nextLink = createLink('guest-rendezvous', 'guest:reply')
 			const replyCode = await nextLink.peer.createAnswer(inviteCode)
 			if (
 				version !== signalingVersion ||
 				currentRendezvousLink('guest-rendezvous') !== nextLink
 			) {
+				closeLink(nextLink)
 				return
 			}
 
@@ -1145,6 +1146,7 @@ export function createRoom() {
 				replyCode,
 			})
 		} catch {
+			if (nextLink != null) closeLink(nextLink)
 			if (version !== signalingVersion) return
 			closeAllLinks()
 			setState('connection', {

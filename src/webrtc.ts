@@ -66,6 +66,11 @@ export function createPeer(options: PeerOptions = {}): Peer {
 	let closeEmitted = false
 	let disconnectTimeout: ReturnType<typeof setTimeout> | null = null
 	let localMedia: MediaStream | null = null
+	let localMediaVersion = 0
+	const replaceTrackQueues: Record<MediaKind, Promise<void>> = {
+		audio: Promise.resolve(),
+		video: Promise.resolve(),
+	}
 	const debugPeer = options.debugLabel ?? 'peer'
 
 	const debug: RtcDebug = (event, details = {}) => {
@@ -213,16 +218,18 @@ export function createPeer(options: PeerOptions = {}): Peer {
 		return negotiatedOrFirstTransceiver(kind)?.sender ?? null
 	}
 
-	function replaceLocalTracks() {
+	function replaceLocalTracks(version = localMediaVersion) {
 		replaceSenderTrack(
 			'audio',
 			currentSender('audio'),
 			firstTrack(localMedia, 'audio'),
+			version,
 		)
 		replaceSenderTrack(
 			'video',
 			currentSender('video'),
 			firstTrack(localMedia, 'video'),
+			version,
 		)
 	}
 
@@ -351,14 +358,16 @@ export function createPeer(options: PeerOptions = {}): Peer {
 
 	function setLocalMedia(stream: MediaStream | null) {
 		localMedia = stream
+		const version = ++localMediaVersion
 		debug('local-media.set', streamSummary(stream))
-		replaceLocalTracks()
+		replaceLocalTracks(version)
 	}
 
 	function replaceSenderTrack(
 		kind: MediaKind,
 		sender: RTCRtpSender | null,
 		track: MediaStreamTrack | null,
+		version: number,
 	) {
 		if (sender == null) {
 			debug('replaceTrack.deferred', {
@@ -369,14 +378,23 @@ export function createPeer(options: PeerOptions = {}): Peer {
 			return
 		}
 
-		debug('replaceTrack.start', {
-			kind,
-			track: trackSummary(track),
-		})
+		replaceTrackQueues[kind] = replaceTrackQueues[kind]
+			.catch(() => {})
+			.then(async () => {
+				if (version !== localMediaVersion) {
+					debug('replaceTrack.skipped', {
+						kind,
+						track: trackSummary(track),
+					})
+					return
+				}
 
-		void sender
-			.replaceTrack(track)
-			.then(() => {
+				debug('replaceTrack.start', {
+					kind,
+					track: trackSummary(track),
+				})
+
+				await sender.replaceTrack(track)
 				debug('replaceTrack.done', {
 					kind,
 					track: trackSummary(track),
@@ -403,12 +421,11 @@ export function createPeer(options: PeerOptions = {}): Peer {
 			return Promise.resolve()
 		}
 
-		// Enough backpressure to keep file sending smooth without turning this into a transport library.
 		return new Promise<void>((resolve) => {
 			let timeoutId: ReturnType<typeof setTimeout> | null = null
 
 			const cleanup = () => {
-				activeChannel.removeEventListener('bufferedamountlow', done)
+				activeChannel.removeEventListener('bufferedamountlow', maybeDone)
 				activeChannel.removeEventListener('close', done)
 				if (timeoutId != null) clearTimeout(timeoutId)
 			}
@@ -418,10 +435,27 @@ export function createPeer(options: PeerOptions = {}): Peer {
 				resolve()
 			}
 
+			const armTimeout = () => {
+				if (timeoutId != null) clearTimeout(timeoutId)
+				timeoutId = setTimeout(maybeDone, 1000)
+			}
+
+			const maybeDone = () => {
+				if (
+					activeChannel.readyState !== 'open' ||
+					activeChannel.bufferedAmount <= bytes
+				) {
+					done()
+					return
+				}
+
+				armTimeout()
+			}
+
 			activeChannel.bufferedAmountLowThreshold = bytes
-			activeChannel.addEventListener('bufferedamountlow', done)
+			activeChannel.addEventListener('bufferedamountlow', maybeDone)
 			activeChannel.addEventListener('close', done)
-			timeoutId = setTimeout(done, 1000)
+			maybeDone()
 		})
 	}
 
