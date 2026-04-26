@@ -942,6 +942,11 @@ export function createRoom() {
 					selfId: participantId,
 					roster: roomRoster(),
 				})
+				{
+					const link = participantLink(participantId)
+					if (link != null) sendLocalBlipToPeer(link.peer)
+				}
+				broadcastMembershipChange()
 				break
 			case 'peer-offer':
 			case 'peer-answer':
@@ -960,10 +965,7 @@ export function createRoom() {
 		}
 	}
 
-	function markHostConnected(
-		peer: Peer,
-		markLive: (participantId: ParticipantId) => void,
-	) {
+	function markHostConnected(markLive: (participantId: ParticipantId) => void) {
 		const participant = assignGuestParticipant()
 		const person = mergeParticipant(participant)
 		setParticipants(person.id, person)
@@ -975,17 +977,6 @@ export function createRoom() {
 		setState('connection', 'issue', null)
 		setState('connection', 'replyText', '')
 
-		if (localParticipantId != null) {
-			sendPacket(peer, {
-				type: 'welcome',
-				hostId: localParticipantId,
-				selfId: participant.id,
-				roster: roomRoster(),
-			})
-			sendLocalBlipToPeer(peer)
-		}
-
-		broadcastMembershipChange()
 		// Keep the host ready for the next person without asking them to regenerate by hand.
 		void startHostInvite({ resetPeers: false })
 	}
@@ -1011,8 +1002,8 @@ export function createRoom() {
 
 			const nextPeer = openPendingPeer({
 				debugLabel: options.resetPeers ? 'host:invite' : 'host:next-invite',
-				onOpen: (peer, handle) => {
-					markHostConnected(peer, handle.markLive)
+				onOpen: (_peer, handle) => {
+					markHostConnected(handle.markLive)
 				},
 				onMessage: (_peer, text, handle) => {
 					const participantId = handle.remoteId()
