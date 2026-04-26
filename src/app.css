@@ -227,6 +227,7 @@ textarea {
 }
 
 .portrait-face[data-has-video="true"] {
+	overflow: hidden;
 	padding: 0;
 	background: var(--bg-deep);
 }
@@ -237,9 +238,8 @@ textarea {
 
 .remote-video,
 .self-video {
-	inline-size: 100%;
-	block-size: 100%;
-	display: block;
+	min-inline-size: 100%;
+	min-block-size: 100%;
 	object-fit: cover;
 	background-color: var(--bg-deep);
 }
