@@ -6,6 +6,8 @@ export type TrackerRendezvous = {
 	close: () => void
 }
 
+type EndpointStatus = 'failed' | 'open' | 'pending'
+
 type TrackerOptions = {
 	createOffer?: (offerId: string) => Promise<SignalDescription | null>
 	infoHash: Uint8Array
@@ -81,20 +83,48 @@ const decodeTrackerMessage = (data: unknown) => {
 export const createTrackerRendezvous = (
 	options: TrackerOptions,
 ): TrackerRendezvous => {
+	const trackerUrls = options.trackers ?? TRACKERS
 	const infoHash = bytesToBinaryString(options.infoHash)
 	const peerId = `-FL0001-${randomBinaryString(12)}`
 	const sockets = new Set<WebSocket>()
+	const socketUrls = new WeakMap<WebSocket, string>()
+	const endpointStatuses = new Map<string, EndpointStatus>(
+		trackerUrls.map((url) => [url, 'pending']),
+	)
 	const timers = new Set<ReturnType<typeof setTimeout>>()
 	let closed = false
-	let opened = 0
+	let currentStatus: TrackerStatus | null = null
 
 	const setStatus = (status: TrackerStatus) => {
+		if (status === currentStatus) return
+
+		currentStatus = status
 		options.onStatus?.(status)
+	}
+
+	const updateStatus = () => {
+		if (closed) return
+
+		const statuses = [...endpointStatuses.values()]
+		if (statuses.some((status) => status === 'open')) {
+			setStatus('finding')
+		} else if (
+			statuses.length === 0 ||
+			statuses.every((status) => status === 'failed')
+		) {
+			setStatus('failed')
+		}
+	}
+
+	const markEndpoint = (url: string, status: EndpointStatus) => {
+		endpointStatuses.set(url, status)
+		updateStatus()
 	}
 
 	const send = (socket: WebSocket, message: Record<string, unknown>) => {
 		if (socket.readyState !== WebSocket.OPEN) return
 
+		const url = socketUrls.get(socket) ?? socket.url
 		try {
 			socket.send(
 				JSON.stringify({
@@ -108,7 +138,9 @@ export const createTrackerRendezvous = (
 				}),
 			)
 		} catch (error) {
-			warnTracker('socket.send.failed', { error, url: socket.url })
+			warnTracker('socket.send.failed', { error, url })
+			markEndpoint(url, 'failed')
+			socket.close()
 		}
 	}
 
@@ -157,17 +189,20 @@ export const createTrackerRendezvous = (
 
 	const handleMessage = (socket: WebSocket, data: unknown) => {
 		const message = decodeTrackerMessage(data)
+		const url = socketUrls.get(socket) ?? socket.url
 		if (message == null) {
 			warnTracker('message.decode.failed', {
 				length: typeof data === 'string' ? data.length : null,
-				url: socket.url,
+				url,
 			})
 			return
 		}
 
 		const failureReason = message['failure reason']
 		if (typeof failureReason === 'string') {
-			warnTracker('announce.failed', { reason: failureReason, url: socket.url })
+			warnTracker('announce.failed', { reason: failureReason, url })
+			markEndpoint(url, 'failed')
+			socket.close()
 			return
 		}
 
@@ -175,7 +210,7 @@ export const createTrackerRendezvous = (
 		if (typeof warningMessage === 'string') {
 			warnTracker('announce.warning', {
 				message: warningMessage,
-				url: socket.url,
+				url,
 			})
 		}
 
@@ -203,7 +238,7 @@ export const createTrackerRendezvous = (
 		}
 
 		if (typeof message.offer_id === 'string') {
-			warnTracker('message.signal.invalid', { url: socket.url })
+			warnTracker('message.signal.invalid', { url })
 		}
 	}
 
@@ -216,10 +251,10 @@ export const createTrackerRendezvous = (
 			return
 		}
 		sockets.add(socket)
+		socketUrls.set(socket, url)
 
 		socket.onopen = () => {
-			opened++
-			setStatus('finding')
+			markEndpoint(url, 'open')
 			announce(socket)
 		}
 		socket.onmessage = (event) => handleMessage(socket, event.data)
@@ -227,18 +262,19 @@ export const createTrackerRendezvous = (
 			sockets.delete(socket)
 			if (closed) return
 
-			if (opened === 0 && sockets.size === 0) {
-				setStatus('failed')
+			if (endpointStatuses.get(url) !== 'failed') {
+				markEndpoint(url, 'failed')
 			}
 		}
 		socket.onerror = (event) => {
 			warnTracker('socket.error', { type: event.type, url })
+			markEndpoint(url, 'failed')
 			socket.close()
 		}
 	}
 
 	setStatus('idle')
-	for (const tracker of options.trackers ?? TRACKERS) {
+	for (const tracker of trackerUrls) {
 		openSocket(tracker)
 	}
 

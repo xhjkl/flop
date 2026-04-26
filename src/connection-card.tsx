@@ -196,6 +196,12 @@ const HostConnectionFields = (props: {
 							Send this link to the other device. Flop will try to find it
 							automatically.
 						</p>
+						<Show when={props.connection.autoStatus === 'failed'}>
+							<p class="connection-issue">
+								Automatic link could not reach the tracker. Use the invite code
+								instead.
+							</p>
+						</Show>
 					</div>
 					<div class="connection-main">
 						<CopyBlock

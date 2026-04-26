@@ -7,8 +7,8 @@ export type RoomKeys = {
 }
 
 const encoder = new TextEncoder()
-const INFO_HASH_LABEL = encoder.encode('flop:hey')
-const AUTH_KEY_LABEL = encoder.encode('flop:yo')
+const INFO_HASH_DOMAIN = encoder.encode('flop:hey')
+const AUTH_KEY_DOMAIN = encoder.encode('flop:yo')
 
 const randomBytes = (length: number) => {
 	const bytes = new Uint8Array(length)
@@ -42,8 +42,8 @@ export const deriveRoomKeys = async (secret: RoomSecret): Promise<RoomKeys> => {
 	const secretBytes = roomSecretBytes(secret)
 	// WebTorrent trackers use BitTorrent-shaped info_hash values: 20 bytes, not a full SHA-256 digest.
 	// The discovery bucket is public and truncated; the full room secret still protects auth below.
-	const infoHash = (await sha256(INFO_HASH_LABEL, secretBytes)).slice(0, 20)
-	const authBytes = await sha256(AUTH_KEY_LABEL, secretBytes)
+	const infoHash = (await sha256(INFO_HASH_DOMAIN, secretBytes)).slice(0, 20)
+	const authBytes = await sha256(AUTH_KEY_DOMAIN, secretBytes)
 	const authKey = await crypto.subtle.importKey(
 		'raw',
 		authBytes,
