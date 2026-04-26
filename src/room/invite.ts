@@ -1,3 +1,4 @@
+import { warnLog } from '../log'
 import {
 	parseRoomSecret,
 	ROOM_SECRET_LENGTH,
@@ -17,7 +18,7 @@ const safeDecodeURIComponent = (value: string) => {
 	try {
 		return decodeURIComponent(value)
 	} catch (error) {
-		console.warn('[flop:invite] hash-decode.failed', {
+		warnLog('invite', 'hash-decode.failed', {
 			error,
 			length: value.length,
 		})
@@ -33,7 +34,7 @@ export const inviteFromHash = (hashText: string): InviteInput => {
 	const secret = parseRoomSecret(decoded)
 	if (secret != null) return { secret, type: 'auto-link' }
 	if (decoded.trim().length === ROOM_SECRET_LENGTH) {
-		console.warn('[flop:invite] invalid-room-secret-hash', {
+		warnLog('invite', 'invalid-room-secret-hash', {
 			length: decoded.trim().length,
 		})
 	}

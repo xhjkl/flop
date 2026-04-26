@@ -1,3 +1,5 @@
+import { warnLog } from '../log'
+
 export type DataChannelHandlers = {
 	onOpen?: () => void
 	onMessage?: (text: string) => void
@@ -15,7 +17,7 @@ export const bindChannel = (
 		onClose()
 	}
 	channel.onerror = (event) => {
-		console.warn('[flop:rtc] datachannel.error', {
+		warnLog('rtc', 'datachannel.error', {
 			channel: channel.label,
 			type: event.type,
 		})

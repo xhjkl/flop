@@ -1,6 +1,7 @@
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 import { base64ToBytes, bytesToBase64 } from './binary'
+import { errorLog, warnLog } from './log'
 import {
 	decodePacket,
 	encodePacket,
@@ -98,11 +99,11 @@ const linkLog = (link: RoomLink) => {
 }
 
 const warnRoom = (event: string, details: Record<string, unknown> = {}) => {
-	console.warn('[flop:room]', { event, ...details })
+	warnLog('room', event, details)
 }
 
 const errorRoom = (event: string, details: Record<string, unknown> = {}) => {
-	console.error('[flop:room]', { event, ...details })
+	errorLog('room', event, details)
 }
 
 export const createRoom = () => {

@@ -1,3 +1,4 @@
+import { warnLog } from './log'
 import type { SignalDescription } from './signal'
 import { bindChannel } from './webrtc/channel'
 import {
@@ -283,7 +284,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 				await sender.replaceTrack(track)
 			})
 			.catch((error: unknown) => {
-				console.warn('[flop:rtc] replaceTrack.failed', {
+				warnLog('rtc', 'replaceTrack.failed', {
 					error,
 					kind,
 				})

@@ -1,3 +1,4 @@
+import { warnLog } from '../log'
 import type { SignalDescription } from '../signal'
 
 export type TrackerStatus = 'failed' | 'finding' | 'idle'
@@ -31,7 +32,7 @@ const ANNOUNCE_INTERVAL_MS = 14_000
 const OFFER_ID_BYTES = 12
 
 const warnTracker = (event: string, details: Record<string, unknown> = {}) => {
-	console.warn('[flop:tracker]', { event, ...details })
+	warnLog('tracker', event, details)
 }
 
 const bytesToBinaryString = (bytes: Uint8Array) => {
@@ -133,6 +134,7 @@ export const createTrackerRendezvous = (
 					info_hash: infoHash,
 					left: 0,
 					peer_id: peerId,
+					port: 0,
 					uploaded: 0,
 					...message,
 				}),
