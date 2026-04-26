@@ -20,6 +20,7 @@ import {
 } from './room/activity'
 import { mediaTracks, roomDebug } from './room/debug'
 import {
+	closedConnection,
 	emptyBlipComposer,
 	emptyGuestConnection,
 	emptyHostConnection,
@@ -599,11 +600,7 @@ export function createRoom() {
 	function markRoomClosed() {
 		closeAllLinks()
 		clearPeerParticipants()
-		setState('connection', {
-			...state.connection,
-			phase: 'closed',
-			issue: null,
-		})
+		setState('connection', closedConnection())
 	}
 
 	function removeParticipantLink(
@@ -910,8 +907,13 @@ export function createRoom() {
 					markRoomClosed()
 					return
 				}
-				setState('connection', 'phase', 'connected')
-				setState('connection', 'issue', null)
+				setState('connection', {
+					...(state.connection.side === 'guest'
+						? state.connection
+						: emptyGuestConnection()),
+					status: 'connected',
+					issue: null,
+				})
 				publishLocalBlip()
 				startMissingMeshOffers()
 				break
@@ -989,8 +991,13 @@ export function createRoom() {
 			return null
 		}
 
-		setState('connection', 'issue', null)
-		setState('connection', 'replyText', '')
+		if (state.connection.side === 'host') {
+			setState('connection', {
+				...state.connection,
+				issue: null,
+				replyText: '',
+			})
+		}
 		return { fresh: true, participantId: participant.id }
 	}
 
@@ -1052,12 +1059,17 @@ export function createRoom() {
 			const inviteLink = inviteLinkFromCode(inviteCode)
 			setState('connection', {
 				...emptyHostConnection(),
-				phase: 'invite-ready',
+				status: 'invite-ready',
 				inviteLink,
 			})
 		} catch {
 			if (version !== connectionVersion) return
-			setState('connection', 'issue', 'Could not create an invite.')
+			setState('connection', {
+				...(state.connection.side === 'host'
+					? state.connection
+					: emptyHostConnection()),
+				issue: 'Could not create an invite.',
+			})
 		}
 	}
 
@@ -1070,8 +1082,11 @@ export function createRoom() {
 		setState('blipComposer', emptyBlipComposer())
 	}
 
-	async function createReply(inviteText = state.connection.inviteText) {
-		const inviteInput = inviteText.trim()
+	async function createReply(inviteText?: string) {
+		const inviteInput = (
+			inviteText ??
+			(state.connection.side === 'guest' ? state.connection.inviteText : '')
+		).trim()
 		const inviteCode = inviteCodeFromInput(inviteInput)
 		if (inviteCode === '') return
 
@@ -1082,7 +1097,7 @@ export function createRoom() {
 			resetGuestParticipants({ keepPendingBlip: true })
 			setState('connection', {
 				...emptyGuestConnection(),
-				phase: 'creating-reply',
+				status: 'creating-reply',
 				inviteText: inviteInput,
 			})
 
@@ -1097,7 +1112,7 @@ export function createRoom() {
 
 			setState('connection', {
 				...emptyGuestConnection(),
-				phase: 'reply-ready',
+				status: 'reply-ready',
 				inviteText: inviteInput,
 				replyCode,
 			})
@@ -1112,28 +1127,38 @@ export function createRoom() {
 		}
 	}
 
-	async function acceptReply(replyText = state.connection.replyText) {
-		const replyCode = replyText.trim()
+	async function acceptReply(replyText?: string) {
+		const replyCode = (
+			replyText ??
+			(state.connection.side === 'host' ? state.connection.replyText : '')
+		).trim()
 		const answeringLink = currentRendezvousLink('host-rendezvous')
 		if (replyCode === '' || answeringLink == null) return
 
 		const version = connectionVersion
 
 		try {
-			setState('connection', 'replyText', replyCode)
-			setState('connection', 'phase', 'accepting-reply')
-			setState('connection', 'issue', null)
+			if (state.connection.side === 'host') {
+				setState('connection', {
+					...state.connection,
+					replyText: replyCode,
+					status: 'accepting-reply',
+					issue: null,
+				})
+			}
 
 			await answeringLink.peer.acceptAnswer(replyCode)
 			if (version !== connectionVersion) return
 		} catch {
 			if (version !== connectionVersion) return
-			setState('connection', 'phase', 'invite-ready')
-			setState(
-				'connection',
-				'issue',
-				'That reply did not work. Ask for a fresh reply or regenerate the invite.',
-			)
+			if (state.connection.side === 'host') {
+				setState('connection', {
+					...state.connection,
+					status: 'invite-ready',
+					issue:
+						'That reply did not work. Ask for a fresh reply or regenerate the invite.',
+				})
+			}
 		}
 	}
 
@@ -1339,20 +1364,34 @@ export function createRoom() {
 		becomeHost: () => {
 			void startHostInvite()
 		},
-		copyInviteLink: () => void copyText(state.connection.inviteLink),
-		copyReplyCode: () => void copyText(state.connection.replyCode),
+		copyInviteLink: () =>
+			void copyText(
+				state.connection.side === 'host' ? state.connection.inviteLink : '',
+			),
+		copyReplyCode: () =>
+			void copyText(
+				state.connection.side === 'guest' ? state.connection.replyCode : '',
+			),
 		createReply: (inviteText?: string) => void createReply(inviteText),
 		enableSelfMedia: () => void enableSelfMedia(),
 		acceptReply: (replyText?: string) => void acceptReply(replyText),
 		sendFiles: (files: File[]) => void sendFiles(files),
 		sendBlip: (text?: string) => sendBlip(text),
 		setInviteText: (inviteText: string) => {
-			setState('connection', 'inviteText', inviteText)
-			setState('connection', 'issue', null)
+			if (state.connection.side !== 'guest') return
+			setState('connection', {
+				...state.connection,
+				inviteText,
+				issue: null,
+			})
 		},
 		setReplyText: (replyText: string) => {
-			setState('connection', 'replyText', replyText)
-			setState('connection', 'issue', null)
+			if (state.connection.side !== 'host') return
+			setState('connection', {
+				...state.connection,
+				replyText,
+				issue: null,
+			})
 		},
 		setBlipText: (text: string) => {
 			setState('blipComposer', 'text', text)

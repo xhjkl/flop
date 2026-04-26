@@ -25,12 +25,13 @@ function hasBusyFiles(room: RoomHandle) {
 
 function shouldWarnBeforeUnload(room: RoomHandle) {
 	const state = room.state
-	const phase = state.connection.phase
+	const connection = state.connection
 	// A refresh is cheap until a real peer, code, or file is on the line.
 	return (
-		phase === 'creating-reply' ||
-		phase === 'reply-ready' ||
-		phase === 'connected' ||
+		(connection.side === 'guest' &&
+			(connection.status === 'creating-reply' ||
+				connection.status === 'reply-ready' ||
+				connection.status === 'connected')) ||
 		hasBusyFiles(room) ||
 		room.peerKeys().some((key) => room.peer(key)?.state === 'live')
 	)
@@ -72,7 +73,14 @@ export default function App() {
 					)}
 				</For>
 				{/* Once connected, the strip should be people-first. Re-inviting is a host affordance, not the main event. */}
-				<Show when={state.connection.phase !== 'connected'}>
+				<Show
+					when={
+						!(
+							state.connection.side === 'guest' &&
+							state.connection.status === 'connected'
+						)
+					}
+				>
 					<ConnectionCard
 						connection={state.connection}
 						hasPeers={room.peerKeys().length > 0}

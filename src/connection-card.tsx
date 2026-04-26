@@ -1,28 +1,33 @@
 import { createSignal, Match, onCleanup, Show, Switch } from 'solid-js'
 import { CardActions } from './portraits'
-import type { ConnectionState } from './state'
-import { isGuestConnection, isHostConnection } from './state'
+import type {
+	ConnectionState,
+	GuestConnectionState,
+	HostConnectionState,
+} from './state'
 
 function connectionTitle(connection: ConnectionState) {
-	if (connection.phase === 'closed') return 'room closed'
-	if (connection.phase === 'connected') return 'connected'
-	return isHostConnection(connection.phase) ? 'invite' : 'reply'
+	if (connection.side === 'closed') return 'room closed'
+	if (connection.side === 'guest' && connection.status === 'connected') {
+		return 'connected'
+	}
+	return connection.side === 'host' ? 'invite' : 'reply'
 }
 
 function connectionBody(connection: ConnectionState) {
-	if (connection.phase === 'closed') {
+	if (connection.side === 'closed') {
 		return 'This direct connection is closed. Host a fresh room or join an existing one.'
 	}
 
-	if (connection.phase === 'connected') {
+	if (connection.side === 'guest' && connection.status === 'connected') {
 		return 'The browsers are connected directly.'
 	}
 
-	if (isHostConnection(connection.phase)) {
+	if (connection.side === 'host') {
 		return 'Send this invite to the other device. They open it, then send one reply back.'
 	}
 
-	if (connection.phase === 'needs-invite') {
+	if (connection.status === 'needs-invite') {
 		return 'Paste the invite from the other device. Then send one reply back.'
 	}
 
@@ -31,7 +36,7 @@ function connectionBody(connection: ConnectionState) {
 
 function ConnectionIssue(props: { connection: ConnectionState }) {
 	return (
-		<Show when={props.connection.phase !== 'closed' && props.connection.issue}>
+		<Show when={props.connection.side !== 'closed' && props.connection.issue}>
 			{(issue) => <p class="connection-issue">{issue()}</p>}
 		</Show>
 	)
@@ -133,7 +138,7 @@ function SideSwitch(props: { label: string; onPress: () => void }) {
 }
 
 function HostConnectionFields(props: {
-	connection: ConnectionState
+	connection: HostConnectionState
 	hasPeers: boolean
 	onAcceptReply: (replyText?: string) => void
 	onBecomeGuest: () => void
@@ -141,8 +146,8 @@ function HostConnectionFields(props: {
 	onSetReplyText: (replyText: string) => void
 }) {
 	const busy = () =>
-		props.connection.phase === 'creating-invite' ||
-		props.connection.phase === 'accepting-reply'
+		props.connection.status === 'creating-invite' ||
+		props.connection.status === 'accepting-reply'
 
 	return (
 		<>
@@ -175,13 +180,13 @@ function HostConnectionFields(props: {
 }
 
 function GuestConnectionFields(props: {
-	connection: ConnectionState
+	connection: GuestConnectionState
 	onBecomeHost: () => void
 	onCopyReplyCode: () => void
 	onCreateReply: (inviteText?: string) => void
 	onSetInviteText: (inviteText: string) => void
 }) {
-	const creating = () => props.connection.phase === 'creating-reply'
+	const creating = () => props.connection.status === 'creating-reply'
 	const canCreate = () =>
 		creating() || props.connection.inviteText.trim() !== ''
 
@@ -191,8 +196,8 @@ function GuestConnectionFields(props: {
 			<Switch>
 				<Match
 					when={
-						props.connection.phase === 'needs-invite' ||
-						props.connection.phase === 'creating-reply'
+						props.connection.status === 'needs-invite' ||
+						props.connection.status === 'creating-reply'
 					}
 				>
 					<div class="connection-main">
@@ -217,7 +222,7 @@ function GuestConnectionFields(props: {
 						/>
 					</Show>
 				</Match>
-				<Match when={props.connection.phase === 'reply-ready'}>
+				<Match when={props.connection.status === 'reply-ready'}>
 					<div class="connection-main">
 						<CopyBlock
 							label="reply"
@@ -229,7 +234,7 @@ function GuestConnectionFields(props: {
 					</div>
 				</Match>
 			</Switch>
-			<Show when={props.connection.phase !== 'connected'}>
+			<Show when={props.connection.status !== 'connected'}>
 				<SideSwitch label="host a room instead" onPress={props.onBecomeHost} />
 			</Show>
 		</>
@@ -262,6 +267,11 @@ export function ConnectionCard(props: {
 	onSetInviteText: (inviteText: string) => void
 	onSetReplyText: (replyText: string) => void
 }) {
+	const hostConnection = () =>
+		props.connection.side === 'host' ? props.connection : null
+	const guestConnection = () =>
+		props.connection.side === 'guest' ? props.connection : null
+
 	return (
 		<article class="portrait-card utility-card connection-card">
 			<header class="utility-header">
@@ -272,30 +282,34 @@ export function ConnectionCard(props: {
 				<ConnectionIssue connection={props.connection} />
 			</div>
 			<Switch>
-				<Match when={props.connection.phase === 'closed'}>
+				<Match when={props.connection.side === 'closed'}>
 					<ClosedConnectionFields
 						onBecomeGuest={props.onBecomeGuest}
 						onBecomeHost={props.onBecomeHost}
 					/>
 				</Match>
-				<Match when={isHostConnection(props.connection.phase)}>
-					<HostConnectionFields
-						connection={props.connection}
-						hasPeers={props.hasPeers ?? false}
-						onAcceptReply={props.onAcceptReply}
-						onBecomeGuest={props.onBecomeGuest}
-						onCopyInviteLink={props.onCopyInviteLink}
-						onSetReplyText={props.onSetReplyText}
-					/>
+				<Match when={hostConnection()}>
+					{(connection) => (
+						<HostConnectionFields
+							connection={connection()}
+							hasPeers={props.hasPeers ?? false}
+							onAcceptReply={props.onAcceptReply}
+							onBecomeGuest={props.onBecomeGuest}
+							onCopyInviteLink={props.onCopyInviteLink}
+							onSetReplyText={props.onSetReplyText}
+						/>
+					)}
 				</Match>
-				<Match when={isGuestConnection(props.connection.phase)}>
-					<GuestConnectionFields
-						connection={props.connection}
-						onBecomeHost={props.onBecomeHost}
-						onCopyReplyCode={props.onCopyReplyCode}
-						onCreateReply={props.onCreateReply}
-						onSetInviteText={props.onSetInviteText}
-					/>
+				<Match when={guestConnection()}>
+					{(connection) => (
+						<GuestConnectionFields
+							connection={connection()}
+							onBecomeHost={props.onBecomeHost}
+							onCopyReplyCode={props.onCopyReplyCode}
+							onCreateReply={props.onCreateReply}
+							onSetInviteText={props.onSetInviteText}
+						/>
+					)}
 				</Match>
 			</Switch>
 		</article>

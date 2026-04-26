@@ -124,10 +124,9 @@ export const uiFixtures: UiFixture[] = [
 					{/* Future preflight? You'll get a quick mirror check before you go live. */}
 				</SelfMediaCard>
 				{connectionCard({
-					phase: 'invite-ready',
+					side: 'host',
+					status: 'invite-ready',
 					inviteLink: SAMPLE_INVITE_LINK,
-					inviteText: '',
-					replyCode: '',
 					replyText: '',
 					issue: null,
 				})}
@@ -147,11 +146,10 @@ export const uiFixtures: UiFixture[] = [
 					state="waiting"
 				/>
 				{connectionCard({
-					phase: 'reply-ready',
-					inviteLink: '',
+					side: 'guest',
+					status: 'reply-ready',
 					inviteText: SAMPLE_OFFER,
 					replyCode: SAMPLE_REPLY,
-					replyText: '',
 					issue: null,
 				})}
 			</Room>
@@ -194,10 +192,9 @@ export const uiFixtures: UiFixture[] = [
 				<PersonCard activity={emptyActivity} colorSeed={JO_ID} state="live" />
 				{connectionCard(
 					{
-						phase: 'invite-ready',
+						side: 'host',
+						status: 'invite-ready',
 						inviteLink: SAMPLE_INVITE_LINK,
-						inviteText: '',
-						replyCode: '',
 						replyText: '',
 						issue: null,
 					},
@@ -214,11 +211,7 @@ export const uiFixtures: UiFixture[] = [
 			<Room themeSeed="closed-room">
 				{selfCard()}
 				{connectionCard({
-					phase: 'closed',
-					inviteLink: '',
-					inviteText: '',
-					replyCode: '',
-					replyText: '',
+					side: 'closed',
 					issue: null,
 				})}
 			</Room>
@@ -232,10 +225,9 @@ export const uiFixtures: UiFixture[] = [
 			<Room themeSeed="error-screen">
 				{selfCard()}
 				{connectionCard({
-					phase: 'creating-invite',
+					side: 'host',
+					status: 'creating-invite',
 					inviteLink: '',
-					inviteText: '',
-					replyCode: '',
 					replyText: '',
 					issue: 'Could not create an invite.',
 				})}

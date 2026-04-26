@@ -1,40 +1,41 @@
 export type PeerState = 'live' | 'waiting'
 
-export type ConnectionPhase =
+export type HostConnectionStatus =
+	| 'accepting-reply'
 	| 'creating-invite'
 	| 'invite-ready'
-	| 'accepting-reply'
-	| 'needs-invite'
-	| 'creating-reply'
-	| 'reply-ready'
-	| 'connected'
-	| 'closed'
 
-export type ConnectionState = {
-	phase: ConnectionPhase
+export type GuestConnectionStatus =
+	| 'connected'
+	| 'creating-reply'
+	| 'needs-invite'
+	| 'reply-ready'
+
+export type HostConnectionState = {
+	side: 'host'
+	status: HostConnectionStatus
 	inviteLink: string
-	inviteText: string
-	replyCode: string
 	replyText: string
 	issue: string | null
 }
 
-export function isHostConnection(phase: ConnectionPhase) {
-	return (
-		phase === 'creating-invite' ||
-		phase === 'invite-ready' ||
-		phase === 'accepting-reply'
-	)
+export type GuestConnectionState = {
+	side: 'guest'
+	status: GuestConnectionStatus
+	inviteText: string
+	replyCode: string
+	issue: string | null
 }
 
-export function isGuestConnection(phase: ConnectionPhase) {
-	return (
-		phase === 'needs-invite' ||
-		phase === 'creating-reply' ||
-		phase === 'reply-ready' ||
-		phase === 'connected'
-	)
+export type ClosedConnectionState = {
+	side: 'closed'
+	issue: string | null
 }
+
+export type ConnectionState =
+	| ClosedConnectionState
+	| GuestConnectionState
+	| HostConnectionState
 
 export type PortraitFileState = {
 	id: string

@@ -1,5 +1,11 @@
 import { emptySelfMedia, type SelfMedia } from '../self-media'
-import type { BlipComposerState, ConnectionState } from '../state'
+import type {
+	BlipComposerState,
+	ClosedConnectionState,
+	ConnectionState,
+	GuestConnectionState,
+	HostConnectionState,
+} from '../state'
 
 // These factories name visible card states, not persisted room data.
 export type RoomState = {
@@ -9,21 +15,24 @@ export type RoomState = {
 	themeSeed: string
 }
 
-export const emptyHostConnection = (): ConnectionState => ({
-	phase: 'creating-invite',
+export const emptyHostConnection = (): HostConnectionState => ({
+	side: 'host',
+	status: 'creating-invite',
 	inviteLink: '',
-	inviteText: '',
-	replyCode: '',
 	replyText: '',
 	issue: null,
 })
 
-export const emptyGuestConnection = (): ConnectionState => ({
-	phase: 'needs-invite',
-	inviteLink: '',
+export const emptyGuestConnection = (): GuestConnectionState => ({
+	side: 'guest',
+	status: 'needs-invite',
 	inviteText: '',
 	replyCode: '',
-	replyText: '',
+	issue: null,
+})
+
+export const closedConnection = (): ClosedConnectionState => ({
+	side: 'closed',
 	issue: null,
 })
 
