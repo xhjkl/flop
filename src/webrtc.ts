@@ -27,7 +27,15 @@ type PeerOptions = {
 	onClose?: () => void
 	onMessage?: (text: string) => void
 	onRemoteMedia?: (stream: MediaStream | null) => void
+	onState?: (state: PeerStateSnapshot) => void
 	iceServers?: RTCIceServer[]
+}
+
+type PeerStateSnapshot = {
+	connectionState: RTCPeerConnectionState
+	iceConnectionState: RTCIceConnectionState
+	iceGatheringState: RTCIceGatheringState
+	signalingState: RTCSignalingState
 }
 
 const localDescription = async (pc: RTCPeerConnection) => {
@@ -53,6 +61,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	let disconnectTimeout: ReturnType<typeof setTimeout> | null = null
 	let localMedia: MediaStream | null = null
 	let localMediaVersion = 0
+	let stateKey = ''
 	const replaceTrackQueues: Record<MediaKind, Promise<void>> = {
 		audio: Promise.resolve(),
 		video: Promise.resolve(),
@@ -98,7 +107,26 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		}, DISCONNECT_GRACE_MS)
 	}
 
+	const stateSnapshot = (): PeerStateSnapshot => {
+		return {
+			connectionState: pc.connectionState,
+			iceConnectionState: pc.iceConnectionState,
+			iceGatheringState: pc.iceGatheringState,
+			signalingState: pc.signalingState,
+		}
+	}
+
+	const emitState = () => {
+		const state = stateSnapshot()
+		const nextStateKey = JSON.stringify(state)
+		if (nextStateKey === stateKey) return
+
+		stateKey = nextStateKey
+		options.onState?.(state)
+	}
+
 	const handleConnectionHealth = () => {
+		emitState()
 		const connectionState = pc.connectionState
 		const iceState = pc.iceConnectionState
 

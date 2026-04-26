@@ -1,7 +1,7 @@
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 import { base64ToBytes, bytesToBase64 } from './binary'
-import { errorLog, warnLog } from './log'
+import { errorLog, infoLog, warnLog } from './log'
 import {
 	decodePacket,
 	encodePacket,
@@ -100,6 +100,10 @@ const linkLog = (link: RoomLink) => {
 
 const warnRoom = (event: string, details: Record<string, unknown> = {}) => {
 	warnLog('room', event, details)
+}
+
+const infoRoom = (event: string, details: Record<string, unknown> = {}) => {
+	infoLog('room', event, details)
 }
 
 const errorRoom = (event: string, details: Record<string, unknown> = {}) => {
@@ -495,7 +499,9 @@ export const createRoom = () => {
 		if (!sendPacket(link.peer, { nonce, type: 'auth-challenge' })) {
 			warnRoom('auth.challenge.send.failed', { link: linkLog(link) })
 			closeLink(link)
+			return
 		}
+		infoRoom('auth.challenge.sent', { link: linkLog(link) })
 	}
 
 	const answerTrackerChallenge = async (link: RoomLink, nonce: string) => {
@@ -518,7 +524,9 @@ export const createRoom = () => {
 		if (!sendPacket(link.peer, { mac, type: 'auth-response' })) {
 			warnRoom('auth.response.send.failed', { link: linkLog(link) })
 			closeLink(link)
+			return
 		}
+		infoRoom('auth.response.sent', { link: linkLog(link) })
 	}
 
 	const acceptTrackerResponse = async (link: RoomLink, mac: string) => {
@@ -554,7 +562,9 @@ export const createRoom = () => {
 		if (!sendPacket(link.peer, { type: 'auth-accepted' })) {
 			warnRoom('auth.accept.send.failed', { link: linkLog(link) })
 			closeLink(link)
+			return
 		}
+		infoRoom('auth.accept.sent', { link: linkLog(link) })
 	}
 
 	const handleAuthPacket = (link: RoomLink, message: Packet) => {
@@ -577,7 +587,9 @@ export const createRoom = () => {
 				if (!sendPacket(link.peer, { type: 'hello' })) {
 					warnRoom('auth.hello.send.failed', { link: linkLog(link) })
 					closeLink(link)
+					return true
 				}
+				infoRoom('auth.hello.sent', { link: linkLog(link) })
 				return true
 			case 'auth-response':
 				if (link.source !== 'tracker' || link.role !== 'host-rendezvous') {
@@ -830,6 +842,12 @@ export const createRoom = () => {
 				link.mediaStream = stream
 				touchLinks()
 			},
+			onState: (state) => {
+				const link = links.get(id)
+				if (link == null || link.source !== 'tracker') return
+
+				infoRoom('rtc.state', { link: linkLog(link), ...state })
+			},
 			onClose: () => handleLinkClose(id),
 		})
 
@@ -857,6 +875,7 @@ export const createRoom = () => {
 
 		link.live = true
 		touchLinks()
+		infoRoom('link.open', { link: linkLog(link) })
 
 		if (link.source === 'tracker' && link.auth !== 'verified') {
 			if (link.role === 'host-rendezvous') sendTrackerChallenge(link)
@@ -882,6 +901,7 @@ export const createRoom = () => {
 		const link = links.get(linkId)
 		if (link == null) return
 
+		infoRoom('link.close', { link: linkLog(link) })
 		if (link.remoteId != null) {
 			removeParticipantLink(link.remoteId, { peer: link.peer })
 			return
@@ -1293,6 +1313,10 @@ export const createRoom = () => {
 				replyText: '',
 			})
 		}
+		infoRoom('host.admit', {
+			link: linkLog(link),
+			participantId: participantIdToString(participant.id),
+		})
 		return { fresh: true, participantId: participant.id }
 	}
 
@@ -1369,14 +1393,22 @@ export const createRoom = () => {
 			return
 		}
 
-		void link.peer.acceptAnswer(answer).catch((error) => {
-			warnRoom('tracker.answer.accept.failed', {
-				error,
-				link: linkLog(link),
-				offerId,
+		infoRoom('tracker.answer.accept.start', { link: linkLog(link) })
+		void link.peer
+			.acceptAnswer(answer)
+			.then(() => {
+				if (links.get(link.id) !== link) return
+
+				infoRoom('tracker.answer.accept.done', { link: linkLog(link) })
 			})
-			closeLink(link)
-		})
+			.catch((error) => {
+				warnRoom('tracker.answer.accept.failed', {
+					error,
+					link: linkLog(link),
+					offerId,
+				})
+				closeLink(link)
+			})
 	}
 
 	const answerTrackerOffer = (
@@ -1400,6 +1432,7 @@ export const createRoom = () => {
 			.then((answer) => {
 				if (links.get(link.id) !== link) return
 
+				infoRoom('tracker.offer.answer.sent', { link: linkLog(link) })
 				reply(answer)
 			})
 			.catch((error) => {
