@@ -61,7 +61,6 @@ export function createPeer(options: PeerOptions = {}): Peer {
 	const pc = new RTCPeerConnection({
 		iceServers: options.iceServers ?? DEFAULT_ICE_SERVERS,
 	})
-	const remoteStream = new MediaStream()
 	const remoteTracks = new Map<string, MediaStreamTrack>()
 	let channel: RTCDataChannel | null = null
 	let closeEmitted = false
@@ -252,7 +251,8 @@ export function createPeer(options: PeerOptions = {}): Peer {
 	})
 
 	function emitRemoteMedia() {
-		const stream = remoteTracks.size === 0 ? null : remoteStream
+		const tracks = [...remoteTracks.values()]
+		const stream = tracks.length === 0 ? null : new MediaStream(tracks)
 		debug('remote-media.emit', streamSummary(stream))
 		options.onRemoteMedia?.(stream)
 	}
@@ -268,7 +268,6 @@ export function createPeer(options: PeerOptions = {}): Peer {
 
 		if (!remoteTracks.has(event.track.id)) {
 			remoteTracks.set(event.track.id, event.track)
-			remoteStream.addTrack(event.track)
 		}
 		emitRemoteMedia()
 
@@ -292,7 +291,6 @@ export function createPeer(options: PeerOptions = {}): Peer {
 				kind: event.track.kind,
 			})
 			remoteTracks.delete(event.track.id)
-			remoteStream.removeTrack(event.track)
 			emitRemoteMedia()
 		})
 	}

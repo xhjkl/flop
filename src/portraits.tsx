@@ -35,6 +35,10 @@ const selfMediaStateLabels = {
 } satisfies Record<SelfMediaStatus, string>
 
 function hasLiveSelfPreview(media: SelfMedia) {
+	return media.status === 'live' && media.stream != null
+}
+
+function hasActiveSelfPreview(media: SelfMedia) {
 	return (
 		media.status === 'live' &&
 		media.stream != null &&
@@ -113,6 +117,90 @@ function playVideo(
 				'warn',
 			)
 		})
+}
+
+function StreamVideo(props: {
+	active?: boolean
+	class: string
+	label: string
+	muted?: boolean
+	stream?: MediaStream | null
+}) {
+	let video: HTMLVideoElement | null = null
+
+	createEffect(() => {
+		const stream = props.stream ?? null
+		const element = video
+		if (element == null) return
+
+		if (element.srcObject !== stream) {
+			element.srcObject = stream
+			mediaDebug('video.srcObject', {
+				...describeVideoElement(element),
+				label: props.label,
+				...describeStream(stream),
+			})
+		}
+		if (stream != null && props.active !== false) {
+			playVideo(props.label, element, stream)
+		}
+	})
+
+	onCleanup(() => {
+		if (video == null) return
+
+		video.srcObject = null
+	})
+
+	return (
+		<video
+			ref={(element) => {
+				video = element
+			}}
+			class={props.class}
+			data-active={
+				(props.stream ?? null) != null && props.active !== false
+					? 'true'
+					: 'false'
+			}
+			autoplay
+			muted={props.muted}
+			onCanPlay={() => {
+				if (video == null) return
+				mediaDebug('video.canplay', {
+					...describeVideoElement(video),
+					label: props.label,
+				})
+			}}
+			onError={() => {
+				if (video == null) return
+				mediaDebug(
+					'video.error',
+					{
+						...describeVideoElement(video),
+						label: props.label,
+						message: video.error?.message ?? null,
+					},
+					'warn',
+				)
+			}}
+			onLoadedMetadata={() => {
+				if (video == null) return
+				mediaDebug('video.loadedmetadata', {
+					...describeVideoElement(video),
+					label: props.label,
+				})
+			}}
+			onPlaying={() => {
+				if (video == null) return
+				mediaDebug('video.playing', {
+					...describeVideoElement(video),
+					label: props.label,
+				})
+			}}
+			playsinline
+		/>
+	)
 }
 
 export function CardActions(props: { actions: CardAction[] }) {
@@ -349,28 +437,8 @@ export function PersonCard(props: {
 	activity: PortraitActivityState
 	colorSeed: string
 	mediaStream?: MediaStream | null
-	mediaVersion?: number
 	state: PeerState
 }) {
-	let video: HTMLVideoElement | null = null
-
-	createEffect(() => {
-		const stream = props.mediaStream ?? null
-		const mediaVersion = props.mediaVersion ?? 0
-		const element = video
-		if (element == null) return
-
-		if (element.srcObject !== stream) {
-			element.srcObject = stream
-			mediaDebug('video.srcObject', {
-				...describeVideoElement(element),
-				label: `remote:${mediaVersion}`,
-				...describeStream(stream),
-			})
-		}
-		if (stream != null) playVideo(`remote:${mediaVersion}`, element, stream)
-	})
-
 	return (
 		<article class="portrait-card person-card" data-state={props.state}>
 			<div
@@ -378,48 +446,10 @@ export function PersonCard(props: {
 				data-has-video={props.mediaStream != null ? 'true' : 'false'}
 				style={{ '--card-h': `${hueFromSeed(props.colorSeed)}` }}
 			>
-				{/* biome-ignore lint/a11y/useMediaCaption: Live peer media has no authored caption track. */}
-				<video
-					ref={(element) => {
-						video = element
-					}}
+				<StreamVideo
 					class="remote-video"
-					data-active={props.mediaStream != null ? 'true' : 'false'}
-					autoplay
-					onCanPlay={() => {
-						if (video == null) return
-						mediaDebug('video.canplay', {
-							...describeVideoElement(video),
-							label: `remote:${props.mediaVersion ?? 0}`,
-						})
-					}}
-					onError={() => {
-						if (video == null) return
-						mediaDebug(
-							'video.error',
-							{
-								...describeVideoElement(video),
-								label: `remote:${props.mediaVersion ?? 0}`,
-								message: video.error?.message ?? null,
-							},
-							'warn',
-						)
-					}}
-					onLoadedMetadata={() => {
-						if (video == null) return
-						mediaDebug('video.loadedmetadata', {
-							...describeVideoElement(video),
-							label: `remote:${props.mediaVersion ?? 0}`,
-						})
-					}}
-					onPlaying={() => {
-						if (video == null) return
-						mediaDebug('video.playing', {
-							...describeVideoElement(video),
-							label: `remote:${props.mediaVersion ?? 0}`,
-						})
-					}}
-					playsinline
+					label={`remote:${props.colorSeed}`}
+					stream={props.mediaStream ?? null}
 				/>
 				<div class="person-activity-shell">
 					<PortraitActivity activity={props.activity} />
@@ -442,37 +472,6 @@ export function SelfMediaCard(props: {
 	onSendBlip?: () => void
 	onSetBlipText?: (text: string) => void
 }) {
-	let video: HTMLVideoElement | null = null
-
-	createEffect(() => {
-		const stream = hasLiveSelfPreview(props.media) ? props.media.stream : null
-		const element = video
-		if (element == null) return
-
-		if (stream != null) {
-			// The local preview is a mirror first; remote publishing can build on the same portrait.
-			if (element.srcObject !== stream) {
-				element.srcObject = stream
-				mediaDebug('video.srcObject', {
-					...describeVideoElement(element),
-					label: 'self',
-					...describeStream(stream),
-				})
-			}
-			playVideo('self', element, stream)
-			return
-		}
-
-		if (element.srcObject !== null) {
-			element.srcObject = null
-			mediaDebug('video.srcObject', {
-				...describeVideoElement(element),
-				label: 'self',
-				...describeStream(null),
-			})
-		}
-	})
-
 	return (
 		<article
 			class="portrait-card self-card"
@@ -481,47 +480,12 @@ export function SelfMediaCard(props: {
 		>
 			<Show when={hasLiveSelfPreview(props.media)}>
 				<div class="portrait-face self-portrait-face">
-					<video
-						ref={(element) => {
-							video = element
-						}}
+					<StreamVideo
+						active={hasActiveSelfPreview(props.media)}
 						class="self-video"
-						autoplay
+						label="self"
 						muted
-						onCanPlay={() => {
-							if (video == null) return
-							mediaDebug('video.canplay', {
-								...describeVideoElement(video),
-								label: 'self',
-							})
-						}}
-						onError={() => {
-							if (video == null) return
-							mediaDebug(
-								'video.error',
-								{
-									...describeVideoElement(video),
-									label: 'self',
-									message: video.error?.message ?? null,
-								},
-								'warn',
-							)
-						}}
-						onLoadedMetadata={() => {
-							if (video == null) return
-							mediaDebug('video.loadedmetadata', {
-								...describeVideoElement(video),
-								label: 'self',
-							})
-						}}
-						onPlaying={() => {
-							if (video == null) return
-							mediaDebug('video.playing', {
-								...describeVideoElement(video),
-								label: 'self',
-							})
-						}}
-						playsinline
+						stream={props.media.stream}
 					/>
 				</div>
 			</Show>

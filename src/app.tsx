@@ -32,7 +32,7 @@ function shouldWarnBeforeUnload(room: RoomHandle) {
 		phase === 'reply-ready' ||
 		phase === 'connected' ||
 		hasBusyFiles(room) ||
-		room.peerKeys().some((key) => room.participant(key)?.state === 'live')
+		room.peerKeys().some((key) => room.peer(key)?.state === 'live')
 	)
 }
 
@@ -59,13 +59,12 @@ export default function App() {
 				/>
 				<For each={room.peerKeys()}>
 					{(key) => (
-						<Show when={room.participant(key)}>
+						<Show when={room.peer(key)}>
 							{(peer) => (
 								<PersonCard
 									activity={peer().activity}
 									colorSeed={peer().id}
 									mediaStream={peer().mediaStream}
-									mediaVersion={peer().mediaVersion}
 									state={peer().state}
 								/>
 							)}

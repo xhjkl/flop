@@ -3,7 +3,7 @@ import {
 	type ParticipantId,
 	participantIdToString,
 } from '../protocol'
-import type { PeerState, PortraitActivityState } from '../state'
+import type { PortraitActivityState } from '../state'
 
 // Solid store paths want strings; the protocol keeps bigint at the edge.
 export type ParticipantKey = string
@@ -11,10 +11,7 @@ export type ParticipantKey = string
 export type RoomParticipant = {
 	activity: PortraitActivityState
 	id: ParticipantKey
-	mediaStream: MediaStream | null
-	mediaVersion: number
 	participantId: ParticipantId
-	state: PeerState
 }
 
 export function emptyParticipantActivity(): PortraitActivityState {
@@ -34,10 +31,7 @@ export function mergeParticipant(
 		// Roster refreshes should not erase what a person just said or sent.
 		activity: existing?.activity ?? emptyParticipantActivity(),
 		id,
-		mediaStream: existing?.mediaStream ?? null,
-		mediaVersion: existing?.mediaVersion ?? 0,
 		participantId: participant.id,
-		state: existing?.state ?? 'waiting',
 	}
 }
 

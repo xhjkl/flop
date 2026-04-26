@@ -47,12 +47,25 @@ import {
 	setSelfMediaTracksEnabled,
 	stopSelfMedia,
 } from './self-media'
-import type { PortraitFileState } from './state'
+import type { PeerState, PortraitFileState } from './state'
 import { createPeer, type Peer } from './webrtc'
 
-type PeerLink = {
+type LinkId = string
+
+type LinkRole = 'guest-rendezvous' | 'host-rendezvous' | 'mesh'
+
+type RoomLink = {
+	id: LinkId
 	live: boolean
+	mediaStream: MediaStream | null
 	peer: Peer
+	remoteId: ParticipantId | null
+	role: LinkRole
+}
+
+type RoomPeer = RoomParticipant & {
+	mediaStream: MediaStream | null
+	state: PeerState
 }
 
 function packetDebugDetails(packet: Packet) {
@@ -88,8 +101,6 @@ function sendPacket(peer: Peer, packet: Packet) {
 }
 
 export function createRoom() {
-	let pendingPeer: Peer | null = null
-	let pendingPeerVersion = 0
 	const incomingFiles = new Map<string, IncomingFileTransfer>()
 	let fileUrls = new Set<string>()
 	let pendingLocalBlip: string | null = null
@@ -97,9 +108,11 @@ export function createRoom() {
 	let localParticipantId: ParticipantId | null = randomParticipantId()
 	let hostParticipantId: ParticipantId | null = localParticipantId
 	let connectionVersion = 0
+	let linkSequence = 0
 	let selfMediaVersion = 0
 	const hostParticipant = mergeParticipant({ id: localParticipantId })
-	const participantLinks = new Map<ParticipantKey, PeerLink>()
+	const links = new Map<LinkId, RoomLink>()
+	const [linkRevision, setLinkRevision] = createSignal(0)
 	const [participantKeys, setParticipantKeys] = createSignal<ParticipantKey[]>([
 		hostParticipant.id,
 	])
@@ -140,18 +153,26 @@ export function createRoom() {
 		)
 	}
 
-	function closePendingPeer() {
-		pendingPeerVersion++
-		const closingPeer = pendingPeer
-		pendingPeer = null
-
-		try {
-			closingPeer?.close()
-		} catch {}
-	}
-
 	function participantByKey(key: ParticipantKey) {
 		return participants[key] ?? null
+	}
+
+	function touchLinks() {
+		setLinkRevision((revision) => revision + 1)
+	}
+
+	function peerByKey(key: ParticipantKey): RoomPeer | null {
+		const participant = participantByKey(key)
+		if (participant == null) return null
+
+		// links is intentionally a transport map; this signal bridges it into Solid projections.
+		linkRevision()
+		const link = linkByParticipantKey(key)
+		return {
+			...participant,
+			mediaStream: link?.mediaStream ?? null,
+			state: link?.live ? 'live' : 'waiting',
+		}
 	}
 
 	function participantById(participantId: ParticipantId | null) {
@@ -160,61 +181,94 @@ export function createRoom() {
 			: participantByKey(participantKey(participantId))
 	}
 
-	function linkedPeers() {
-		return [...participantLinks.values()].map((link) => link.peer)
+	function nextLinkId(role: LinkRole): LinkId {
+		linkSequence++
+		return `${role}:${linkSequence}`
 	}
 
-	function closePeerLinks() {
-		const closingPeers = linkedPeers()
+	function isRendezvousLink(link: RoomLink) {
+		return link.role === 'host-rendezvous' || link.role === 'guest-rendezvous'
+	}
 
-		for (const key of participantKeys()) {
-			const person = participants[key]
-			if (person == null) continue
-
-			setParticipants(key, {
-				mediaStream: null,
-				mediaVersion: person.mediaVersion + 1,
-				state: 'waiting',
-			})
+	function currentRendezvousLink(role?: LinkRole) {
+		for (const link of links.values()) {
+			if (!isRendezvousLink(link)) continue
+			if (role != null && link.role !== role) continue
+			if (link.remoteId == null) return link
 		}
-		participantLinks.clear()
 
-		for (const closingPeer of closingPeers) {
+		return null
+	}
+
+	function linkByParticipantKey(key: ParticipantKey) {
+		for (const link of links.values()) {
+			if (link.remoteId != null && participantKey(link.remoteId) === key) {
+				return link
+			}
+		}
+
+		return null
+	}
+
+	function linkedPeers() {
+		return [...links.values()].map((link) => link.peer)
+	}
+
+	function removeLink(link: RoomLink) {
+		if (links.get(link.id) !== link) return
+
+		link.live = false
+		links.delete(link.id)
+		touchLinks()
+	}
+
+	function closeLink(link: RoomLink) {
+		removeLink(link)
+
+		try {
+			link.peer.close()
+		} catch {}
+	}
+
+	function closeRendezvousLink(role?: LinkRole) {
+		const link = currentRendezvousLink(role)
+		if (link != null) closeLink(link)
+	}
+
+	function closeAllLinks() {
+		const closingLinks = [...links.values()]
+		links.clear()
+		for (const link of closingLinks) link.live = false
+		touchLinks()
+
+		for (const link of closingLinks) {
 			try {
-				closingPeer.close()
+				link.peer.close()
 			} catch {}
 		}
 	}
 
 	function closeAllPeers() {
-		closePendingPeer()
-		closePeerLinks()
+		closeAllLinks()
 	}
 
 	function participantLink(participantId: ParticipantId) {
-		return participantLinks.get(participantKey(participantId)) ?? null
+		return linkByParticipantKey(participantKey(participantId))
 	}
 
-	function setParticipantLink(
-		participantId: ParticipantId,
-		link: PeerLink | null,
-	) {
+	function adoptLink(link: RoomLink, participantId: ParticipantId) {
+		if (links.get(link.id) !== link) return false
+		if (link.remoteId != null && link.remoteId !== participantId) return false
+
 		const key = participantKey(participantId)
 		const person = participants[key]
 		if (person == null) return false
 
-		if (link == null) {
-			participantLinks.delete(key)
-			setParticipants(key, {
-				mediaStream: null,
-				mediaVersion: person.mediaVersion + 1,
-				state: 'waiting',
-			})
-			return true
-		}
+		const existing = linkByParticipantKey(key)
+		if (existing != null && existing !== link) closeLink(existing)
 
-		participantLinks.set(key, link)
-		setParticipants(key, 'state', link.live ? 'live' : 'waiting')
+		link.remoteId = participantId
+		touchLinks()
 		return true
 	}
 
@@ -231,19 +285,14 @@ export function createRoom() {
 				continue
 			}
 
-			participantLinks.get(key)?.peer.close()
-			participantLinks.delete(key)
+			const link = linkByParticipantKey(key)
+			if (link != null) closeLink(link)
 		}
 
 		for (const person of roster) {
 			const key = participantKey(person.id)
 			const existing = participants[key]
-			const link = participantLinks.get(key)
-
-			nextParticipants[key] = {
-				...mergeParticipant(person, existing),
-				state: link?.live ? 'live' : 'waiting',
-			}
+			nextParticipants[key] = mergeParticipant(person, existing)
 		}
 
 		setParticipants(reconcile(nextParticipants))
@@ -252,9 +301,9 @@ export function createRoom() {
 
 	function deleteParticipant(participantId: ParticipantId) {
 		const key = participantKey(participantId)
-		const link = participantLinks.get(key) ?? null
+		const link = participantLink(participantId)
 
-		participantLinks.delete(key)
+		if (link != null) removeLink(link)
 		setParticipantKeys((keys) => keys.filter((item) => item !== key))
 		setParticipants(key, undefined)
 
@@ -279,7 +328,7 @@ export function createRoom() {
 		pendingLocalBlip = null
 		localParticipantId = randomParticipantId()
 		hostParticipantId = localParticipantId
-		participantLinks.clear()
+		closeAllLinks()
 
 		const host = mergeParticipant({ id: localParticipantId })
 		setParticipants(reconcile({ [host.id]: host }))
@@ -292,7 +341,7 @@ export function createRoom() {
 		if (!options.keepPendingBlip) pendingLocalBlip = null
 		localParticipantId = null
 		hostParticipantId = null
-		participantLinks.clear()
+		closeAllLinks()
 		setParticipants(reconcile({}))
 		setParticipantKeys([])
 		setLocalKey(null)
@@ -309,20 +358,6 @@ export function createRoom() {
 		return livePeerLinks().length
 	}
 
-	function setParticipantMedia(
-		participantId: ParticipantId,
-		stream: MediaStream | null,
-	) {
-		const key = participantKey(participantId)
-		const person = participants[key]
-		if (person == null) return
-
-		setParticipants(key, {
-			mediaStream: stream,
-			mediaVersion: person.mediaVersion + 1,
-		})
-	}
-
 	function sendToParticipant(participantId: ParticipantId, packet: Packet) {
 		const link = participantLink(participantId)
 		if (link == null || !link.live) return false
@@ -330,7 +365,7 @@ export function createRoom() {
 		return sendPacket(link.peer, packet)
 	}
 
-	function sendToLinks(links: PeerLink[], packet: Packet) {
+	function sendToLinks(links: RoomLink[], packet: Packet) {
 		let sent = 0
 
 		for (const link of links) {
@@ -347,7 +382,7 @@ export function createRoom() {
 		const exceptKey = except == null ? null : participantKey(except)
 
 		for (const key of participantKeys()) {
-			const link = participantLinks.get(key)
+			const link = linkByParticipantKey(key)
 			if (key === exceptKey || link == null || !link.live) {
 				continue
 			}
@@ -365,7 +400,9 @@ export function createRoom() {
 	}
 
 	function livePeerLinks() {
-		return [...participantLinks.values()].filter((link) => link.live)
+		return [...links.values()].filter(
+			(link) => link.live && link.remoteId != null,
+		)
 	}
 
 	function setParticipantBlip(participantId: ParticipantId, text: string) {
@@ -560,8 +597,7 @@ export function createRoom() {
 	}
 
 	function markRoomClosed() {
-		closePendingPeer()
-		closePeerLinks()
+		closeAllLinks()
 		clearPeerParticipants()
 		setState('connection', {
 			...state.connection,
@@ -570,23 +606,20 @@ export function createRoom() {
 		})
 	}
 
-	function removePeerLink(
+	function removeParticipantLink(
 		participantId: ParticipantId,
 		options: { peer?: Peer | null } = {},
 	) {
 		const key = participantKey(participantId)
 		const person = participants[key]
-		const link = participantLinks.get(key)
-		if (person == null || link == null) return
+		const link = participantLink(participantId)
+		if (link == null) return
 		if (options.peer != null && link.peer !== options.peer) return
 
-		participantLinks.delete(key)
-		setParticipants(key, {
-			activity: emptyParticipantActivity(),
-			mediaStream: null,
-			mediaVersion: person.mediaVersion + 1,
-			state: 'waiting',
-		})
+		removeLink(link)
+		if (person != null) {
+			setParticipants(key, 'activity', emptyParticipantActivity())
+		}
 
 		if (isGuestRoom() && participantId === hostParticipantId) {
 			markRoomClosed()
@@ -603,7 +636,11 @@ export function createRoom() {
 			broadcastMembershipChange({ left: participantId })
 		}
 
-		if (isHostRoom() && livePeerCount() === 0 && pendingPeer == null) {
+		if (
+			isHostRoom() &&
+			livePeerCount() === 0 &&
+			currentRendezvousLink('host-rendezvous') == null
+		) {
 			void startHostInvite({ resetPeers: false })
 		}
 	}
@@ -612,137 +649,114 @@ export function createRoom() {
 		return { id: allocateParticipantId() }
 	}
 
-	function openPendingPeer(handlers: {
-		debugLabel: string
-		onCloseWithoutId: () => void
-		onMessage: (
-			peer: Peer,
-			text: string,
-			handle: {
-				markLive: (participantId: ParticipantId) => void
-				remoteId: () => ParticipantId | null
-			},
-		) => void
-		onOpen: (
-			peer: Peer,
-			handle: {
-				markLive: (participantId: ParticipantId) => void
-				remoteId: () => ParticipantId | null
-			},
-		) => void
-	}) {
-		if (pendingPeer != null) return pendingPeer
-
-		// Pending is the manual invite/reply socket; it becomes a person only after the room protocol says who is there.
-		const version = ++pendingPeerVersion
-		let remoteParticipantId: ParticipantId | null = null
-		let remoteMediaStream: MediaStream | null = null
-		let nextPeer: Peer | null = null
-
-		const handle = {
-			markLive: (participantId: ParticipantId) => {
-				if (nextPeer == null) return
-
-				if (
-					!setParticipantLink(participantId, { peer: nextPeer, live: true })
-				) {
-					return
-				}
-
-				remoteParticipantId = participantId
-				if (remoteMediaStream != null) {
-					setParticipantMedia(participantId, remoteMediaStream)
-				}
-			},
-			remoteId: () => remoteParticipantId,
-		}
-
-		nextPeer = createPeer({
-			debugLabel: handlers.debugLabel,
-			onOpen: () => {
-				if (
-					nextPeer == null ||
-					version !== pendingPeerVersion ||
-					pendingPeer !== nextPeer
-				) {
-					return
-				}
-
-				const openedPeer = nextPeer
-				pendingPeer = null
-				handlers.onOpen(openedPeer, handle)
-			},
-			onMessage: (text) => {
-				if (nextPeer == null) return
-				handlers.onMessage(nextPeer, text, handle)
-			},
+	function createLink(
+		role: LinkRole,
+		debugLabel: string,
+		remoteId: ParticipantId | null = null,
+	) {
+		const id = nextLinkId(role)
+		const peer = createPeer({
+			debugLabel,
+			onOpen: () => handleLinkOpen(id),
+			onMessage: (text) => handleLinkMessage(id, text),
 			onRemoteMedia: (stream) => {
-				remoteMediaStream = stream
-				if (remoteParticipantId != null) {
-					setParticipantMedia(remoteParticipantId, stream)
-				}
-			},
-			onClose: () => {
-				if (remoteParticipantId != null) {
-					removePeerLink(remoteParticipantId, { peer: nextPeer })
-					return
-				}
+				const link = links.get(id)
+				if (link == null) return
 
-				if (
-					nextPeer == null ||
-					version !== pendingPeerVersion ||
-					pendingPeer !== nextPeer
-				) {
-					return
-				}
-
-				pendingPeer = null
-				handlers.onCloseWithoutId()
+				link.mediaStream = stream
+				touchLinks()
 			},
+			onClose: () => handleLinkClose(id),
 		})
 
-		pendingPeer = nextPeer
-		nextPeer.setLocalMedia(state.selfMedia.stream)
-		return nextPeer
+		const link: RoomLink = {
+			id,
+			live: false,
+			mediaStream: null,
+			peer,
+			remoteId,
+			role,
+		}
+		links.set(id, link)
+		touchLinks()
+		peer.setLocalMedia(state.selfMedia.stream)
+		return link
 	}
 
-	function markPeerLive(participantId: ParticipantId) {
-		const link = participantLink(participantId)
+	function handleLinkOpen(linkId: LinkId) {
+		const link = links.get(linkId)
 		if (link == null) return
 
 		link.live = true
-		setParticipants(participantKey(participantId), 'state', 'live')
-		sendLocalBlipToPeer(link.peer)
+		touchLinks()
+
+		if (link.role === 'guest-rendezvous') {
+			sendPacket(link.peer, { type: 'hello' })
+			return
+		}
+
+		if (link.remoteId != null) sendLocalBlipToPeer(link.peer)
 	}
 
-	function handlePeerMessage(participantId: ParticipantId, text: string) {
+	function handleLinkClose(linkId: LinkId) {
+		const link = links.get(linkId)
+		if (link == null) return
+
+		if (link.remoteId != null) {
+			removeParticipantLink(link.remoteId, { peer: link.peer })
+			return
+		}
+
+		removeLink(link)
+		if (link.role === 'host-rendezvous' && isHostRoom()) {
+			void startHostInvite({ resetPeers: false })
+		} else if (link.role === 'guest-rendezvous') {
+			markRoomClosed()
+		}
+	}
+
+	function handleLinkMessage(linkId: LinkId, text: string) {
+		const link = links.get(linkId)
+		if (link == null) return
+
 		const message = decodePacket(text)
 		if (message == null) return
 
-		logPacket('packet.receive', message, {
-			fromPeer: participantIdToString(participantId),
-		})
-		handleCommonMessage(participantId, message)
+		switch (link.role) {
+			case 'host-rendezvous':
+				handleHostRendezvousMessage(link, message)
+				break
+			case 'guest-rendezvous':
+				handleGuestMessage(link, message)
+				break
+			case 'mesh':
+				handlePeerMessage(link, message)
+				break
+		}
 	}
 
-	function createLinkedPeer(participantId: ParticipantId) {
-		let peer: Peer | null = null
+	function handlePeerMessage(link: RoomLink, message: Packet) {
+		if (link.remoteId == null) return
 
-		peer = createPeer({
-			debugLabel: `mesh:${participantIdToString(participantId)}`,
-			onOpen: () => markPeerLive(participantId),
-			onMessage: (text) => handlePeerMessage(participantId, text),
-			onRemoteMedia: (stream) => setParticipantMedia(participantId, stream),
-			onClose: () => removePeerLink(participantId, { peer }),
+		logPacket('packet.receive', message, {
+			fromPeer: participantIdToString(link.remoteId),
 		})
-		peer.setLocalMedia(state.selfMedia.stream)
+		handleCommonMessage(link.remoteId, message)
+	}
 
-		if (!setParticipantLink(participantId, { peer, live: false })) {
-			peer.close()
+	function createMeshLink(participantId: ParticipantId) {
+		const link = createLink(
+			'mesh',
+			`mesh:${participantIdToString(participantId)}`,
+			participantId,
+		)
+
+		if (participantById(participantId) == null) {
+			closeLink(link)
 			return null
 		}
 
-		return peer
+		return link
 	}
 
 	function sendToHost(message: Packet) {
@@ -760,12 +774,12 @@ export function createRoom() {
 			return
 		}
 
-		const peer = createLinkedPeer(participantId)
-		if (peer == null) return
+		const link = createMeshLink(participantId)
+		if (link == null) return
 
 		try {
-			const signal = await peer.createOffer()
-			if (participantLink(participantId)?.peer !== peer) return
+			const signal = await link.peer.createOffer()
+			if (participantLink(participantId) !== link) return
 
 			sendToHost({
 				type: 'peer-offer',
@@ -774,7 +788,7 @@ export function createRoom() {
 				signal,
 			})
 		} catch {
-			removePeerLink(participantId)
+			removeParticipantLink(participantId, { peer: link.peer })
 		}
 	}
 
@@ -794,7 +808,7 @@ export function createRoom() {
 			if (
 				participant.participantId === localParticipantId ||
 				participant.participantId === hostParticipantId ||
-				participantLinks.has(key) ||
+				linkByParticipantKey(key) != null ||
 				// Deterministic tie-break: only one guest dials for each guest-to-guest edge.
 				localParticipantId < participant.participantId
 			) {
@@ -816,15 +830,15 @@ export function createRoom() {
 			return
 		}
 
-		participantLink(message.from)?.peer.close()
-		setParticipantLink(message.from, null)
+		const existing = participantLink(message.from)
+		if (existing != null) closeLink(existing)
 
-		const peer = createLinkedPeer(message.from)
-		if (peer == null) return
+		const link = createMeshLink(message.from)
+		if (link == null) return
 
 		try {
-			const signal = await peer.createAnswer(message.signal)
-			if (participantLink(message.from)?.peer !== peer) return
+			const signal = await link.peer.createAnswer(message.signal)
+			if (participantLink(message.from) !== link) return
 
 			sendToHost({
 				type: 'peer-answer',
@@ -833,7 +847,7 @@ export function createRoom() {
 				signal,
 			})
 		} catch {
-			removePeerLink(message.from)
+			removeParticipantLink(message.from, { peer: link.peer })
 		}
 	}
 
@@ -848,7 +862,7 @@ export function createRoom() {
 		try {
 			await link.peer.acceptAnswer(message.signal)
 		} catch {
-			removePeerLink(message.from)
+			removeParticipantLink(message.from, { peer: link.peer })
 		}
 	}
 
@@ -874,13 +888,8 @@ export function createRoom() {
 		deleteParticipant(participantId)?.peer.close()
 	}
 
-	function handleGuestMessage(
-		text: string,
-		handle?: { markLive: (participantId: ParticipantId) => void },
-	) {
-		const message = decodePacket(text)
-		if (message == null) return
-		const senderId = hostParticipantId
+	function handleGuestMessage(link: RoomLink, message: Packet) {
+		const senderId = hostParticipantId ?? link.remoteId
 		logPacket('packet.receive', message, {
 			fromPeer: senderId == null ? null : participantIdToString(senderId),
 			side: 'guest',
@@ -897,7 +906,10 @@ export function createRoom() {
 				setLocalKey(participantKey(message.selfId))
 				replaceParticipants(message.roster)
 				applyPendingLocalBlip()
-				handle?.markLive(message.hostId)
+				if (!adoptLink(link, message.hostId)) {
+					markRoomClosed()
+					return
+				}
 				setState('connection', 'phase', 'connected')
 				setState('connection', 'issue', null)
 				publishLocalBlip()
@@ -924,28 +936,23 @@ export function createRoom() {
 		}
 	}
 
-	function handleHostMessage(participantId: ParticipantId, text: string) {
-		const message = decodePacket(text)
-		if (message == null) return
-		logPacket('packet.receive', message, {
-			fromPeer: participantIdToString(participantId),
-			side: 'host',
+	function sendHostWelcome(participantId: ParticipantId) {
+		if (localParticipantId == null) return
+		sendToParticipant(participantId, {
+			type: 'welcome',
+			hostId: localParticipantId,
+			selfId: participantId,
+			roster: roomRoster(),
 		})
-		if (handleCommonMessage(participantId, message)) return
+		const link = participantLink(participantId)
+		if (link != null) sendLocalBlipToPeer(link.peer)
+	}
 
+	function handleHostPacket(participantId: ParticipantId, message: Packet) {
+		if (handleCommonMessage(participantId, message)) return
 		switch (message.type) {
 			case 'hello':
-				if (localParticipantId == null) return
-				sendToParticipant(participantId, {
-					type: 'welcome',
-					hostId: localParticipantId,
-					selfId: participantId,
-					roster: roomRoster(),
-				})
-				{
-					const link = participantLink(participantId)
-					if (link != null) sendLocalBlipToPeer(link.peer)
-				}
+				sendHostWelcome(participantId)
 				broadcastMembershipChange()
 				break
 			case 'peer-offer':
@@ -965,20 +972,51 @@ export function createRoom() {
 		}
 	}
 
-	function markHostConnected(markLive: (participantId: ParticipantId) => void) {
+	function admitHostRendezvous(link: RoomLink) {
+		const existingId = link.remoteId
+		if (existingId != null) {
+			return { fresh: false, participantId: existingId }
+		}
+
 		const participant = assignGuestParticipant()
 		const person = mergeParticipant(participant)
 		setParticipants(person.id, person)
 		setParticipantKeys((keys) =>
 			keys.includes(person.id) ? keys : [...keys, person.id],
 		)
-		markLive(participant.id)
+		if (!adoptLink(link, participant.id)) {
+			deleteParticipant(participant.id)
+			return null
+		}
 
 		setState('connection', 'issue', null)
 		setState('connection', 'replyText', '')
+		return { fresh: true, participantId: participant.id }
+	}
 
-		// Keep the host ready for the next person without asking them to regenerate by hand.
-		void startHostInvite({ resetPeers: false })
+	function handleHostRendezvousMessage(link: RoomLink, message: Packet) {
+		let participantId = link.remoteId
+		let fresh = false
+		if (participantId == null && message.type === 'hello') {
+			const admission = admitHostRendezvous(link)
+			if (admission == null) return
+
+			participantId = admission.participantId
+			fresh = admission.fresh
+		}
+
+		logPacket('packet.receive', message, {
+			fromPeer:
+				participantId == null ? null : participantIdToString(participantId),
+			side: 'host',
+		})
+		if (participantId == null) return
+
+		handleHostPacket(participantId, message)
+		if (fresh) {
+			// Keep the host ready for the next person only after this peer joined the room protocol.
+			void startHostInvite({ resetPeers: false })
+		}
 	}
 
 	async function startHostInvite(
@@ -987,10 +1025,9 @@ export function createRoom() {
 		const version = ++connectionVersion
 
 		try {
-			closePendingPeer()
+			closeRendezvousLink('host-rendezvous')
 
 			if (options.resetPeers) {
-				closePeerLinks()
 				resetHostParticipants()
 				clearInviteHash()
 				setState('blipComposer', emptyBlipComposer())
@@ -1000,25 +1037,17 @@ export function createRoom() {
 
 			setState('connection', emptyHostConnection())
 
-			const nextPeer = openPendingPeer({
-				debugLabel: options.resetPeers ? 'host:invite' : 'host:next-invite',
-				onOpen: (_peer, handle) => {
-					markHostConnected(handle.markLive)
-				},
-				onMessage: (_peer, text, handle) => {
-					const participantId = handle.remoteId()
-					if (participantId == null) return
-
-					handleHostMessage(participantId, text)
-				},
-				onCloseWithoutId: () => {
-					if (isHostRoom()) {
-						void startHostInvite({ resetPeers: false })
-					}
-				},
-			})
-			const inviteCode = await nextPeer.createOffer()
-			if (version !== connectionVersion || pendingPeer !== nextPeer) return
+			const nextLink = createLink(
+				'host-rendezvous',
+				options.resetPeers ? 'host:invite' : 'host:next-invite',
+			)
+			const inviteCode = await nextLink.peer.createOffer()
+			if (
+				version !== connectionVersion ||
+				currentRendezvousLink('host-rendezvous') !== nextLink
+			) {
+				return
+			}
 
 			const inviteLink = inviteLinkFromCode(inviteCode)
 			setState('connection', {
@@ -1057,20 +1086,14 @@ export function createRoom() {
 				inviteText: inviteInput,
 			})
 
-			const nextPeer = openPendingPeer({
-				debugLabel: 'guest:reply',
-				onOpen: (peer) => {
-					sendPacket(peer, { type: 'hello' })
-				},
-				onMessage: (_peer, text, handle) => {
-					handleGuestMessage(text, handle)
-				},
-				onCloseWithoutId: () => {
-					markRoomClosed()
-				},
-			})
-			const replyCode = await nextPeer.createAnswer(inviteCode)
-			if (version !== connectionVersion || pendingPeer !== nextPeer) return
+			const nextLink = createLink('guest-rendezvous', 'guest:reply')
+			const replyCode = await nextLink.peer.createAnswer(inviteCode)
+			if (
+				version !== connectionVersion ||
+				currentRendezvousLink('guest-rendezvous') !== nextLink
+			) {
+				return
+			}
 
 			setState('connection', {
 				...emptyGuestConnection(),
@@ -1091,17 +1114,17 @@ export function createRoom() {
 
 	async function acceptReply(replyText = state.connection.replyText) {
 		const replyCode = replyText.trim()
-		if (replyCode === '' || pendingPeer == null) return
+		const answeringLink = currentRendezvousLink('host-rendezvous')
+		if (replyCode === '' || answeringLink == null) return
 
 		const version = connectionVersion
-		const answeringPeer = pendingPeer
 
 		try {
 			setState('connection', 'replyText', replyCode)
 			setState('connection', 'phase', 'accepting-reply')
 			setState('connection', 'issue', null)
 
-			await answeringPeer.acceptAnswer(replyCode)
+			await answeringLink.peer.acceptAnswer(replyCode)
 			if (version !== connectionVersion) return
 		} catch {
 			if (version !== connectionVersion) return
@@ -1142,9 +1165,13 @@ export function createRoom() {
 
 	function publishSelfMedia(stream: MediaStream | null) {
 		const peers = linkedPeers()
+		const linkCount = links.size
 		roomDebug('media.publish', {
+			links: linkCount,
 			linkedPeers: peers.length,
-			pendingPeer: pendingPeer != null,
+			unidentifiedLinks: [...links.values()].filter(
+				(link) => link.remoteId == null,
+			).length,
 			streamId: stream?.id ?? null,
 			tracks: mediaTracks(stream),
 		})
@@ -1152,11 +1179,9 @@ export function createRoom() {
 		for (const peer of peers) {
 			peer.setLocalMedia(stream)
 		}
-
-		pendingPeer?.setLocalMedia(stream)
 	}
 
-	async function sendFileToPeers(file: File, peers: PeerLink[]) {
+	async function sendFileToPeers(file: File, peers: RoomLink[]) {
 		const id = randomTransferId()
 
 		if (localParticipantId == null) return
@@ -1341,6 +1366,7 @@ export function createRoom() {
 		actions,
 		state,
 		participant: participantByKey,
+		peer: peerByKey,
 		peerKeys,
 		selfActivity,
 	}

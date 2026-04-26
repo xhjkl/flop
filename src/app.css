@@ -225,7 +225,8 @@ textarea {
 	background-color: var(--bg-deep);
 }
 
-.remote-video[data-active="false"] {
+.remote-video[data-active="false"],
+.self-video[data-active="false"] {
 	display: none;
 }
 
