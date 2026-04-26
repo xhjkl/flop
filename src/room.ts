@@ -33,13 +33,13 @@ import {
 	readInviteFromHash,
 } from './room/invite'
 import {
-	createParticipant,
 	emptyParticipantActivity,
+	mergeParticipant,
 	type ParticipantKey,
 	participantKey,
-	publicParticipant,
 	type RoomParticipant,
 	randomParticipantId,
+	rosterParticipant,
 } from './room/participant'
 import {
 	captureSelfMedia,
@@ -62,7 +62,6 @@ function sendPacket(peer: Peer, packet: Packet) {
 export function createRoom() {
 	let pendingPeer: Peer | null = null
 	let pendingPeerVersion = 0
-	let participantSequence = 0
 	const incomingFiles = new Map<string, IncomingFileTransfer>()
 	let fileUrls = new Set<string>()
 	let pendingLocalBlip: string | null = null
@@ -71,11 +70,7 @@ export function createRoom() {
 	let hostParticipantId: ParticipantId | null = localParticipantId
 	let connectionVersion = 0
 	let selfMediaVersion = 0
-	const hostParticipant = createParticipant({
-		id: localParticipantId,
-		name: 'Room host',
-		role: 'host',
-	})
+	const hostParticipant = mergeParticipant({ id: localParticipantId })
 	const participantLinks = new Map<ParticipantKey, PeerLink>()
 	const [participantKeys, setParticipantKeys] = createSignal<ParticipantKey[]>([
 		hostParticipant.id,
@@ -218,7 +213,7 @@ export function createRoom() {
 			const link = participantLinks.get(key)
 
 			nextParticipants[key] = {
-				...createParticipant(person, existing),
+				...mergeParticipant(person, existing),
 				state: link?.live ? 'live' : 'waiting',
 			}
 		}
@@ -256,14 +251,9 @@ export function createRoom() {
 		pendingLocalBlip = null
 		localParticipantId = randomParticipantId()
 		hostParticipantId = localParticipantId
-		participantSequence = 0
 		participantLinks.clear()
 
-		const host = createParticipant({
-			id: localParticipantId,
-			name: 'Room host',
-			role: 'host',
-		})
+		const host = mergeParticipant({ id: localParticipantId })
 		setParticipants(reconcile({ [host.id]: host }))
 		setParticipantKeys([host.id])
 		setLocalKey(host.id)
@@ -274,7 +264,6 @@ export function createRoom() {
 		if (!options.keepPendingBlip) pendingLocalBlip = null
 		localParticipantId = null
 		hostParticipantId = null
-		participantSequence = 0
 		participantLinks.clear()
 		setParticipants(reconcile({}))
 		setParticipantKeys([])
@@ -285,7 +274,7 @@ export function createRoom() {
 		return participantKeys()
 			.map((key) => participants[key])
 			.filter((person): person is RoomParticipant => person != null)
-			.map(publicParticipant)
+			.map(rosterParticipant)
 	}
 
 	function livePeerCount() {
@@ -592,14 +581,7 @@ export function createRoom() {
 	}
 
 	function assignGuestParticipant(): Participant {
-		const id = allocateParticipantId()
-		const peerNumber = ++participantSequence
-
-		return {
-			id,
-			name: peerNumber === 1 ? 'Other device' : `Other device ${peerNumber}`,
-			role: 'guest',
-		}
+		return { id: allocateParticipantId() }
 	}
 
 	function openPendingPeer(handlers: {
@@ -779,7 +761,6 @@ export function createRoom() {
 			if (participant == null) continue
 
 			if (
-				participant.role !== 'guest' ||
 				participant.participantId === localParticipantId ||
 				participant.participantId === hostParticipantId ||
 				participantLinks.has(key) ||
@@ -945,7 +926,7 @@ export function createRoom() {
 		markLive: (participantId: ParticipantId) => void,
 	) {
 		const participant = assignGuestParticipant()
-		const person = createParticipant(participant)
+		const person = mergeParticipant(participant)
 		setParticipants(person.id, person)
 		setParticipantKeys((keys) =>
 			keys.includes(person.id) ? keys : [...keys, person.id],

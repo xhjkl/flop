@@ -2,8 +2,6 @@ export type ParticipantId = bigint
 
 export type Participant = {
 	id: ParticipantId
-	name: string
-	role: 'host' | 'guest'
 }
 
 // Tiny room protocol: the host introduces people, then peers carry their own words and bytes.
@@ -75,11 +73,7 @@ function isParticipant(value: unknown): value is Participant {
 	if (typeof value !== 'object' || value == null) return false
 
 	const participant = value as Participant
-	return (
-		typeof participant.id === 'bigint' &&
-		typeof participant.name === 'string' &&
-		(participant.role === 'host' || participant.role === 'guest')
-	)
+	return typeof participant.id === 'bigint'
 }
 
 function isRoster(value: unknown): value is Participant[] {

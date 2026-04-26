@@ -13,9 +13,7 @@ export type RoomParticipant = {
 	id: ParticipantKey
 	mediaStream: MediaStream | null
 	mediaVersion: number
-	name: string
 	participantId: ParticipantId
-	role: Participant['role']
 	state: PeerState
 }
 
@@ -27,7 +25,7 @@ export function participantKey(id: ParticipantId): ParticipantKey {
 	return participantIdToString(id)
 }
 
-export function createParticipant(
+export function mergeParticipant(
 	participant: Participant,
 	existing?: RoomParticipant,
 ): RoomParticipant {
@@ -38,18 +36,14 @@ export function createParticipant(
 		id,
 		mediaStream: existing?.mediaStream ?? null,
 		mediaVersion: existing?.mediaVersion ?? 0,
-		name: participant.name,
 		participantId: participant.id,
-		role: participant.role,
 		state: existing?.state ?? 'waiting',
 	}
 }
 
-export function publicParticipant(participant: RoomParticipant): Participant {
+export function rosterParticipant(participant: RoomParticipant): Participant {
 	return {
 		id: participant.participantId,
-		name: participant.name,
-		role: participant.role,
 	}
 }
 
