@@ -65,7 +65,7 @@ const CopyBlock = (props: {
 	})
 
 	return (
-		<div class="connection-copy-block">
+		<div class="connection-copy-block" data-empty={empty() ? 'true' : 'false'}>
 			<div class="connection-copy-head">
 				<span>{props.label}</span>
 				<button

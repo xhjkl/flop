@@ -15,8 +15,8 @@
 	top: 0;
 	z-index: 1;
 	display: grid;
-	gap: 0.75rem;
-	padding: 0.85rem 1rem 0;
+	gap: var(--space-field);
+	padding: var(--space-card) var(--space-page) 0;
 	border-bottom: 1px solid var(--line);
 	background: hsl(var(--h) 22% 10% / 0.94);
 }
@@ -24,7 +24,7 @@
 .fixture-banner {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.5rem 0.8rem;
+	gap: var(--space-touch) var(--space-card);
 	align-items: baseline;
 }
 
@@ -36,7 +36,7 @@
 .fixture-actions {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.55rem;
+	gap: var(--space-touch);
 }
 
 .fixture-actions button.active {
@@ -47,5 +47,5 @@
 .fixture-meta {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.35rem 1rem;
+	gap: var(--space-label) var(--space-page);
 }
