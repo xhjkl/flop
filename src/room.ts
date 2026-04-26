@@ -110,6 +110,8 @@ const errorRoom = (event: string, details: Record<string, unknown> = {}) => {
 	errorLog('room', event, details)
 }
 
+const MAX_PENDING_TRACKER_LINKS = 2
+
 export const createRoom = () => {
 	const incomingFiles = new Map<string, IncomingFileTransfer>()
 	let fileUrls = new Set<string>()
@@ -291,6 +293,23 @@ export const createRoom = () => {
 				closeLink(candidate)
 			}
 		}
+	}
+
+	const pendingTrackerLinkCount = (role: LinkRole) => {
+		let count = 0
+
+		for (const link of links.values()) {
+			if (
+				link.auth === 'pending' &&
+				link.remoteId == null &&
+				link.role === role &&
+				link.source === 'tracker'
+			) {
+				count++
+			}
+		}
+
+		return count
 	}
 
 	const replaceParticipants = (roster: Participant[]) => {
@@ -1442,6 +1461,13 @@ export const createRoom = () => {
 		if (roomKeys == null || role == null) {
 			warnRoom('tracker.offer.unexpected', {
 				hasRoomKeys: roomKeys != null,
+				role,
+			})
+			return
+		}
+		if (pendingTrackerLinkCount(role) >= MAX_PENDING_TRACKER_LINKS) {
+			infoRoom('tracker.offer.ignored.pending-capacity', {
+				pending: pendingTrackerLinkCount(role),
 				role,
 			})
 			return

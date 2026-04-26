@@ -28,7 +28,7 @@ const TRACKERS = [
 	'wss://tracker.files.fm:7073/announce',
 ]
 
-const ANNOUNCE_OFFER_COUNT = 5
+const ANNOUNCE_OFFER_COUNT = 1
 const DEFAULT_ANNOUNCE_INTERVAL_MS = 30_000
 const OFFER_ID_BYTES = 20
 const RECONNECT_MAXIMUM_MS = 60_000
@@ -92,6 +92,7 @@ export const createTrackerRendezvous = (
 	const trackerUrls = options.trackers ?? TRACKERS
 	const infoHash = bytesToBinaryString(options.infoHash)
 	const peerId = `-FL0001-${randomBinaryString(12)}`
+	const announceTimers = new WeakMap<WebSocket, ReturnType<typeof setTimeout>>()
 	const sockets = new Set<WebSocket>()
 	const socketUrls = new WeakMap<WebSocket, string>()
 	const announceIntervals = new Map<string, number>()
@@ -155,14 +156,6 @@ export const createTrackerRendezvous = (
 		}
 	}
 
-	const schedule = (callback: () => void, delay: number) => {
-		const timer = setTimeout(() => {
-			timers.delete(timer)
-			callback()
-		}, delay)
-		timers.add(timer)
-	}
-
 	const scheduleReconnect = (url: string) => {
 		if (closed) return
 		if (reconnectTimers.has(url)) return
@@ -187,6 +180,29 @@ export const createTrackerRendezvous = (
 	const announceDelay = (socket: WebSocket) => {
 		const url = socketUrls.get(socket) ?? socket.url
 		return announceIntervals.get(url) ?? DEFAULT_ANNOUNCE_INTERVAL_MS
+	}
+
+	const clearAnnounceTimer = (socket: WebSocket) => {
+		const timer = announceTimers.get(socket)
+		if (timer == null) return
+
+		clearTimeout(timer)
+		timers.delete(timer)
+		announceTimers.delete(socket)
+	}
+
+	const scheduleNextAnnounce = (
+		socket: WebSocket,
+		delay = announceDelay(socket),
+	) => {
+		clearAnnounceTimer(socket)
+		const timer = setTimeout(() => {
+			timers.delete(timer)
+			announceTimers.delete(socket)
+			announce(socket)
+		}, delay)
+		announceTimers.set(socket, timer)
+		timers.add(timer)
 	}
 
 	const announceWithOffer = (socket: WebSocket) => {
@@ -226,9 +242,7 @@ export const createTrackerRendezvous = (
 
 		announceWithOffer(socket)
 
-		if (!closed) {
-			schedule(() => announce(socket), announceDelay(socket))
-		}
+		if (!closed) scheduleNextAnnounce(socket, DEFAULT_ANNOUNCE_INTERVAL_MS)
 	}
 
 	const handleMessage = (socket: WebSocket, data: unknown) => {
@@ -309,6 +323,7 @@ export const createTrackerRendezvous = (
 					typeof message.incomplete === 'number' ? message.incomplete : null,
 				url,
 			})
+			scheduleNextAnnounce(socket)
 		}
 
 		if (
@@ -358,6 +373,7 @@ export const createTrackerRendezvous = (
 		socket.onmessage = (event) => handleMessage(socket, event.data)
 		socket.onclose = () => {
 			sockets.delete(socket)
+			clearAnnounceTimer(socket)
 			if (closed) return
 
 			markEndpoint(url, 'failed')
