@@ -1,4 +1,8 @@
-import { parseRoomSecret, type RoomSecret } from '../rendezvous/secret'
+import {
+	parseRoomSecret,
+	ROOM_SECRET_LENGTH,
+	type RoomSecret,
+} from '../rendezvous/secret'
 
 export type InviteInput =
 	| { type: 'auto-link'; secret: RoomSecret }
@@ -12,7 +16,11 @@ export const copyText = (text: string) => {
 const safeDecodeURIComponent = (value: string) => {
 	try {
 		return decodeURIComponent(value)
-	} catch {
+	} catch (error) {
+		console.warn('[flop:invite] hash-decode.failed', {
+			error,
+			length: value.length,
+		})
 		return value
 	}
 }
@@ -24,6 +32,11 @@ export const inviteFromHash = (hashText: string): InviteInput => {
 	const decoded = safeDecodeURIComponent(hash)
 	const secret = parseRoomSecret(decoded)
 	if (secret != null) return { secret, type: 'auto-link' }
+	if (decoded.trim().length === ROOM_SECRET_LENGTH) {
+		console.warn('[flop:invite] invalid-room-secret-hash', {
+			length: decoded.trim().length,
+		})
+	}
 
 	return { code: decoded, type: 'manual-code' }
 }

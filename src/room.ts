@@ -86,6 +86,25 @@ const sendPacket = (peer: Peer, packet: Packet) => {
 	return peer.send(encodePacket(packet))
 }
 
+const linkLog = (link: RoomLink) => {
+	return {
+		auth: link.auth,
+		id: link.id,
+		remoteId:
+			link.remoteId == null ? null : participantIdToString(link.remoteId),
+		role: link.role,
+		source: link.source,
+	}
+}
+
+const warnRoom = (event: string, details: Record<string, unknown> = {}) => {
+	console.warn('[flop:room]', { event, ...details })
+}
+
+const errorRoom = (event: string, details: Record<string, unknown> = {}) => {
+	console.error('[flop:room]', { event, ...details })
+}
+
 export const createRoom = () => {
 	const incomingFiles = new Map<string, IncomingFileTransfer>()
 	let fileUrls = new Set<string>()
@@ -465,64 +484,103 @@ export const createRoom = () => {
 
 	const sendTrackerChallenge = (link: RoomLink) => {
 		if (roomKeys == null) {
+			errorRoom('auth.challenge.missing-room-keys', { link: linkLog(link) })
 			closeLink(link)
 			return
 		}
 
 		const nonce = randomNonce()
 		link.authNonce = nonce
-		sendPacket(link.peer, { nonce, type: 'auth-challenge' })
+		if (!sendPacket(link.peer, { nonce, type: 'auth-challenge' })) {
+			warnRoom('auth.challenge.send.failed', { link: linkLog(link) })
+			closeLink(link)
+		}
 	}
 
 	const answerTrackerChallenge = async (link: RoomLink, nonce: string) => {
 		if (roomKeys == null) {
+			errorRoom('auth.response.missing-room-keys', { link: linkLog(link) })
 			closeLink(link)
 			return
 		}
 
-		const mac = await signRoomAuth(roomKeys.authKey, nonce)
+		let mac: string
+		try {
+			mac = await signRoomAuth(roomKeys.authKey, nonce)
+		} catch (error) {
+			warnRoom('auth.response.sign.failed', { error, link: linkLog(link) })
+			closeLink(link)
+			return
+		}
 		if (links.get(link.id) !== link) return
 
-		sendPacket(link.peer, { mac, type: 'auth-response' })
+		if (!sendPacket(link.peer, { mac, type: 'auth-response' })) {
+			warnRoom('auth.response.send.failed', { link: linkLog(link) })
+			closeLink(link)
+		}
 	}
 
 	const acceptTrackerResponse = async (link: RoomLink, mac: string) => {
-		if (roomKeys == null || link.authNonce == null) {
+		if (roomKeys == null) {
+			errorRoom('auth.accept.missing-room-keys', { link: linkLog(link) })
 			closeLink(link)
 			return
 		}
 
-		const verified = await verifyRoomAuth(roomKeys.authKey, link.authNonce, mac)
+		if (link.authNonce == null) {
+			warnRoom('auth.accept.missing-nonce', { link: linkLog(link) })
+			closeLink(link)
+			return
+		}
+
+		let verified: boolean
+		try {
+			verified = await verifyRoomAuth(roomKeys.authKey, link.authNonce, mac)
+		} catch (error) {
+			warnRoom('auth.accept.verify.failed', { error, link: linkLog(link) })
+			closeLink(link)
+			return
+		}
 		if (links.get(link.id) !== link) return
 
 		if (!verified) {
+			warnRoom('auth.accept.rejected', { link: linkLog(link) })
 			closeLink(link)
 			return
 		}
 
 		verifyLink(link)
-		sendPacket(link.peer, { type: 'auth-ok' })
+		if (!sendPacket(link.peer, { type: 'auth-accepted' })) {
+			warnRoom('auth.accept.send.failed', { link: linkLog(link) })
+			closeLink(link)
+		}
 	}
 
 	const handleAuthPacket = (link: RoomLink, message: Packet) => {
 		switch (message.type) {
 			case 'auth-challenge':
 				if (link.source !== 'tracker' || link.role !== 'guest-rendezvous') {
+					warnRoom('auth.challenge.unexpected', { link: linkLog(link) })
 					return true
 				}
 
 				void answerTrackerChallenge(link, message.nonce)
 				return true
-			case 'auth-ok':
+			case 'auth-accepted':
 				if (link.source !== 'tracker' || link.role !== 'guest-rendezvous') {
+					warnRoom('auth.accepted.unexpected', { link: linkLog(link) })
 					return true
 				}
 
 				verifyLink(link)
-				sendPacket(link.peer, { type: 'hello' })
+				if (!sendPacket(link.peer, { type: 'hello' })) {
+					warnRoom('auth.hello.send.failed', { link: linkLog(link) })
+					closeLink(link)
+				}
 				return true
 			case 'auth-response':
 				if (link.source !== 'tracker' || link.role !== 'host-rendezvous') {
+					warnRoom('auth.response.unexpected', { link: linkLog(link) })
 					return true
 				}
 
@@ -622,7 +680,8 @@ export const createRoom = () => {
 		let bytes: Uint8Array
 		try {
 			bytes = base64ToBytes(message.data)
-		} catch {
+		} catch (error) {
+			warnRoom('file.chunk.decode.failed', { error, id: message.id })
 			upsertParticipantFile(transfer.from, {
 				id: message.id,
 				name: transfer.name,
@@ -800,6 +859,10 @@ export const createRoom = () => {
 
 		if (link.source === 'tracker' && link.auth !== 'verified') {
 			if (link.role === 'host-rendezvous') sendTrackerChallenge(link)
+			else if (link.role !== 'guest-rendezvous') {
+				errorRoom('auth.unexpected-tracker-link-role', { link: linkLog(link) })
+				closeLink(link)
+			}
 			return
 		}
 
@@ -846,9 +909,19 @@ export const createRoom = () => {
 		if (link == null) return
 
 		const message = decodePacket(text)
-		if (message == null) return
+		if (message == null) {
+			warnRoom('packet.decode.failed', { length: text.length, linkId })
+			return
+		}
 		if (handleAuthPacket(link, message)) return
-		if (link.source === 'tracker' && link.auth !== 'verified') return
+		if (link.source === 'tracker' && link.auth !== 'verified') {
+			// Tracker-discovered transports are only candidates until they prove the room secret.
+			warnRoom('packet.before-auth', {
+				link: linkLog(link),
+				type: message.type,
+			})
+			return
+		}
 
 		switch (link.role) {
 			case 'host-rendezvous':
@@ -864,7 +937,13 @@ export const createRoom = () => {
 	}
 
 	const handlePeerMessage = (link: RoomLink, message: Packet) => {
-		if (link.remoteId == null) return
+		if (link.remoteId == null) {
+			warnRoom('mesh.message.missing-remote', {
+				link: linkLog(link),
+				type: message.type,
+			})
+			return
+		}
 
 		handleCommonMessage(link.remoteId, message)
 	}
@@ -873,6 +952,9 @@ export const createRoom = () => {
 		const link = createLink('mesh', { remoteId: participantId })
 
 		if (participantById(participantId) == null) {
+			warnRoom('mesh.link.unknown-participant', {
+				participantId: participantIdToString(participantId),
+			})
 			closeLink(link)
 			return null
 		}
@@ -905,13 +987,24 @@ export const createRoom = () => {
 				return
 			}
 
-			sendToHost({
-				type: 'peer-offer',
-				from: localParticipantId,
-				to: participantId,
-				signal,
+			if (
+				!sendToHost({
+					type: 'peer-offer',
+					from: localParticipantId,
+					to: participantId,
+					signal,
+				})
+			) {
+				warnRoom('mesh.offer.send.failed', {
+					participantId: participantIdToString(participantId),
+				})
+				closeLink(link)
+			}
+		} catch (error) {
+			warnRoom('mesh.offer.failed', {
+				error,
+				participantId: participantIdToString(participantId),
 			})
-		} catch {
 			closeLink(link)
 		}
 	}
@@ -946,11 +1039,14 @@ export const createRoom = () => {
 	const acceptMeshOffer = async (
 		message: Extract<Packet, { type: 'peer-offer' }>,
 	) => {
-		if (
-			!isGuestRoom() ||
-			localParticipantId == null ||
-			message.to !== localParticipantId
-		) {
+		if (!isGuestRoom() || localParticipantId == null) {
+			return
+		}
+		if (message.to !== localParticipantId) {
+			warnRoom('mesh.offer.wrong-target', {
+				from: participantIdToString(message.from),
+				to: participantIdToString(message.to),
+			})
 			return
 		}
 
@@ -967,13 +1063,24 @@ export const createRoom = () => {
 				return
 			}
 
-			sendToHost({
-				type: 'peer-answer',
-				from: localParticipantId,
-				to: message.from,
-				signal,
+			if (
+				!sendToHost({
+					type: 'peer-answer',
+					from: localParticipantId,
+					to: message.from,
+					signal,
+				})
+			) {
+				warnRoom('mesh.answer.send.failed', {
+					participantId: participantIdToString(message.from),
+				})
+				closeLink(link)
+			}
+		} catch (error) {
+			warnRoom('mesh.answer.failed', {
+				error,
+				participantId: participantIdToString(message.from),
 			})
-		} catch {
 			closeLink(link)
 		}
 	}
@@ -981,14 +1088,30 @@ export const createRoom = () => {
 	const acceptMeshAnswer = async (
 		message: Extract<Packet, { type: 'peer-answer' }>,
 	) => {
-		if (localParticipantId == null || message.to !== localParticipantId) return
+		if (localParticipantId == null) return
+		if (message.to !== localParticipantId) {
+			warnRoom('mesh.answer.wrong-target', {
+				from: participantIdToString(message.from),
+				to: participantIdToString(message.to),
+			})
+			return
+		}
 
 		const link = participantLink(message.from)
-		if (link == null) return
+		if (link == null) {
+			warnRoom('mesh.answer.missing-link', {
+				from: participantIdToString(message.from),
+			})
+			return
+		}
 
 		try {
 			await link.peer.acceptAnswer(message.signal)
-		} catch {
+		} catch (error) {
+			warnRoom('mesh.answer.accept.failed', {
+				error,
+				from: participantIdToString(message.from),
+			})
 			closeLink(link)
 		}
 	}
@@ -998,6 +1121,9 @@ export const createRoom = () => {
 			hostParticipantId != null &&
 			!roster.some((p) => p.id === hostParticipantId)
 		) {
+			warnRoom('roster.missing-host', {
+				hostId: participantIdToString(hostParticipantId),
+			})
 			markRoomClosed()
 			return
 		}
@@ -1031,6 +1157,10 @@ export const createRoom = () => {
 				replaceParticipants(message.roster)
 				applyPendingLocalBlip()
 				if (!adoptLink(link, message.hostId)) {
+					errorRoom('guest.welcome.adopt-link.failed', {
+						hostId: participantIdToString(message.hostId),
+						link: linkLog(link),
+					})
 					markRoomClosed()
 					return
 				}
@@ -1068,13 +1198,26 @@ export const createRoom = () => {
 	}
 
 	const sendHostWelcome = (participantId: ParticipantId) => {
-		if (localParticipantId == null) return
-		sendToParticipant(participantId, {
+		if (localParticipantId == null) {
+			errorRoom('welcome.missing-local-host-id', {
+				participantId: participantIdToString(participantId),
+			})
+			return
+		}
+		const sent = sendToParticipant(participantId, {
 			type: 'welcome',
 			hostId: localParticipantId,
 			selfId: participantId,
 			roster: roomRoster(),
 		})
+		if (!sent) {
+			warnRoom('welcome.send.failed', {
+				participantId: participantIdToString(participantId),
+			})
+			const link = participantLink(participantId)
+			if (link != null) closeLink(link)
+			return
+		}
 		const link = participantLink(participantId)
 		if (link != null) {
 			sendLocalBlipToPeer(link.peer)
@@ -1092,8 +1235,22 @@ export const createRoom = () => {
 			case 'peer-offer':
 			case 'peer-answer':
 				// The host introduces guests; it should not become the long-term transport.
-				if (message.to === localParticipantId) return
-				sendToParticipant(message.to, { ...message, from: participantId })
+				if (message.to === localParticipantId) {
+					warnRoom('mesh.signal.addressed-to-host', {
+						from: participantIdToString(participantId),
+						type: message.type,
+					})
+					return
+				}
+				if (
+					!sendToParticipant(message.to, { ...message, from: participantId })
+				) {
+					warnRoom('mesh.signal.forward.failed', {
+						from: participantIdToString(participantId),
+						to: participantIdToString(message.to),
+						type: message.type,
+					})
+				}
 				break
 			case 'peer-left':
 			case 'file-chunk':
@@ -1120,6 +1277,10 @@ export const createRoom = () => {
 			keys.includes(person.id) ? keys : [...keys, person.id],
 		)
 		if (!adoptLink(link, participant.id)) {
+			errorRoom('host.admit.adopt-link.failed', {
+				link: linkLog(link),
+				participantId: participantIdToString(participant.id),
+			})
 			deleteParticipant(participant.id)
 			return null
 		}
@@ -1145,7 +1306,13 @@ export const createRoom = () => {
 			fresh = admission.fresh
 		}
 
-		if (participantId == null) return
+		if (participantId == null) {
+			warnRoom('host.rendezvous.message-before-hello', {
+				link: linkLog(link),
+				type: message.type,
+			})
+			return
+		}
 
 		handleHostPacket(participantId, message)
 		if (fresh) {
@@ -1183,7 +1350,12 @@ export const createRoom = () => {
 			}
 
 			return offer
-		} catch {
+		} catch (error) {
+			warnRoom('tracker.offer.create.failed', {
+				error,
+				link: linkLog(link),
+				offerId,
+			})
 			closeLink(link)
 			return null
 		}
@@ -1191,16 +1363,32 @@ export const createRoom = () => {
 
 	const acceptTrackerAnswer = (offerId: string, answer: SignalDescription) => {
 		const link = trackerOffers.get(offerId)
-		if (link == null) return
+		if (link == null) {
+			warnRoom('tracker.answer.missing-offer', { offerId })
+			return
+		}
 
-		void link.peer.acceptAnswer(answer).catch(() => closeLink(link))
+		void link.peer.acceptAnswer(answer).catch((error) => {
+			warnRoom('tracker.answer.accept.failed', {
+				error,
+				link: linkLog(link),
+				offerId,
+			})
+			closeLink(link)
+		})
 	}
 
 	const answerTrackerOffer = (
 		offer: SignalDescription,
 		reply: (answer: SignalDescription) => void,
 	) => {
-		if (roomKeys == null || !isGuestRoomLike()) return
+		if (roomKeys == null || !isGuestRoomLike()) {
+			warnRoom('tracker.offer.unexpected', {
+				hasRoomKeys: roomKeys != null,
+				isGuestRoomLike: isGuestRoomLike(),
+			})
+			return
+		}
 
 		const existing = currentRendezvousLink('guest-rendezvous', 'tracker')
 		if (existing != null) return
@@ -1213,7 +1401,13 @@ export const createRoom = () => {
 
 				reply(answer)
 			})
-			.catch(() => closeLink(link))
+			.catch((error) => {
+				warnRoom('tracker.offer.answer.failed', {
+					error,
+					link: linkLog(link),
+				})
+				closeLink(link)
+			})
 	}
 
 	const isGuestRoomLike = () => {
@@ -1259,7 +1453,8 @@ export const createRoom = () => {
 				},
 				role,
 			})
-		} catch {
+		} catch (error) {
+			warnRoom('tracker.start.failed', { error, role })
 			if (role === 'host') setHostAutoStatus('failed')
 			else if (state.connection.side === 'guest') {
 				setState('connection', {
@@ -1332,7 +1527,8 @@ export const createRoom = () => {
 				status: 'invite-ready',
 				manualInviteLink,
 			})
-		} catch {
+		} catch (error) {
+			warnRoom('invite.create.failed', { error })
 			if (nextLink != null) closeLink(nextLink)
 			if (version !== signalingVersion) return
 			setState('connection', {
@@ -1393,7 +1589,8 @@ export const createRoom = () => {
 				inviteText: inviteInput,
 				replyCode,
 			})
-		} catch {
+		} catch (error) {
+			warnRoom('reply.create.failed', { error })
 			if (nextLink != null) closeLink(nextLink)
 			if (version !== signalingVersion) return
 			closeAllLinks()
@@ -1428,7 +1625,8 @@ export const createRoom = () => {
 			const answer = await decodeSignal(replyCode)
 			await answeringLink.peer.acceptAnswer(answer)
 			if (version !== signalingVersion) return
-		} catch {
+		} catch (error) {
+			warnRoom('reply.accept.failed', { error })
 			if (version !== signalingVersion) return
 			if (state.connection.side === 'host') {
 				setState('connection', {
@@ -1546,7 +1744,8 @@ export const createRoom = () => {
 			for (const file of files) {
 				await sendFileToPeers(file, peers)
 			}
-		} catch {
+		} catch (error) {
+			warnRoom('file.send.failed', { error })
 			markLocalSendingFilesError()
 			setBlipIssue('File transfer stopped before it finished.')
 		}

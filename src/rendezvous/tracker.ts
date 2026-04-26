@@ -28,6 +28,10 @@ const TRACKERS = [
 const ANNOUNCE_INTERVAL_MS = 14_000
 const OFFER_ID_BYTES = 12
 
+const warnTracker = (event: string, details: Record<string, unknown> = {}) => {
+	console.warn('[flop:tracker]', { event, ...details })
+}
+
 const bytesToBinaryString = (bytes: Uint8Array) => {
 	let output = ''
 
@@ -91,17 +95,21 @@ export const createTrackerRendezvous = (
 	const send = (socket: WebSocket, message: Record<string, unknown>) => {
 		if (socket.readyState !== WebSocket.OPEN) return
 
-		socket.send(
-			JSON.stringify({
-				action: 'announce',
-				downloaded: 0,
-				info_hash: infoHash,
-				left: 0,
-				peer_id: peerId,
-				uploaded: 0,
-				...message,
-			}),
-		)
+		try {
+			socket.send(
+				JSON.stringify({
+					action: 'announce',
+					downloaded: 0,
+					info_hash: infoHash,
+					left: 0,
+					peer_id: peerId,
+					uploaded: 0,
+					...message,
+				}),
+			)
+		} catch (error) {
+			warnTracker('socket.send.failed', { error, url: socket.url })
+		}
 	}
 
 	const schedule = (callback: () => void, delay: number) => {
@@ -120,15 +128,20 @@ export const createTrackerRendezvous = (
 		if (options.createOffer == null) return
 
 		const offerId = randomOfferId()
-		void options.createOffer(offerId).then((offer) => {
-			if (closed || offer == null) return
+		void options
+			.createOffer(offerId)
+			.then((offer) => {
+				if (closed || offer == null) return
 
-			send(socket, {
-				event: 'started',
-				numwant: 1,
-				offers: [{ offer, offer_id: offerId }],
+				send(socket, {
+					event: 'started',
+					numwant: 1,
+					offers: [{ offer, offer_id: offerId }],
+				})
 			})
-		})
+			.catch((error) => {
+				warnTracker('offer.create.failed', { error, offerId })
+			})
 	}
 
 	const announce = (socket: WebSocket) => {
@@ -144,7 +157,27 @@ export const createTrackerRendezvous = (
 
 	const handleMessage = (socket: WebSocket, data: unknown) => {
 		const message = decodeTrackerMessage(data)
-		if (message == null) return
+		if (message == null) {
+			warnTracker('message.decode.failed', {
+				length: typeof data === 'string' ? data.length : null,
+				url: socket.url,
+			})
+			return
+		}
+
+		const failureReason = message['failure reason']
+		if (typeof failureReason === 'string') {
+			warnTracker('announce.failed', { reason: failureReason, url: socket.url })
+			return
+		}
+
+		const warningMessage = message['warning message']
+		if (typeof warningMessage === 'string') {
+			warnTracker('announce.warning', {
+				message: warningMessage,
+				url: socket.url,
+			})
+		}
 
 		if (
 			typeof message.offer_id === 'string' &&
@@ -166,11 +199,22 @@ export const createTrackerRendezvous = (
 					to_peer_id: message.peer_id,
 				})
 			})
+			return
+		}
+
+		if (typeof message.offer_id === 'string') {
+			warnTracker('message.signal.invalid', { url: socket.url })
 		}
 	}
 
 	const openSocket = (url: string) => {
-		const socket = new WebSocket(url)
+		let socket: WebSocket
+		try {
+			socket = new WebSocket(url)
+		} catch (error) {
+			warnTracker('socket.create.failed', { error, url })
+			return
+		}
 		sockets.add(socket)
 
 		socket.onopen = () => {
@@ -187,7 +231,8 @@ export const createTrackerRendezvous = (
 				setStatus('failed')
 			}
 		}
-		socket.onerror = () => {
+		socket.onerror = (event) => {
+			warnTracker('socket.error', { type: event.type, url })
 			socket.close()
 		}
 	}

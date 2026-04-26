@@ -13,7 +13,7 @@ export type SignalDescription = {
 export type Packet =
 	| { type: 'hello' }
 	| { nonce: string; type: 'auth-challenge' }
-	| { type: 'auth-ok' }
+	| { type: 'auth-accepted' }
 	| { mac: string; type: 'auth-response' }
 	| { text: string; type: 'blip' }
 	| {
@@ -129,7 +129,7 @@ export const decodePacket = (text: string): Packet | null => {
 			return message
 		case 'auth-challenge':
 			return typeof message.nonce === 'string' ? message : null
-		case 'auth-ok':
+		case 'auth-accepted':
 			return message
 		case 'auth-response':
 			return typeof message.mac === 'string' ? message : null
