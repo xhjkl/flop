@@ -1355,10 +1355,24 @@ export const createRoom = () => {
 		})
 	}
 
-	const createTrackerOffer = async (offerId: string) => {
-		if (!isHostRoom()) return null
+	const trackerRendezvousRole = (): LinkRole | null => {
+		if (isHostRoom()) return 'host-rendezvous'
+		if (isGuestRoomLike()) return 'guest-rendezvous'
 
-		const link = createLink('host-rendezvous', { source: 'tracker' })
+		return null
+	}
+
+	const createTrackerOffer = async (offerId: string) => {
+		const role = trackerRendezvousRole()
+		if (role == null) return null
+		if (
+			role === 'guest-rendezvous' &&
+			currentRendezvousLink('guest-rendezvous', 'tracker') != null
+		) {
+			return null
+		}
+
+		const link = createLink(role, { source: 'tracker' })
 		trackerOffers.set(offerId, link)
 
 		setTimeout(() => {
@@ -1415,18 +1429,23 @@ export const createRoom = () => {
 		offer: SignalDescription,
 		reply: (answer: SignalDescription) => void,
 	) => {
-		if (roomKeys == null || !isGuestRoomLike()) {
+		const role = trackerRendezvousRole()
+		if (roomKeys == null || role == null) {
 			warnRoom('tracker.offer.unexpected', {
 				hasRoomKeys: roomKeys != null,
-				isGuestRoomLike: isGuestRoomLike(),
+				role,
 			})
 			return
 		}
 
-		const existing = currentRendezvousLink('guest-rendezvous', 'tracker')
-		if (existing != null) return
+		if (
+			role === 'guest-rendezvous' &&
+			currentRendezvousLink('guest-rendezvous', 'tracker') != null
+		) {
+			return
+		}
 
-		const link = createLink('guest-rendezvous', { source: 'tracker' })
+		const link = createLink(role, { source: 'tracker' })
 		void link.peer
 			.createAnswer(offer)
 			.then((answer) => {
@@ -1464,10 +1483,10 @@ export const createRoom = () => {
 				trackerOffers.clear()
 			}
 			trackerRendezvous = createTrackerRendezvous({
-				createOffer: role === 'host' ? createTrackerOffer : undefined,
+				createOffer: createTrackerOffer,
 				infoHash: keys.infoHash,
-				onAnswer: role === 'host' ? acceptTrackerAnswer : undefined,
-				onOffer: role === 'guest' ? answerTrackerOffer : undefined,
+				onAnswer: acceptTrackerAnswer,
+				onOffer: answerTrackerOffer,
 				onStatus: (status) => {
 					if (version !== signalingVersion || roomSecret !== secret) return
 

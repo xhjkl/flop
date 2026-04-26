@@ -155,16 +155,7 @@ export const createTrackerRendezvous = (
 		timers.add(timer)
 	}
 
-	const announceGuest = (socket: WebSocket) => {
-		infoTracker('announce.sent', {
-			offers: 0,
-			role: options.role,
-			url: socketUrls.get(socket) ?? socket.url,
-		})
-		send(socket, { event: 'started', numwant: 0 })
-	}
-
-	const announceHost = (socket: WebSocket) => {
+	const announceWithOffer = (socket: WebSocket) => {
 		if (options.createOffer == null) return
 
 		const offerId = randomOfferId()
@@ -192,8 +183,7 @@ export const createTrackerRendezvous = (
 	const announce = (socket: WebSocket) => {
 		if (socket.readyState !== WebSocket.OPEN) return
 
-		if (options.role === 'host') announceHost(socket)
-		else announceGuest(socket)
+		announceWithOffer(socket)
 
 		if (!closed) {
 			schedule(() => announce(socket), ANNOUNCE_INTERVAL_MS)
