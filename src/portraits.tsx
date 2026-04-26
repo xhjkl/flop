@@ -57,10 +57,34 @@ function describeStream(stream: MediaStream | null) {
 	}
 }
 
+function describeVideoElement(element: HTMLVideoElement) {
+	return {
+		ended: element.ended,
+		hasSrcObject: element.srcObject != null,
+		muted: element.muted,
+		networkState: element.networkState,
+		paused: element.paused,
+		readyState: element.readyState,
+		videoHeight: element.videoHeight,
+		videoWidth: element.videoWidth,
+	}
+}
+
 function mediaDebugValue(_key: string, value: unknown): unknown {
 	return value instanceof Error
 		? { message: value.message, name: value.name }
 		: value
+}
+
+function mediaDebug(
+	event: string,
+	details: Record<string, unknown> = {},
+	level: 'debug' | 'warn' = 'debug',
+) {
+	console[level](
+		'[flop:media]',
+		JSON.stringify({ event, ...details }, mediaDebugValue),
+	)
 }
 
 function playVideo(
@@ -68,23 +92,27 @@ function playVideo(
 	element: HTMLVideoElement,
 	stream: MediaStream,
 ) {
-	void element.play().catch((error: unknown) => {
-		console.warn(
-			'[flop:media]',
-			JSON.stringify(
+	void element
+		.play()
+		.then(() => {
+			mediaDebug('video.play.ok', {
+				...describeVideoElement(element),
+				label,
+				...describeStream(stream),
+			})
+		})
+		.catch((error: unknown) => {
+			mediaDebug(
+				'video.play.failed',
 				{
 					error,
-					event: 'video.play.failed',
-					hasSrcObject: element.srcObject != null,
+					...describeVideoElement(element),
 					label,
-					muted: element.muted,
-					readyState: element.readyState,
 					...describeStream(stream),
 				},
-				mediaDebugValue,
-			),
-		)
-	})
+				'warn',
+			)
+		})
 }
 
 export function CardActions(props: { actions: CardAction[] }) {
@@ -332,7 +360,14 @@ export function PersonCard(props: {
 		const element = video
 		if (element == null) return
 
-		if (element.srcObject !== stream) element.srcObject = stream
+		if (element.srcObject !== stream) {
+			element.srcObject = stream
+			mediaDebug('video.srcObject', {
+				...describeVideoElement(element),
+				label: `remote:${mediaVersion}`,
+				...describeStream(stream),
+			})
+		}
 		if (stream != null) playVideo(`remote:${mediaVersion}`, element, stream)
 	})
 
@@ -351,6 +386,39 @@ export function PersonCard(props: {
 					class="remote-video"
 					data-active={props.mediaStream != null ? 'true' : 'false'}
 					autoplay
+					onCanPlay={() => {
+						if (video == null) return
+						mediaDebug('video.canplay', {
+							...describeVideoElement(video),
+							label: `remote:${props.mediaVersion ?? 0}`,
+						})
+					}}
+					onError={() => {
+						if (video == null) return
+						mediaDebug(
+							'video.error',
+							{
+								...describeVideoElement(video),
+								label: `remote:${props.mediaVersion ?? 0}`,
+								message: video.error?.message ?? null,
+							},
+							'warn',
+						)
+					}}
+					onLoadedMetadata={() => {
+						if (video == null) return
+						mediaDebug('video.loadedmetadata', {
+							...describeVideoElement(video),
+							label: `remote:${props.mediaVersion ?? 0}`,
+						})
+					}}
+					onPlaying={() => {
+						if (video == null) return
+						mediaDebug('video.playing', {
+							...describeVideoElement(video),
+							label: `remote:${props.mediaVersion ?? 0}`,
+						})
+					}}
 					playsinline
 				/>
 				<div class="person-activity-shell">
@@ -383,12 +451,26 @@ export function SelfMediaCard(props: {
 
 		if (stream != null) {
 			// The local preview is a mirror first; remote publishing can build on the same portrait.
-			if (element.srcObject !== stream) element.srcObject = stream
+			if (element.srcObject !== stream) {
+				element.srcObject = stream
+				mediaDebug('video.srcObject', {
+					...describeVideoElement(element),
+					label: 'self',
+					...describeStream(stream),
+				})
+			}
 			playVideo('self', element, stream)
 			return
 		}
 
-		element.srcObject = null
+		if (element.srcObject !== null) {
+			element.srcObject = null
+			mediaDebug('video.srcObject', {
+				...describeVideoElement(element),
+				label: 'self',
+				...describeStream(null),
+			})
+		}
 	})
 
 	return (
@@ -406,6 +488,39 @@ export function SelfMediaCard(props: {
 						class="self-video"
 						autoplay
 						muted
+						onCanPlay={() => {
+							if (video == null) return
+							mediaDebug('video.canplay', {
+								...describeVideoElement(video),
+								label: 'self',
+							})
+						}}
+						onError={() => {
+							if (video == null) return
+							mediaDebug(
+								'video.error',
+								{
+									...describeVideoElement(video),
+									label: 'self',
+									message: video.error?.message ?? null,
+								},
+								'warn',
+							)
+						}}
+						onLoadedMetadata={() => {
+							if (video == null) return
+							mediaDebug('video.loadedmetadata', {
+								...describeVideoElement(video),
+								label: 'self',
+							})
+						}}
+						onPlaying={() => {
+							if (video == null) return
+							mediaDebug('video.playing', {
+								...describeVideoElement(video),
+								label: 'self',
+							})
+						}}
 						playsinline
 					/>
 				</div>

@@ -55,7 +55,35 @@ type PeerLink = {
 	peer: Peer
 }
 
+function packetDebugDetails(packet: Packet) {
+	if (packet.type === 'file-chunk') return null
+
+	return {
+		from: 'from' in packet ? participantIdToString(packet.from) : null,
+		id:
+			'id' in packet
+				? typeof packet.id === 'bigint'
+					? participantIdToString(packet.id)
+					: packet.id
+				: null,
+		to: 'to' in packet ? participantIdToString(packet.to) : null,
+		type: packet.type,
+	}
+}
+
+function logPacket(
+	event: string,
+	packet: Packet,
+	details: Record<string, unknown> = {},
+) {
+	const packetDetails = packetDebugDetails(packet)
+	if (packetDetails == null) return
+
+	roomDebug(event, { ...details, ...packetDetails })
+}
+
 function sendPacket(peer: Peer, packet: Packet) {
+	logPacket('packet.send', packet)
 	return peer.send(encodePacket(packet))
 }
 
@@ -691,6 +719,9 @@ export function createRoom() {
 		const message = decodePacket(text)
 		if (message == null) return
 
+		logPacket('packet.receive', message, {
+			fromPeer: participantIdToString(participantId),
+		})
 		handleCommonMessage(participantId, message)
 	}
 
@@ -850,6 +881,10 @@ export function createRoom() {
 		const message = decodePacket(text)
 		if (message == null) return
 		const senderId = hostParticipantId
+		logPacket('packet.receive', message, {
+			fromPeer: senderId == null ? null : participantIdToString(senderId),
+			side: 'guest',
+		})
 		if (senderId != null && handleCommonMessage(senderId, message)) return
 
 		switch (message.type) {
@@ -892,6 +927,10 @@ export function createRoom() {
 	function handleHostMessage(participantId: ParticipantId, text: string) {
 		const message = decodePacket(text)
 		if (message == null) return
+		logPacket('packet.receive', message, {
+			fromPeer: participantIdToString(participantId),
+			side: 'host',
+		})
 		if (handleCommonMessage(participantId, message)) return
 
 		switch (message.type) {

@@ -10,8 +10,14 @@ import {
 	summarizeIceCandidate,
 	waitForIce,
 } from './webrtc/ice'
-import { firstTrack } from './webrtc/media'
-import { logSelectedCandidatePair } from './webrtc/stats'
+import {
+	descriptionSummary,
+	firstTrack,
+	streamSummary,
+	trackSummary,
+	transceiverSummary,
+} from './webrtc/media'
+import { logMediaStats, logSelectedCandidatePair } from './webrtc/stats'
 
 export type Peer = {
 	createOffer: () => Promise<string>
@@ -41,8 +47,10 @@ async function encodeLocalDescription(pc: RTCPeerConnection, debug: RtcDebug) {
 
 	debug('local-description', {
 		candidateTypes: candidateTypeCounts(description.sdp ?? ''),
+		description: descriptionSummary(description),
 		iceGatheringState: pc.iceGatheringState,
 		signalingState: pc.signalingState,
+		transceivers: transceiverSummary(pc),
 		type: description.type,
 	})
 
@@ -136,6 +144,7 @@ export function createPeer(options: PeerOptions = {}): Peer {
 		if (connectionState === 'connected' || iceState === 'connected') {
 			clearDisconnectTimeout()
 			void logSelectedCandidatePair(pc, debug, 'connected')
+			void logMediaStats(pc, debug, 'connected')
 			return
 		}
 
@@ -146,12 +155,14 @@ export function createPeer(options: PeerOptions = {}): Peer {
 			iceState === 'closed'
 		) {
 			void logSelectedCandidatePair(pc, debug, 'closed-or-failed')
+			void logMediaStats(pc, debug, 'closed-or-failed')
 			emitClose()
 			return
 		}
 
 		if (connectionState === 'disconnected' || iceState === 'disconnected') {
 			void logSelectedCandidatePair(pc, debug, 'disconnected')
+			void logMediaStats(pc, debug, 'disconnected')
 			scheduleDisconnectClose()
 		}
 	}
@@ -185,7 +196,9 @@ export function createPeer(options: PeerOptions = {}): Peer {
 	})
 
 	function emitRemoteMedia() {
-		options.onRemoteMedia?.(remoteTracks.size === 0 ? null : remoteStream)
+		const stream = remoteTracks.size === 0 ? null : remoteStream
+		debug('remote-media.emit', streamSummary(stream))
+		options.onRemoteMedia?.(stream)
 	}
 
 	pc.ontrack = (event) => {
@@ -215,6 +228,7 @@ export function createPeer(options: PeerOptions = {}): Peer {
 				kind: event.track.kind,
 			})
 			emitRemoteMedia()
+			void logMediaStats(pc, debug, `track-unmute:${event.track.kind}`)
 		})
 		event.track.addEventListener('ended', () => {
 			debug('track.remote.ended', {
@@ -243,12 +257,20 @@ export function createPeer(options: PeerOptions = {}): Peer {
 		debug('answer.accept')
 		const answer = await decodeSignal<RTCSessionDescriptionInit>(encoded)
 		await pc.setRemoteDescription(answer)
+		debug('remote-description', {
+			description: descriptionSummary(pc.remoteDescription ?? answer),
+			transceivers: transceiverSummary(pc),
+		})
 	}
 
 	async function createAnswer(encodedOffer: string) {
 		debug('answer.create')
 		const offer = await decodeSignal<RTCSessionDescriptionInit>(encodedOffer)
 		await pc.setRemoteDescription(offer)
+		debug('remote-description', {
+			description: descriptionSummary(pc.remoteDescription ?? offer),
+			transceivers: transceiverSummary(pc),
+		})
 
 		const answer = await pc.createAnswer()
 		await pc.setLocalDescription(answer)
@@ -282,25 +304,25 @@ export function createPeer(options: PeerOptions = {}): Peer {
 		track: MediaStreamTrack | null,
 	) {
 		debug('replaceTrack.start', {
-			enabled: track?.enabled ?? null,
-			id: track?.id ?? null,
 			kind,
-			readyState: track?.readyState ?? null,
+			track: trackSummary(track),
 		})
 
 		void sender
 			.replaceTrack(track)
 			.then(() => {
 				debug('replaceTrack.done', {
-					id: track?.id ?? null,
 					kind,
+					track: trackSummary(track),
+					transceivers: transceiverSummary(pc),
 				})
+				void logMediaStats(pc, debug, `replaceTrack:${kind}`)
 			})
 			.catch((error: unknown) => {
 				debug('replaceTrack.failed', {
 					error,
-					id: track?.id ?? null,
 					kind,
+					track: trackSummary(track),
 				})
 			})
 	}

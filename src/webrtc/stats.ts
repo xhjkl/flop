@@ -64,3 +64,45 @@ export async function logSelectedCandidatePair(
 		debug('stats.failed', { error })
 	}
 }
+
+export async function logMediaStats(
+	pc: RTCPeerConnection,
+	debug: RtcDebug,
+	reason: string,
+) {
+	// Media stats answer the important question: did frames/bytes actually move?
+	try {
+		const report = await pc.getStats()
+		const inbound: Array<Record<string, unknown>> = []
+		const outbound: Array<Record<string, unknown>> = []
+
+		for (const raw of report.values()) {
+			const stat = raw as Record<string, unknown>
+			if (stat.type !== 'inbound-rtp' && stat.type !== 'outbound-rtp') {
+				continue
+			}
+			if (stat.isRemote === true) continue
+
+			const sample = {
+				bytesReceived: statNumber(stat, 'bytesReceived'),
+				bytesSent: statNumber(stat, 'bytesSent'),
+				framesDecoded: statNumber(stat, 'framesDecoded'),
+				framesDropped: statNumber(stat, 'framesDropped'),
+				framesEncoded: statNumber(stat, 'framesEncoded'),
+				framesReceived: statNumber(stat, 'framesReceived'),
+				kind: statString(stat, 'kind') ?? statString(stat, 'mediaType'),
+				packetsLost: statNumber(stat, 'packetsLost'),
+				packetsReceived: statNumber(stat, 'packetsReceived'),
+				packetsSent: statNumber(stat, 'packetsSent'),
+				trackIdentifier: statString(stat, 'trackIdentifier'),
+			}
+
+			if (stat.type === 'inbound-rtp') inbound.push(sample)
+			else outbound.push(sample)
+		}
+
+		debug('media-stats', { inbound, outbound, reason })
+	} catch (error) {
+		debug('media-stats.failed', { error })
+	}
+}
