@@ -3,7 +3,7 @@ import { BeforeUnloadGuard } from './before-unload-guard'
 import { ConnectionCard } from './connection-card'
 import { FileDropGuard } from './file-drop-guard'
 import { PersonCard, Room } from './portraits'
-import { createRoom, type RoomLogic } from './room'
+import { createRoom, type RoomHandle } from './room'
 import { SelfPortraitCard } from './self-portrait-card'
 import type { PortraitFileState } from './state'
 import './app.css'
@@ -14,7 +14,7 @@ function hasBusyFile(files: PortraitFileState[]) {
 	)
 }
 
-function hasBusyFiles(room: RoomLogic) {
+function hasBusyFiles(room: RoomHandle) {
 	if (hasBusyFile(room.selfActivity().files)) return true
 
 	return room.peerKeys().some((key) => {
@@ -23,7 +23,7 @@ function hasBusyFiles(room: RoomLogic) {
 	})
 }
 
-function shouldWarnBeforeUnload(room: RoomLogic) {
+function shouldWarnBeforeUnload(room: RoomHandle) {
 	const state = room.state
 	const phase = state.connection.phase
 	// A refresh is cheap until a real peer, code, or file is on the line.
@@ -38,23 +38,24 @@ function shouldWarnBeforeUnload(room: RoomLogic) {
 
 export default function App() {
 	const room = createRoom()
+	const actions = room.actions
 	const state = room.state
 
 	return (
 		<>
 			<BeforeUnloadGuard when={shouldWarnBeforeUnload(room)} />
-			<FileDropGuard onDropFiles={room.sendFiles} />
+			<FileDropGuard onDropFiles={actions.sendFiles} />
 			<Room themeSeed={state.themeSeed}>
 				<SelfPortraitCard
 					activity={room.selfActivity()}
 					canBlip
 					blipComposer={state.blipComposer}
 					media={state.selfMedia}
-					onSendBlip={room.sendBlip}
-					onEnableSelfMedia={room.enableSelfMedia}
-					onSetBlipText={room.setBlipText}
-					onToggleCamera={room.toggleCamera}
-					onToggleMicrophone={room.toggleMicrophone}
+					onSendBlip={actions.sendBlip}
+					onEnableSelfMedia={actions.enableSelfMedia}
+					onSetBlipText={actions.setBlipText}
+					onToggleCamera={actions.toggleCamera}
+					onToggleMicrophone={actions.toggleMicrophone}
 				/>
 				<For each={room.peerKeys()}>
 					{(key) => (
@@ -76,14 +77,14 @@ export default function App() {
 					<ConnectionCard
 						connection={state.connection}
 						hasPeers={room.peerKeys().length > 0}
-						onAcceptReply={room.acceptReply}
-						onBecomeGuest={room.becomeGuest}
-						onBecomeHost={room.becomeHost}
-						onCopyInviteLink={room.copyInviteLink}
-						onCopyReplyCode={room.copyReplyCode}
-						onCreateReply={room.createReply}
-						onSetInviteText={room.setInviteText}
-						onSetReplyText={room.setReplyText}
+						onAcceptReply={actions.acceptReply}
+						onBecomeGuest={actions.becomeGuest}
+						onBecomeHost={actions.becomeHost}
+						onCopyInviteLink={actions.copyInviteLink}
+						onCopyReplyCode={actions.copyReplyCode}
+						onCreateReply={actions.createReply}
+						onSetInviteText={actions.setInviteText}
+						onSetReplyText={actions.setReplyText}
 					/>
 				</Show>
 			</Room>

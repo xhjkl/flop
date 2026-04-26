@@ -2,7 +2,7 @@ import { emptySelfMedia, type SelfMedia } from '../self-media'
 import type { BlipComposerState, ConnectionState } from '../state'
 
 // These factories name visible card states, not persisted room data.
-export type RoomViewState = {
+export type RoomState = {
 	blipComposer: BlipComposerState
 	connection: ConnectionState
 	selfMedia: SelfMedia
@@ -32,7 +32,7 @@ export const emptyBlipComposer = (): BlipComposerState => ({
 	text: '',
 })
 
-export function emptyRoomViewState(themeSeed: string): RoomViewState {
+export function emptyRoomState(themeSeed: string): RoomState {
 	return {
 		blipComposer: emptyBlipComposer(),
 		connection: emptyHostConnection(),

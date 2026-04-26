@@ -23,7 +23,7 @@ import {
 	emptyBlipComposer,
 	emptyGuestConnection,
 	emptyHostConnection,
-	emptyRoomViewState,
+	emptyRoomState,
 } from './room/initial-state'
 import {
 	clearInviteHash,
@@ -84,7 +84,7 @@ export function createRoom() {
 		[hostParticipant.id]: hostParticipant,
 	})
 
-	const [state, setState] = createStore(emptyRoomViewState(hostParticipant.id))
+	const [state, setState] = createStore(emptyRoomState(hostParticipant.id))
 
 	const peerKeys = createMemo(() => {
 		const local = localKey()
@@ -1279,11 +1279,7 @@ export function createRoom() {
 		disposeSelfMedia()
 	})
 
-	return {
-		state,
-		participant: participantByKey,
-		peerKeys,
-		selfActivity,
+	const actions = {
 		becomeGuest,
 		becomeHost: () => {
 			void startHostInvite()
@@ -1310,6 +1306,15 @@ export function createRoom() {
 		toggleCamera,
 		toggleMicrophone,
 	}
+
+	return {
+		actions,
+		state,
+		participant: participantByKey,
+		peerKeys,
+		selfActivity,
+	}
 }
 
-export type RoomLogic = ReturnType<typeof createRoom>
+export type RoomHandle = ReturnType<typeof createRoom>
+export type { RoomState } from './room/initial-state'
