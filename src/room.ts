@@ -110,6 +110,9 @@ const errorRoom = (event: string, details: Record<string, unknown> = {}) => {
 	errorLog('room', event, details)
 }
 
+const TRACKER_CANDIDATE_LIMIT = 12
+const TRACKER_CANDIDATE_TTL_MS = 45_000
+
 export const createRoom = () => {
 	const incomingFiles = new Map<string, IncomingFileTransfer>()
 	let fileUrls = new Set<string>()
@@ -297,6 +300,83 @@ export const createRoom = () => {
 
 			closeLink(candidate)
 		}
+	}
+
+	const isTrackerCandidate = (link: RoomLink, role?: LinkRole) => {
+		return (
+			link.source === 'tracker' &&
+			link.remoteId == null &&
+			(role == null || link.role === role)
+		)
+	}
+
+	const trackerCandidates = (role: LinkRole) => {
+		return [...links.values()].filter((link) => isTrackerCandidate(link, role))
+	}
+
+	const candidateBudgetAllows = (role: LinkRole) => {
+		return trackerCandidates(role).length < TRACKER_CANDIDATE_LIMIT
+	}
+
+	const expireTrackerCandidate = (link: RoomLink, reason: string) => {
+		if (links.get(link.id) !== link) return
+		if (!isTrackerCandidate(link)) return
+
+		infoRoom('tracker.candidate.expired', {
+			link: linkLog(link),
+			reason,
+		})
+		closeLink(link)
+	}
+
+	const pruneTrackerCandidateBudget = (role: LinkRole) => {
+		while (!candidateBudgetAllows(role)) {
+			const oldest = trackerCandidates(role)[0]
+			if (oldest == null) return
+
+			expireTrackerCandidate(oldest, 'budget')
+		}
+	}
+
+	const createTrackerCandidate = (
+		role: LinkRole,
+		options: { offerId?: string | null; trackerPeerId?: string | null } = {},
+	) => {
+		pruneTrackerCandidateBudget(role)
+		if (!candidateBudgetAllows(role)) {
+			warnRoom('tracker.candidate.budget-full', { role })
+			return null
+		}
+
+		const link = createLink(role, {
+			source: 'tracker',
+			trackerPeerId: options.trackerPeerId ?? null,
+		})
+		if (options.offerId != null) trackerOffers.set(options.offerId, link)
+
+		setTimeout(() => {
+			expireTrackerCandidate(link, 'timeout')
+		}, TRACKER_CANDIDATE_TTL_MS)
+		return link
+	}
+
+	const promoteRendezvousLink = (
+		link: RoomLink,
+		participantId: ParticipantId,
+	) => {
+		if (link.source === 'tracker' && link.auth !== 'verified') {
+			warnRoom('tracker.candidate.promote.before-auth', {
+				link: linkLog(link),
+				participantId: participantIdToString(participantId),
+			})
+			closeLink(link)
+			return false
+		}
+
+		if (!adoptLink(link, participantId)) return false
+
+		closeSiblingRendezvousLinks(link)
+		return true
 	}
 
 	const verifiedTrackerLinkByPeer = (
@@ -1214,7 +1294,7 @@ export const createRoom = () => {
 				setLocalKey(participantKey(message.selfId))
 				replaceParticipants(message.roster)
 				applyPendingLocalBlip()
-				if (!adoptLink(link, message.hostId)) {
+				if (!promoteRendezvousLink(link, message.hostId)) {
 					errorRoom('guest.welcome.adopt-link.failed', {
 						hostId: participantIdToString(message.hostId),
 						link: linkLog(link),
@@ -1222,7 +1302,6 @@ export const createRoom = () => {
 					markRoomClosed()
 					return
 				}
-				closeSiblingRendezvousLinks(link)
 				setState('connection', {
 					...(state.connection.side === 'guest'
 						? state.connection
@@ -1335,7 +1414,7 @@ export const createRoom = () => {
 		setParticipantKeys((keys) =>
 			keys.includes(person.id) ? keys : [...keys, person.id],
 		)
-		if (!adoptLink(link, participant.id)) {
+		if (!promoteRendezvousLink(link, participant.id)) {
 			errorRoom('host.admit.adopt-link.failed', {
 				link: linkLog(link),
 				participantId: participantIdToString(participant.id),
@@ -1343,7 +1422,6 @@ export const createRoom = () => {
 			deleteParticipant(participant.id)
 			return null
 		}
-		closeSiblingRendezvousLinks(link)
 
 		if (state.connection.side === 'host') {
 			setState('connection', {
@@ -1405,14 +1483,8 @@ export const createRoom = () => {
 		const role = trackerRendezvousRole()
 		if (role == null) return null
 
-		const link = createLink(role, { source: 'tracker' })
-		trackerOffers.set(offerId, link)
-
-		setTimeout(() => {
-			if (trackerOffers.get(offerId) !== link || link.remoteId != null) return
-
-			closeLink(link)
-		}, 45_000)
+		const link = createTrackerCandidate(role, { offerId })
+		if (link == null) return null
 
 		try {
 			const offer = await link.peer.createOffer()
@@ -1496,12 +1568,8 @@ export const createRoom = () => {
 			return
 		}
 
-		const link = createLink(role, { source: 'tracker', trackerPeerId })
-		setTimeout(() => {
-			if (links.get(link.id) !== link || link.remoteId != null) return
-
-			closeLink(link)
-		}, 45_000)
+		const link = createTrackerCandidate(role, { trackerPeerId })
+		if (link == null) return
 
 		void link.peer
 			.createAnswer(offer)
