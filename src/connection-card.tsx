@@ -6,6 +6,8 @@ import type {
 	HostConnectionState,
 } from './state'
 
+type HostInviteMode = 'code' | 'link'
+
 const connectionTitle = (connection: ConnectionState) => {
 	if (connection.side === 'closed') return 'room closed'
 	if (connection.side === 'guest' && connection.status === 'connected') {
@@ -24,7 +26,7 @@ const connectionBody = (connection: ConnectionState) => {
 	}
 
 	if (connection.side === 'host') {
-		return 'Send this invite to the other device. They open it, then send one reply back.'
+		return ''
 	}
 
 	if (connection.status === 'needs-invite') {
@@ -47,6 +49,7 @@ const CopyBlock = (props: {
 	value: string
 	placeholder: string
 	copyLabel: string
+	disabled?: boolean
 	onCopy: () => void
 }) => {
 	let copiedTimeout: ReturnType<typeof setTimeout> | null = null
@@ -71,7 +74,7 @@ const CopyBlock = (props: {
 				<button
 					type="button"
 					onClick={copy}
-					disabled={empty()}
+					disabled={empty() || (props.disabled ?? false)}
 					data-copied={copied() ? 'true' : 'false'}
 				>
 					{copied() ? 'copied' : props.copyLabel}
@@ -137,9 +140,36 @@ const SideSwitch = (props: { label: string; onPress: () => void }) => {
 	)
 }
 
+const HostInviteTabs = (props: {
+	mode: HostInviteMode
+	onMode: (mode: HostInviteMode) => void
+}) => {
+	return (
+		<div class="connection-mode-heading">
+			<strong>invite:</strong>
+			<button
+				type="button"
+				data-active={props.mode === 'link' ? 'true' : 'false'}
+				onClick={() => props.onMode('link')}
+			>
+				with link
+			</button>
+			<span>|</span>
+			<button
+				type="button"
+				data-active={props.mode === 'code' ? 'true' : 'false'}
+				onClick={() => props.onMode('code')}
+			>
+				with code
+			</button>
+		</div>
+	)
+}
+
 const HostConnectionFields = (props: {
 	connection: HostConnectionState
 	hasPeers: boolean
+	mode: HostInviteMode
 	onAcceptReply: (replyText?: string) => void
 	onBecomeGuest: () => void
 	onCopyInviteLink: () => void
@@ -151,23 +181,61 @@ const HostConnectionFields = (props: {
 
 	return (
 		<>
-			{/* Host flow: send one invite out, paste one reply back, admit one guest. */}
-			<div class="connection-main">
-				<CopyBlock
-					label="invite"
-					value={props.connection.inviteLink}
-					placeholder="invite is being created"
-					copyLabel="copy invite"
-					onCopy={props.onCopyInviteLink}
-				/>
-				<CodeInput
-					label="paste their reply here to let them in"
-					value={props.connection.replyText}
-					placeholder="paste reply"
-					disabled={busy()}
-					onChange={props.onSetReplyText}
-					onSubmit={props.onAcceptReply}
-				/>
+			<div class="connection-mode-frame" data-mode={props.mode}>
+				<div class="connection-mode-rail">
+					<div
+						class="connection-mode-pane"
+						aria-hidden={props.mode === 'link' ? 'false' : 'true'}
+					>
+						<div class="connection-copy">
+							<p>
+								Send this link to the other device. Flop will try to find it
+								automatically.
+							</p>
+						</div>
+						<div class="connection-main">
+							<CopyBlock
+								label="link"
+								value=""
+								placeholder="automatic invite link is coming next"
+								copyLabel="copy link"
+								disabled
+								onCopy={() => null}
+							/>
+						</div>
+					</div>
+					<div
+						class="connection-mode-pane"
+						aria-hidden={props.mode === 'code' ? 'false' : 'true'}
+					>
+						{/* Manual host flow: send one invite out, paste one reply back, admit one guest. */}
+						<div class="connection-copy">
+							<p>
+								Use this if the link does not connect. Send this invite code,
+								then paste their reply.
+							</p>
+							<ConnectionIssue connection={props.connection} />
+						</div>
+						<div class="connection-main">
+							<CopyBlock
+								label="invite code"
+								value={props.connection.inviteLink}
+								placeholder="invite code is being created"
+								copyLabel="copy code"
+								disabled={props.mode !== 'code'}
+								onCopy={props.onCopyInviteLink}
+							/>
+							<CodeInput
+								label="paste their reply here to let them in"
+								value={props.connection.replyText}
+								placeholder="paste reply"
+								disabled={busy() || props.mode !== 'code'}
+								onChange={props.onSetReplyText}
+								onSubmit={props.onAcceptReply}
+							/>
+						</div>
+					</div>
+				</div>
 			</div>
 			<Show when={!props.hasPeers}>
 				<SideSwitch
@@ -271,16 +339,28 @@ export const ConnectionCard = (props: {
 		props.connection.side === 'host' ? props.connection : null
 	const guestConnection = () =>
 		props.connection.side === 'guest' ? props.connection : null
+	const [hostInviteMode, setHostInviteMode] =
+		createSignal<HostInviteMode>('link')
 
 	return (
-		<article class="portrait-card utility-card connection-card">
+		<article
+			class="portrait-card utility-card connection-card"
+			data-side={props.connection.side}
+		>
 			<header class="utility-header">
-				<strong>{connectionTitle(props.connection)}</strong>
+				<Show
+					when={props.connection.side === 'host'}
+					fallback={<strong>{connectionTitle(props.connection)}</strong>}
+				>
+					<HostInviteTabs mode={hostInviteMode()} onMode={setHostInviteMode} />
+				</Show>
 			</header>
-			<div class="connection-copy">
-				<p>{connectionBody(props.connection)}</p>
-				<ConnectionIssue connection={props.connection} />
-			</div>
+			<Show when={props.connection.side !== 'host'}>
+				<div class="connection-copy">
+					<p>{connectionBody(props.connection)}</p>
+					<ConnectionIssue connection={props.connection} />
+				</div>
+			</Show>
 			<Switch>
 				<Match when={props.connection.side === 'closed'}>
 					<ClosedConnectionFields
@@ -293,6 +373,7 @@ export const ConnectionCard = (props: {
 						<HostConnectionFields
 							connection={connection()}
 							hasPeers={props.hasPeers ?? false}
+							mode={hostInviteMode()}
 							onAcceptReply={props.onAcceptReply}
 							onBecomeGuest={props.onBecomeGuest}
 							onCopyInviteLink={props.onCopyInviteLink}

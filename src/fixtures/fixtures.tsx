@@ -117,7 +117,7 @@ export const uiFixtures: UiFixture[] = [
 					onSetBlipText={noopText}
 				>
 					<p>
-						Share the invite code, paste back the reply code, and send files
+						Share an invite with another device, then send files
 						device-to-device. Use the button below to turn on camera and
 						microphone so other peers can see you.
 					</p>
