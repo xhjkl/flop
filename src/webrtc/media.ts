@@ -36,21 +36,3 @@ export function transceiverSummary(pc: RTCPeerConnection) {
 		senderTrack: trackSummary(transceiver.sender.track),
 	}))
 }
-
-export function descriptionSummary(
-	description: RTCSessionDescription | RTCSessionDescriptionInit | null,
-) {
-	const sdp = description?.sdp?.replace(/\r\n/g, '\n') ?? ''
-
-	return {
-		media:
-			sdp.match(/^m=.*(?:\n(?!m=).*)*/gm)?.map((section) => ({
-				direction:
-					section.match(/^a=(sendrecv|sendonly|recvonly|inactive)$/m)?.[1] ??
-					null,
-				kind: section.match(/^m=(\S+)/)?.[1] ?? null,
-				mid: section.match(/^a=mid:(.+)$/m)?.[1] ?? null,
-			})) ?? [],
-		type: description?.type ?? null,
-	}
-}

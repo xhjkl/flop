@@ -11,7 +11,6 @@ import {
 	waitForIce,
 } from './webrtc/ice'
 import {
-	descriptionSummary,
 	firstTrack,
 	streamSummary,
 	trackSummary,
@@ -49,7 +48,6 @@ async function encodeLocalDescription(pc: RTCPeerConnection, debug: RtcDebug) {
 
 	debug('local-description', {
 		candidateTypes: candidateTypeCounts(description.sdp ?? ''),
-		description: descriptionSummary(description),
 		iceGatheringState: pc.iceGatheringState,
 		signalingState: pc.signalingState,
 		transceivers: transceiverSummary(pc),
@@ -63,7 +61,6 @@ export function createPeer(options: PeerOptions = {}): Peer {
 	const pc = new RTCPeerConnection({
 		iceServers: options.iceServers ?? DEFAULT_ICE_SERVERS,
 	})
-	const senders: Partial<Record<MediaKind, RTCRtpSender>> = {}
 	const remoteStream = new MediaStream()
 	const remoteTracks = new Map<string, MediaStreamTrack>()
 	let channel: RTCDataChannel | null = null
@@ -206,7 +203,6 @@ export function createPeer(options: PeerOptions = {}): Peer {
 			transceiver.direction = 'sendrecv'
 		}
 
-		senders[kind] = transceiver.sender
 		debug('sender.slot', {
 			kind,
 			transceivers: transceiverSummary(pc),
@@ -214,15 +210,19 @@ export function createPeer(options: PeerOptions = {}): Peer {
 		return transceiver.sender
 	}
 
+	function currentSender(kind: MediaKind) {
+		return negotiatedOrFirstTransceiver(kind)?.sender ?? null
+	}
+
 	function replaceLocalTracks() {
 		replaceSenderTrack(
 			'audio',
-			senders.audio ?? null,
+			currentSender('audio'),
 			firstTrack(localMedia, 'audio'),
 		)
 		replaceSenderTrack(
 			'video',
-			senders.video ?? null,
+			currentSender('video'),
 			firstTrack(localMedia, 'video'),
 		)
 	}
@@ -315,7 +315,7 @@ export function createPeer(options: PeerOptions = {}): Peer {
 		const answer = await decodeSignal<RTCSessionDescriptionInit>(encoded)
 		await pc.setRemoteDescription(answer)
 		debug('remote-description', {
-			description: descriptionSummary(pc.remoteDescription ?? answer),
+			type: pc.remoteDescription?.type ?? answer.type ?? null,
 			transceivers: transceiverSummary(pc),
 		})
 	}
@@ -325,7 +325,7 @@ export function createPeer(options: PeerOptions = {}): Peer {
 		const offer = await decodeSignal<RTCSessionDescriptionInit>(encodedOffer)
 		await pc.setRemoteDescription(offer)
 		debug('remote-description', {
-			description: descriptionSummary(pc.remoteDescription ?? offer),
+			type: pc.remoteDescription?.type ?? offer.type ?? null,
 			transceivers: transceiverSummary(pc),
 		})
 		prepareMediaSlots()
