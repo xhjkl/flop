@@ -74,9 +74,9 @@
 	--surface-pop: hsl(var(--h-contrast) 58% 80% / 0.2);
 	--line-live: color-mix(in srgb, var(--ok) 62%, var(--line));
 	--line-warn: color-mix(in srgb, var(--warn) 62%, var(--line));
+	--shadow-card-outer: 0 1rem 2.4rem hsl(var(--h) 30% 5% / 0.13);
 	--shadow-card:
-		inset 0 1px 0 hsl(var(--h-glow) 64% 88% / 0.08),
-		0 1rem 2.4rem hsl(var(--h) 30% 5% / 0.13);
+		inset 0 1px 0 hsl(var(--h-glow) 64% 88% / 0.08), var(--shadow-card-outer);
 }
 
 * {
@@ -532,6 +532,11 @@ textarea {
 	background: var(--surface-strong);
 }
 
+.self-card[data-has-preview="true"] {
+	background: var(--bg-deep);
+	box-shadow: var(--shadow-card-outer);
+}
+
 .self-card-body {
 	display: grid;
 	grid-template-rows: auto minmax(0, 1fr) auto auto;
@@ -559,17 +564,6 @@ textarea {
 .self-card[data-media-state="live"] {
 	border-color: var(--line-live);
 	grid-template-rows: minmax(0, 1fr);
-}
-
-.self-card[data-media-state="live"] .self-card-body {
-	position: absolute;
-	z-index: 1;
-	inset-block-end: var(--space-page);
-	inset-inline-end: var(--space-page);
-	inline-size: min(calc(100% - (var(--space-page) * 2)), var(--overlay-inline));
-	display: block;
-	padding: 0;
-	pointer-events: none;
 }
 
 .self-card[data-media-state="ready"] .self-card-body {
@@ -619,10 +613,6 @@ textarea {
 		var(--bg-deep);
 }
 
-.self-card[data-has-preview="true"] {
-	grid-template-rows: minmax(0, 1fr);
-}
-
 .self-card:not([data-media-state="live"])[data-has-preview="false"] {
 	grid-template-rows: auto;
 }
@@ -637,6 +627,13 @@ textarea {
 	display: grid;
 	gap: var(--space-touch);
 	justify-items: stretch;
+}
+
+.self-card[data-media-state="live"] .self-live-shell {
+	position: absolute;
+	inset-block-end: var(--space-page);
+	inset-inline-end: var(--space-page);
+	inline-size: min(calc(100% - (var(--space-page) * 2)), var(--overlay-inline));
 	pointer-events: auto;
 }
 

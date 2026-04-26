@@ -385,69 +385,71 @@ export const SelfMediaCard = (props: {
 					/>
 				</div>
 			</Show>
-			<div class="self-card-body">
-				<Show
-					when={props.media.status !== 'live'}
-					fallback={
-						<div class="self-live-shell">
-							<PortraitActivity activity={filesActivity(props.activity)} />
-							<SelfBlipComposer
-								canSend={props.canBlip}
-								composer={props.blipComposer}
-								onSend={props.onSendBlip}
-								onSetText={props.onSetBlipText}
-								showWhenIdle
-							/>
-							<div class="self-live-controls">
-								<Show when={props.cameraToggle}>
-									{(action) => (
-										<ToggleButton
-											label="cam"
-											enabled={props.media.cameraEnabled}
-											action={action()}
-										/>
-									)}
+			<Show
+				when={props.media.status === 'live'}
+				fallback={
+					<div class="self-card-body">
+						<Show
+							when={(props.title ?? '').trim() !== '' || props.children != null}
+						>
+							<div class="self-copy-shell">
+								<Show when={(props.title ?? '').trim() !== ''}>
+									<header class="utility-header">
+										<strong>{props.title}</strong>
+										<Show
+											when={selfMediaStateLabels[props.media.status] !== ''}
+										>
+											<small>{selfMediaStateLabels[props.media.status]}</small>
+										</Show>
+									</header>
 								</Show>
-								<Show when={props.microphoneToggle}>
-									{(action) => (
-										<ToggleButton
-											label="mic"
-											enabled={props.media.microphoneEnabled}
-											action={action()}
-										/>
-									)}
+								<Show when={props.children != null}>
+									<div class="self-card-copy">{props.children}</div>
 								</Show>
 							</div>
-						</div>
-					}
-				>
-					<Show
-						when={(props.title ?? '').trim() !== '' || props.children != null}
-					>
-						<div class="self-copy-shell">
-							<Show when={(props.title ?? '').trim() !== ''}>
-								<header class="utility-header">
-									<strong>{props.title}</strong>
-									<Show when={selfMediaStateLabels[props.media.status] !== ''}>
-										<small>{selfMediaStateLabels[props.media.status]}</small>
-									</Show>
-								</header>
-							</Show>
-							<Show when={props.children != null}>
-								<div class="self-card-copy">{props.children}</div>
-							</Show>
-						</div>
-					</Show>
+						</Show>
+						<PortraitActivity activity={filesActivity(props.activity)} />
+						<SelfBlipComposer
+							canSend={props.canBlip}
+							composer={props.blipComposer}
+							onSend={props.onSendBlip}
+							onSetText={props.onSetBlipText}
+						/>
+						<CardActions actions={props.actions ?? []} />
+					</div>
+				}
+			>
+				<div class="self-live-shell">
 					<PortraitActivity activity={filesActivity(props.activity)} />
 					<SelfBlipComposer
 						canSend={props.canBlip}
 						composer={props.blipComposer}
 						onSend={props.onSendBlip}
 						onSetText={props.onSetBlipText}
+						showWhenIdle
 					/>
-					<CardActions actions={props.actions ?? []} />
-				</Show>
-			</div>
+					<div class="self-live-controls">
+						<Show when={props.cameraToggle}>
+							{(action) => (
+								<ToggleButton
+									label="cam"
+									enabled={props.media.cameraEnabled}
+									action={action()}
+								/>
+							)}
+						</Show>
+						<Show when={props.microphoneToggle}>
+							{(action) => (
+								<ToggleButton
+									label="mic"
+									enabled={props.media.microphoneEnabled}
+									action={action()}
+								/>
+							)}
+						</Show>
+					</div>
+				</div>
+			</Show>
 		</article>
 	)
 }
