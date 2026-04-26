@@ -635,12 +635,10 @@ export const createRoom = () => {
 
 	const createLink = (
 		role: LinkRole,
-		debugLabel: string,
 		remoteId: ParticipantId | null = null,
 	) => {
 		const id = nextLinkId(role)
 		const peer = createPeer({
-			debugLabel,
 			onOpen: () => handleLinkOpen(id),
 			onMessage: (text) => handleLinkMessage(id, text),
 			onRemoteMedia: (stream) => {
@@ -730,11 +728,7 @@ export const createRoom = () => {
 	}
 
 	const createMeshLink = (participantId: ParticipantId) => {
-		const link = createLink(
-			'mesh',
-			`mesh:${participantIdToString(participantId)}`,
-			participantId,
-		)
+		const link = createLink('mesh', participantId)
 
 		if (participantById(participantId) == null) {
 			closeLink(link)
@@ -1036,10 +1030,7 @@ export const createRoom = () => {
 
 			setState('connection', emptyHostConnection())
 
-			nextLink = createLink(
-				'host-rendezvous',
-				options.resetPeers ? 'host:invite' : 'host:next-invite',
-			)
+			nextLink = createLink('host-rendezvous')
 			const inviteCode = await nextLink.peer.createOffer()
 			if (
 				version !== signalingVersion ||
@@ -1094,7 +1085,7 @@ export const createRoom = () => {
 				inviteText: inviteInput,
 			})
 
-			nextLink = createLink('guest-rendezvous', 'guest:reply')
+			nextLink = createLink('guest-rendezvous')
 			const replyCode = await nextLink.peer.createAnswer(inviteCode)
 			if (
 				version !== signalingVersion ||

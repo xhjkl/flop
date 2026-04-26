@@ -22,7 +22,6 @@ export type Peer = {
 type MediaKind = 'audio' | 'video'
 
 type PeerOptions = {
-	debugLabel?: string
 	onOpen?: () => void
 	onClose?: () => void
 	onMessage?: (text: string) => void
