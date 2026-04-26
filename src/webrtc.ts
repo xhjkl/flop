@@ -66,15 +66,16 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		audio: Promise.resolve(),
 		video: Promise.resolve(),
 	}
-	const clearDisconnectTimeout = () => {
+	const clearDisconnectTimeout = (recovered = true) => {
 		if (disconnectTimeout == null) return
 
 		clearTimeout(disconnectTimeout)
 		disconnectTimeout = null
+		if (recovered) warnLog('rtc', 'disconnect.grace.recovered')
 	}
 
 	const closeTransport = () => {
-		clearDisconnectTimeout()
+		clearDisconnectTimeout(false)
 		try {
 			channel?.close()
 		} catch {}
@@ -93,6 +94,11 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	const scheduleDisconnectClose = () => {
 		if (disconnectTimeout != null) return
 
+		warnLog('rtc', 'disconnect.grace.start', {
+			connectionState: pc.connectionState,
+			iceConnectionState: pc.iceConnectionState,
+			timeoutMs: DISCONNECT_GRACE_MS,
+		})
 		disconnectTimeout = setTimeout(() => {
 			const connectionState = pc.connectionState
 			const iceState = pc.iceConnectionState
@@ -102,6 +108,10 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 				iceState === 'disconnected' ||
 				iceState === 'failed'
 			) {
+				warnLog('rtc', 'disconnect.grace.expired', {
+					connectionState,
+					iceConnectionState: iceState,
+				})
 				emitClose()
 			}
 		}, DISCONNECT_GRACE_MS)

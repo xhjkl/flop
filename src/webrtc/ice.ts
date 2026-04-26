@@ -5,7 +5,7 @@ export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 
 // STUN helps peers find each other; it is not a relay and should not become a server path.
 export const ICE_GATHER_TIMEOUT_MS = 2500
-export const DISCONNECT_GRACE_MS = 5000
+export const DISCONNECT_GRACE_MS = 30_000
 
 export const candidateTypeCounts = (sdp: string) => {
 	const counts: Record<string, number> = {}
