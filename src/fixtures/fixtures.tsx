@@ -129,6 +129,25 @@ export const uiFixtures: UiFixture[] = [
 					side: 'host',
 					status: 'invite-ready',
 					autoInviteLink: SAMPLE_AUTO_LINK,
+					autoStatus: 'ready',
+					manualInviteLink: SAMPLE_INVITE_LINK,
+					replyText: '',
+					issue: null,
+				})}
+			</Room>
+		),
+	),
+	fixture(
+		'host-link-preparing',
+		'Host link preparing',
+		'The host has a room secret, but no tracker has accepted the announce yet.',
+		() => (
+			<Room themeSeed={SAMPLE_AUTO_LINK}>
+				{selfCard()}
+				{connectionCard({
+					side: 'host',
+					status: 'invite-ready',
+					autoInviteLink: SAMPLE_AUTO_LINK,
 					autoStatus: 'finding',
 					manualInviteLink: SAMPLE_INVITE_LINK,
 					replyText: '',
@@ -154,6 +173,28 @@ export const uiFixtures: UiFixture[] = [
 					status: 'reply-ready',
 					inviteText: SAMPLE_OFFER,
 					replyCode: SAMPLE_REPLY,
+					issue: null,
+				})}
+			</Room>
+		),
+	),
+	fixture(
+		'guest-link-finding',
+		'Guest link finding',
+		'The guest opened an automatic invite link and should wait, not create a manual reply.',
+		() => (
+			<Room themeSeed={SAMPLE_AUTO_LINK}>
+				{selfCard()}
+				<PersonCard
+					activity={emptyActivity}
+					colorSeed={HOST_ID}
+					state="waiting"
+				/>
+				{connectionCard({
+					side: 'guest',
+					status: 'finding-link',
+					inviteText: SAMPLE_AUTO_LINK,
+					replyCode: '',
 					issue: null,
 				})}
 			</Room>
@@ -199,7 +240,7 @@ export const uiFixtures: UiFixture[] = [
 						side: 'host',
 						status: 'invite-ready',
 						autoInviteLink: SAMPLE_AUTO_LINK,
-						autoStatus: 'finding',
+						autoStatus: 'ready',
 						manualInviteLink: SAMPLE_INVITE_LINK,
 						replyText: '',
 						issue: null,

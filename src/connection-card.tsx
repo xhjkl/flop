@@ -183,6 +183,14 @@ const HostConnectionFields = (props: {
 	const busy = () =>
 		props.connection.status === 'creating-invite' ||
 		props.connection.status === 'accepting-reply'
+	const autoLinkReady = () => props.connection.autoStatus === 'ready'
+	const autoLinkUnavailable = () => props.connection.autoStatus === 'failed'
+	const autoLinkCopyValue = () =>
+		autoLinkReady() ? props.connection.autoInviteLink : ''
+	const autoLinkPlaceholder = () =>
+		autoLinkUnavailable()
+			? 'automatic invite link is unavailable'
+			: 'preparing automatic invite link'
 
 	return (
 		<div class="connection-mode-frame" data-mode={props.mode}>
@@ -192,10 +200,20 @@ const HostConnectionFields = (props: {
 					aria-hidden={props.mode === 'link' ? 'false' : 'true'}
 				>
 					<div class="connection-copy">
-						<p>
-							Send this link to the other device. Flop will try to find it
-							automatically.
-						</p>
+						<Show
+							when={autoLinkReady()}
+							fallback={
+								<p>
+									Preparing this invite link. Wait for it to be ready, then send
+									it to the other device.
+								</p>
+							}
+						>
+							<p>
+								Send this link to the other device. Flop will try to find it
+								automatically.
+							</p>
+						</Show>
 						<Show when={props.connection.autoStatus === 'failed'}>
 							<p class="connection-issue">
 								Automatic link could not reach the tracker. Use the invite code
@@ -206,9 +224,10 @@ const HostConnectionFields = (props: {
 					<div class="connection-main">
 						<CopyBlock
 							label="link"
-							value={props.connection.autoInviteLink}
-							placeholder="automatic invite link is coming next"
-							copyLabel="copy link"
+							value={autoLinkCopyValue()}
+							placeholder={autoLinkPlaceholder()}
+							copyLabel={autoLinkReady() ? 'copy link' : 'preparing'}
+							disabled={!autoLinkReady()}
 							onCopy={props.onCopyAutoInviteLink}
 						/>
 					</div>
@@ -264,7 +283,8 @@ const GuestConnectionFields = (props: {
 }) => {
 	const creating = () => props.connection.status === 'creating-reply'
 	const canCreate = () =>
-		creating() || props.connection.inviteText.trim() !== ''
+		props.connection.status !== 'finding-link' &&
+		(creating() || props.connection.inviteText.trim() !== '')
 
 	return (
 		<>
@@ -285,7 +305,7 @@ const GuestConnectionFields = (props: {
 									label="link"
 									value={props.connection.inviteText}
 									placeholder="finding host"
-									copyLabel="copy link"
+									copyLabel="waiting"
 									disabled
 									onCopy={() => null}
 								/>

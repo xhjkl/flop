@@ -1,13 +1,13 @@
 import { infoLog, warnLog } from '../log'
 import type { SignalDescription } from '../signal'
 
-export type TrackerStatus = 'failed' | 'finding' | 'idle'
+export type TrackerStatus = 'failed' | 'finding' | 'idle' | 'ready'
 
 export type TrackerRendezvous = {
 	close: () => void
 }
 
-type EndpointStatus = 'failed' | 'open' | 'pending'
+type EndpointStatus = 'failed' | 'open' | 'pending' | 'ready'
 
 type TrackerOptions = {
 	createOffer?: (offerId: string) => Promise<SignalDescription | null>
@@ -122,7 +122,9 @@ export const createTrackerRendezvous = (
 		if (closed) return
 
 		const statuses = [...endpointStatuses.values()]
-		if (statuses.some((status) => status === 'open')) {
+		if (statuses.some((status) => status === 'ready')) {
+			setStatus('ready')
+		} else if (statuses.some((status) => status === 'open')) {
 			setStatus('finding')
 		} else if (statuses.some((status) => status === 'pending')) {
 			setStatus('finding')
@@ -321,6 +323,7 @@ export const createTrackerRendezvous = (
 		}
 
 		if (message.action === 'announce') {
+			markEndpoint(url, 'ready')
 			infoTracker('announce.accepted', {
 				complete:
 					typeof message.complete === 'number' ? message.complete : null,

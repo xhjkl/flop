@@ -10,7 +10,7 @@ export type HostConnectionStatus =
 	| 'creating-invite'
 	| 'invite-ready'
 
-export type AutoInviteStatus = 'failed' | 'finding' | 'idle'
+export type AutoInviteStatus = 'failed' | 'finding' | 'idle' | 'ready'
 
 export type GuestConnectionStatus =
 	| 'connected'
