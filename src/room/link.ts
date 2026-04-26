@@ -20,6 +20,7 @@ export type RoomLink = {
 	remoteId: ParticipantId | null
 	role: LinkRole
 	source: LinkSource
+	trackerPeerId: string | null
 }
 
 export const isRendezvousLink = (link: RoomLink) => {

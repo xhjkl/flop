@@ -12,9 +12,14 @@ type EndpointStatus = 'failed' | 'open' | 'pending'
 type TrackerOptions = {
 	createOffer?: (offerId: string) => Promise<SignalDescription | null>
 	infoHash: Uint8Array
-	onAnswer?: (offerId: string, answer: SignalDescription) => void
+	onAnswer?: (
+		offerId: string,
+		peerId: string,
+		answer: SignalDescription,
+	) => void
 	onOffer?: (
 		offer: SignalDescription,
+		peerId: string,
 		reply: (answer: SignalDescription) => void,
 	) => void
 	onStatus?: (status: TrackerStatus) => void
@@ -311,7 +316,7 @@ export const createTrackerRendezvous = (
 			isSignalDescription(message.answer)
 		) {
 			infoTracker('answer.received', { url })
-			options.onAnswer?.(message.offer_id, message.answer)
+			options.onAnswer?.(message.offer_id, message.peer_id, message.answer)
 			return
 		}
 
@@ -332,7 +337,7 @@ export const createTrackerRendezvous = (
 			isSignalDescription(message.offer)
 		) {
 			infoTracker('offer.received', { url })
-			options.onOffer?.(message.offer, (answer) => {
+			options.onOffer?.(message.offer, message.peer_id, (answer) => {
 				infoTracker('answer.sent', { url })
 				send(socket, {
 					answer,

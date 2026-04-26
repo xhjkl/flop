@@ -110,8 +110,6 @@ const errorRoom = (event: string, details: Record<string, unknown> = {}) => {
 	errorLog('room', event, details)
 }
 
-const MAX_PENDING_TRACKER_LINKS = 2
-
 export const createRoom = () => {
 	const incomingFiles = new Map<string, IncomingFileTransfer>()
 	let fileUrls = new Set<string>()
@@ -284,32 +282,37 @@ export const createRoom = () => {
 
 	const closeSiblingRendezvousLinks = (link: RoomLink) => {
 		for (const candidate of [...links.values()]) {
+			if (candidate === link) continue
+			if (candidate.remoteId != null) continue
+			if (candidate.role !== link.role) continue
+			if (candidate.source !== link.source) continue
 			if (
-				candidate !== link &&
-				candidate.remoteId == null &&
-				candidate.role === link.role &&
-				candidate.source === link.source
+				link.source === 'tracker' &&
+				(candidate.trackerPeerId == null ||
+					link.trackerPeerId == null ||
+					candidate.trackerPeerId !== link.trackerPeerId)
 			) {
-				closeLink(candidate)
+				continue
 			}
+
+			closeLink(candidate)
 		}
 	}
 
-	const pendingTrackerLinkCount = (role: LinkRole) => {
-		let count = 0
-
+	const verifiedTrackerLinkByPeer = (
+		role: LinkRole,
+		trackerPeerId: string,
+		except: RoomLink | null = null,
+	) => {
 		for (const link of links.values()) {
-			if (
-				link.auth === 'pending' &&
-				link.remoteId == null &&
-				link.role === role &&
-				link.source === 'tracker'
-			) {
-				count++
-			}
+			if (link === except) continue
+			if (link.role !== role) continue
+			if (link.source !== 'tracker') continue
+			if (link.trackerPeerId !== trackerPeerId) continue
+			if (link.auth === 'verified') return link
 		}
 
-		return count
+		return null
 	}
 
 	const replaceParticipants = (roster: Participant[]) => {
@@ -860,6 +863,7 @@ export const createRoom = () => {
 			auth?: LinkAuthState
 			remoteId?: ParticipantId | null
 			source?: LinkSource
+			trackerPeerId?: string | null
 		} = {},
 	) => {
 		const source = options.source ?? 'manual'
@@ -894,6 +898,7 @@ export const createRoom = () => {
 			remoteId: options.remoteId ?? null,
 			role,
 			source,
+			trackerPeerId: options.trackerPeerId ?? null,
 		}
 		links.set(id, link)
 		touchLinks()
@@ -1428,13 +1433,29 @@ export const createRoom = () => {
 		}
 	}
 
-	const acceptTrackerAnswer = (offerId: string, answer: SignalDescription) => {
+	const acceptTrackerAnswer = (
+		offerId: string,
+		trackerPeerId: string,
+		answer: SignalDescription,
+	) => {
 		const link = trackerOffers.get(offerId)
 		if (link == null) {
 			warnRoom('tracker.answer.missing-offer', { offerId })
 			return
 		}
 
+		const existing = verifiedTrackerLinkByPeer(link.role, trackerPeerId, link)
+		if (existing != null) {
+			infoRoom('tracker.answer.ignored.verified-peer', {
+				existing: linkLog(existing),
+				link: linkLog(link),
+			})
+			closeLink(link)
+			return
+		}
+
+		link.trackerPeerId = trackerPeerId
+		touchLinks()
 		infoRoom('tracker.answer.accept.start', { link: linkLog(link) })
 		void link.peer
 			.acceptAnswer(answer)
@@ -1455,6 +1476,7 @@ export const createRoom = () => {
 
 	const answerTrackerOffer = (
 		offer: SignalDescription,
+		trackerPeerId: string,
 		reply: (answer: SignalDescription) => void,
 	) => {
 		const role = trackerRendezvousRole()
@@ -1465,15 +1487,16 @@ export const createRoom = () => {
 			})
 			return
 		}
-		if (pendingTrackerLinkCount(role) >= MAX_PENDING_TRACKER_LINKS) {
-			infoRoom('tracker.offer.ignored.pending-capacity', {
-				pending: pendingTrackerLinkCount(role),
+		const existing = verifiedTrackerLinkByPeer(role, trackerPeerId)
+		if (existing != null) {
+			infoRoom('tracker.offer.ignored.verified-peer', {
+				existing: linkLog(existing),
 				role,
 			})
 			return
 		}
 
-		const link = createLink(role, { source: 'tracker' })
+		const link = createLink(role, { source: 'tracker', trackerPeerId })
 		setTimeout(() => {
 			if (links.get(link.id) !== link || link.remoteId != null) return
 
