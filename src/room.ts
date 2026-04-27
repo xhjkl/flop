@@ -1626,7 +1626,7 @@ export const createRoom = () => {
 						setState('connection', {
 							...state.connection,
 							issue:
-								'Automatic link did not find the host yet. Ask for the invite code if it keeps waiting.',
+								'The invite link did not find the host yet. Ask for the invite code if it keeps waiting.',
 						})
 					}
 				},
@@ -1639,7 +1639,7 @@ export const createRoom = () => {
 				setState('connection', {
 					...state.connection,
 					issue:
-						'Automatic link could not start here. Ask for the invite code instead.',
+						'The invite link could not start here. Ask for the invite code instead.',
 				})
 			}
 		}
@@ -1715,7 +1715,7 @@ export const createRoom = () => {
 				...(state.connection.side === 'host'
 					? state.connection
 					: emptyHostConnection()),
-				issue: 'Could not create an invite.',
+				issue: 'Could not create the invite link or invite code.',
 			})
 		}
 	}
@@ -1777,7 +1777,8 @@ export const createRoom = () => {
 			setState('connection', {
 				...emptyGuestConnection(),
 				inviteText: inviteInput,
-				issue: 'That invite did not work. Paste a fresh invite and try again.',
+				issue:
+					'That invite did not work. Paste a fresh invite link or invite code and try again.',
 			})
 		}
 	}
@@ -1813,7 +1814,7 @@ export const createRoom = () => {
 					...state.connection,
 					status: 'invite-ready',
 					issue:
-						'That reply did not work. Ask for a fresh reply or regenerate the invite.',
+						'That reply code did not work. Ask for a fresh reply code or create a new invite.',
 				})
 			}
 		}

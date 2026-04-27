@@ -10,19 +10,19 @@ The UI is one portrait strip. Your own portrait comes first, peer portraits foll
 
 #### Start
 
-Opening the app starts as a host and creates an invite. The welcome portrait explains the loop: share one invite, paste back one reply, then send files device-to-device.
+Opening the app starts a room and creates an invite. The welcome portrait explains the loop: send one invite link or invite code, paste back one reply code, then send files directly.
 
 #### Camera And Microphone
 
-The welcome portrait has one explicit `enable camera + mic` action. If permission works, the same card becomes a local mirror with camera and microphone toggles; if it fails, the card says whether access was denied, devices are missing, the browser is unsupported, or capture failed.
+The welcome portrait has one explicit `enable cam and mic` action. If permission works, the same card becomes a local mirror with camera and microphone toggles; if it fails, the card says whether access was denied, devices are missing, the browser is unsupported, or capture failed.
 
 #### Invite Someone
 
-The host connection card shows a copyable invite and one reply input. Send the invite to another device, then paste the reply back to let that guest in.
+The host connection card shows a copyable invite link, an invite code fallback, and one reply code input. Send the invite to another device, then paste the reply code back to let that guest in.
 
 #### Join Someone
 
-A guest can open an invite link or choose to join instead. The reply card accepts the invite, creates a copyable reply, and waits for the host to paste it.
+A guest can open an invite link or choose to join instead. The reply code card accepts the invite, creates a copyable reply code, and waits for the host to paste it.
 
 #### Live Room
 
@@ -38,7 +38,7 @@ A blip is the small text line on a portrait. Write it any time; Flop keeps it lo
 
 #### Closed Room
 
-If a guest loses the host, the room becomes closed and offers host-or-join recovery inside the connection card. If a non-host guest leaves, the host room stays alive.
+If a guest loses the host, the room becomes closed and offers start-or-join recovery inside the connection card. If a non-host guest leaves, the host room stays alive.
 
 ### Dev
 

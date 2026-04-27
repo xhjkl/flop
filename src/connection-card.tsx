@@ -14,12 +14,12 @@ const connectionTitle = (connection: ConnectionState) => {
 	if (connection.side === 'guest' && connection.status === 'connected') {
 		return 'connected'
 	}
-	return connection.side === 'host' ? 'invite' : 'reply'
+	return connection.side === 'host' ? 'invite' : 'reply code'
 }
 
 const connectionBody = (connection: ConnectionState) => {
 	if (connection.side === 'closed') {
-		return 'This direct connection is closed. Host a fresh room or join an existing one.'
+		return 'This room has ended. Start a new room or join someone else.'
 	}
 
 	if (connection.side === 'guest' && connection.status === 'connected') {
@@ -31,14 +31,14 @@ const connectionBody = (connection: ConnectionState) => {
 	}
 
 	if (connection.status === 'needs-invite') {
-		return 'Paste the invite from the other device. Then send one reply back.'
+		return 'Paste the invite link or invite code from the other device. Then send a reply code back.'
 	}
 
 	if (connection.status === 'finding-link') {
-		return 'Finding the host automatically. If this keeps waiting, ask for the invite code instead.'
+		return 'Finding the host from the invite link. If this keeps waiting, ask for the invite code instead.'
 	}
 
-	return 'Send this reply back to the inviter. Once they paste it, the browsers connect directly.'
+	return 'Send this reply code back to the person who invited you. They will paste it to let you in.'
 }
 
 const ConnectionIssue = (props: { connection: ConnectionState }) => {
@@ -202,8 +202,8 @@ const HostConnectionFields = (props: {
 		autoLinkReady() ? props.connection.autoInviteLink : ''
 	const autoLinkPlaceholder = () =>
 		autoLinkUnavailable()
-			? 'automatic invite link is unavailable'
-			: 'preparing automatic invite link'
+			? 'invite link is unavailable'
+			: 'preparing invite link'
 
 	return (
 		<div class="connection-mode-frame" data-mode={props.mode}>
@@ -217,26 +217,26 @@ const HostConnectionFields = (props: {
 							when={autoLinkReady()}
 							fallback={
 								<p>
-									Preparing this invite link. Wait for it to be ready, then send
-									it to the other device.
+									Preparing the invite link. Wait for it to be ready, then send
+									the invite link to the other device.
 								</p>
 							}
 						>
 							<p>
-								Send this link to the other device. Flop will try to find it
-								automatically.
+								Send the invite link to the other device. Flop will try to find
+								it automatically.
 							</p>
 						</Show>
 						<Show when={props.connection.autoStatus === 'failed'}>
 							<p class="connection-issue">
-								Automatic link could not reach the tracker. Use the invite code
+								The invite link could not finish connecting. Use the invite code
 								instead.
 							</p>
 						</Show>
 					</div>
 					<div class="connection-main">
 						<CopyBlock
-							label="link"
+							label="invite link"
 							value={autoLinkCopyValue()}
 							placeholder={autoLinkPlaceholder()}
 							copyLabel={autoLinkReady() ? 'copy link' : 'preparing'}
@@ -250,11 +250,11 @@ const HostConnectionFields = (props: {
 					class="connection-mode-pane"
 					aria-hidden={props.mode === 'code' ? 'false' : 'true'}
 				>
-					{/* Manual host flow: send one invite out, paste one reply back, admit one guest. */}
+					{/* Manual host flow: send one invite out, paste one reply code back, admit one guest. */}
 					<div class="connection-copy">
 						<p>
-							Use this if the invite link does not connect. Send this invite
-							code, then paste their reply.
+							Use the invite code if the invite link does not connect. Send the
+							invite code, then paste their reply code.
 						</p>
 						<ConnectionIssue connection={props.connection} />
 					</div>
@@ -263,15 +263,15 @@ const HostConnectionFields = (props: {
 							label="invite code"
 							value={props.connection.manualInviteLink}
 							placeholder="invite code is being created"
-							copyLabel="copy code"
-							shareLabel="share code"
+							copyLabel="copy invite code"
+							shareLabel="share invite code"
 							disabled={props.mode !== 'code'}
 							onCopy={props.onCopyManualInviteLink}
 						/>
 						<CodeInput
-							label="paste their reply here to let them in"
+							label="paste their reply code here to let them in"
 							value={props.connection.replyText}
-							placeholder="paste reply"
+							placeholder="paste reply code"
 							disabled={busy() || props.mode !== 'code'}
 							onChange={props.onSetReplyText}
 							onSubmit={props.onAcceptReply}
@@ -279,7 +279,7 @@ const HostConnectionFields = (props: {
 					</div>
 					<Show when={props.canJoinExistingRoom}>
 						<SideSwitch
-							label="join existing room instead"
+							label="join someone else instead"
 							onPress={props.onBecomeGuest}
 						/>
 					</Show>
@@ -297,13 +297,13 @@ const GuestConnectionFields = (props: {
 	onSetInviteText: (inviteText: string) => void
 }) => {
 	const creating = () => props.connection.status === 'creating-reply'
+	const canShowCreate = () => props.connection.status !== 'finding-link'
 	const canCreate = () =>
-		props.connection.status !== 'finding-link' &&
-		(creating() || props.connection.inviteText.trim() !== '')
+		creating() || props.connection.inviteText.trim() !== ''
 
 	return (
 		<>
-			{/* Guest flow: consume one invite, produce one reply, then wait for the host to admit it. */}
+			{/* Guest flow: consume one invite, produce one reply code, then wait for the host to admit it. */}
 			<Switch>
 				<Match
 					when={
@@ -317,7 +317,7 @@ const GuestConnectionFields = (props: {
 							when={props.connection.status !== 'finding-link'}
 							fallback={
 								<CopyBlock
-									label="link"
+									label="invite link"
 									value={props.connection.inviteText}
 									placeholder="finding host"
 									copyLabel="waiting"
@@ -327,22 +327,24 @@ const GuestConnectionFields = (props: {
 							}
 						>
 							<CodeInput
-								label="paste invite to create a reply"
+								label="paste invite link or invite code to create a reply code"
 								value={props.connection.inviteText}
-								placeholder="paste invite"
+								placeholder="paste invite link or invite code"
 								disabled={creating()}
 								onChange={props.onSetInviteText}
 								onSubmit={props.onCreateReply}
 							/>
 						</Show>
 					</div>
-					<Show when={canCreate()}>
+					<Show when={canShowCreate()}>
 						<CardActions
 							actions={[
 								{
-									label: creating() ? 'creating reply' : 'create reply',
+									label: creating()
+										? 'creating reply code'
+										: 'create reply code',
 									onPress: props.onCreateReply,
-									disabled: creating(),
+									disabled: !canCreate(),
 								},
 							]}
 						/>
@@ -351,11 +353,11 @@ const GuestConnectionFields = (props: {
 				<Match when={props.connection.status === 'reply-ready'}>
 					<div class="connection-main">
 						<CopyBlock
-							label="reply"
+							label="reply code"
 							value={props.connection.replyCode}
-							placeholder="reply appears here"
-							copyLabel="copy reply"
-							shareLabel="share reply"
+							placeholder="reply code appears here"
+							copyLabel="copy reply code"
+							shareLabel="share reply code"
 							onCopy={props.onCopyReplyCode}
 						/>
 					</div>
@@ -367,7 +369,7 @@ const GuestConnectionFields = (props: {
 					props.connection.status !== 'finding-link'
 				}
 			>
-				<SideSwitch label="host a room instead" onPress={props.onBecomeHost} />
+				<SideSwitch label="start a room instead" onPress={props.onBecomeHost} />
 			</Show>
 		</>
 	)
@@ -381,9 +383,9 @@ const ClosedConnectionFields = (props: {
 	return (
 		<CardActions
 			actions={[
-				{ label: 'host a fresh room', onPress: props.onBecomeHost },
+				{ label: 'start a new room', onPress: props.onBecomeHost },
 				...(props.canJoinExistingRoom
-					? [{ label: 'join existing room', onPress: props.onBecomeGuest }]
+					? [{ label: 'join someone else', onPress: props.onBecomeGuest }]
 					: []),
 			]}
 		/>

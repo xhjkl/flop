@@ -49,7 +49,10 @@ const MediaFailureCard = (props: {
 			onSetBlipText={props.onSetBlipText}
 		>
 			<p>{mediaFailureIssue(props.media)}</p>
-			<p>Fix it and try again here.</p>
+			<p>
+				After changing the browser or device setting, try again. You can still
+				use the room without camera or microphone.
+			</p>
 		</SelfMediaCard>
 	)
 }
@@ -90,7 +93,7 @@ export const SelfPortraitCard = (props: {
 					title="welcome to flop"
 					actions={[
 						{
-							label: 'enable camera + mic',
+							label: 'enable cam and mic',
 							onPress: props.onEnableSelfMedia,
 						},
 					]}
@@ -98,9 +101,9 @@ export const SelfPortraitCard = (props: {
 					onSetBlipText={props.onSetBlipText}
 				>
 					<p>
-						Share an invite link to connect directly, then drop files here to
-						send them device-to-device. Use the button below to turn on camera
-						and microphone so other peers can see you.
+						Send an invite to the other device. Once you are connected, drop
+						files here to send them directly. Turn on camera and microphone when
+						you want other peers to see or hear you.
 					</p>
 					{/* Future preflight? You'll get a quick mirror check before you go live. */}
 				</SelfMediaCard>
@@ -111,7 +114,7 @@ export const SelfPortraitCard = (props: {
 					canBlip={props.canBlip}
 					blipComposer={props.blipComposer}
 					media={props.media}
-					title="Allow camera + mic"
+					title="Allow cam and mic"
 					actions={[{ label: 'waiting for permission', disabled: true }]}
 					onSendBlip={props.onSendBlip}
 					onSetBlipText={props.onSetBlipText}

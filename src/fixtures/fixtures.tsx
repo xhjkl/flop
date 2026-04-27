@@ -150,7 +150,7 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'welcome-host',
 		'Welcome host',
-		'The first host screen: welcome copy, media enable action, and a ready automatic invite.',
+		'The first host screen: welcome copy, media enable action, and a ready invite link.',
 		room({
 			themeSeed: SAMPLE_AUTO_LINK,
 			connection: hostConnection(),
@@ -197,7 +197,7 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'host-link-finding',
 		'Host link finding',
-		'The host has a manual invite, but the automatic tracker link is still preparing.',
+		'The host has an invite code, but the tracker invite link is still preparing.',
 		room({
 			themeSeed: SAMPLE_AUTO_LINK,
 			connection: hostConnection({ autoStatus: 'finding' }),
@@ -206,7 +206,7 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'host-code-fallback',
 		'Host code fallback',
-		'The same connection card opened to the manual code and reply paste pane.',
+		'The same connection card opened to the invite code and reply code paste pane.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			hostInviteMode: 'code',
@@ -216,7 +216,7 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'host-accepting-reply',
 		'Host accepting reply',
-		'The host has pasted a reply and the connection card is temporarily busy.',
+		'The host has pasted a reply code and the connection card is temporarily busy.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			hostInviteMode: 'code',
@@ -229,7 +229,7 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'guest-needs-invite',
 		'Guest needs invite',
-		'The guest has not received an invite yet and can still switch back to hosting.',
+		'The guest has not received an invite yet and can still start a room instead.',
 		room({
 			themeSeed: 'guest-needs-invite',
 			connection: guestConnection(),
@@ -237,8 +237,8 @@ export const uiFixtures: UiFixture[] = [
 	),
 	fixture(
 		'guest-creating-reply',
-		'Guest creating reply',
-		'The guest accepted an invite and is building the manual reply.',
+		'Guest creating reply code',
+		'The guest accepted an invite and is building the reply code.',
 		room({
 			themeSeed: SAMPLE_OFFER,
 			connection: guestConnection({
@@ -250,7 +250,7 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'reply-ready',
 		'Reply ready',
-		'You opened an invite and now need to send one reply back.',
+		'You opened an invite and now need to send one reply code back.',
 		room({
 			themeSeed: SAMPLE_REPLY,
 			peers: [
@@ -270,7 +270,7 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'guest-link-finding',
 		'Guest link finding',
-		'The guest opened an automatic invite link and should wait, not create a manual reply.',
+		'The guest opened an invite link and should wait, not create a reply code.',
 		room({
 			themeSeed: SAMPLE_AUTO_LINK,
 			peers: [
@@ -373,7 +373,7 @@ export const uiFixtures: UiFixture[] = [
 				autoInviteLink: '',
 				autoStatus: 'failed',
 				manualInviteLink: '',
-				issue: 'Could not create an invite.',
+				issue: 'Could not create the invite link or invite code.',
 			}),
 		}),
 	),

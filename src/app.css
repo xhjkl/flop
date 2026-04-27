@@ -389,6 +389,12 @@ textarea {
 	grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
+.connection-card[data-side="guest"]:has(.connection-paste-line) {
+	grid-template-rows: none;
+	align-content: center;
+	gap: var(--space-roomy);
+}
+
 .connection-copy,
 .connection-main,
 .connection-mode-pane {
@@ -413,6 +419,11 @@ textarea {
 	grid-template-rows: minmax(0, 1fr) auto;
 	align-content: start;
 	overflow: hidden;
+}
+
+.connection-main:has(.connection-paste-line):not(:has(.connection-copy-block)) {
+	grid-template-rows: auto;
+	overflow: visible;
 }
 
 .connection-mode-frame {
@@ -543,6 +554,11 @@ textarea {
 .connection-side-switch {
 	display: grid;
 	padding-block-start: var(--space-roomy);
+}
+
+.connection-card[data-side="guest"]:has(.connection-paste-line)
+	.connection-side-switch {
+	padding-block-start: 0;
 }
 
 .connection-side-switch button {
@@ -704,9 +720,11 @@ textarea {
 
 .self-card-body {
 	display: grid;
-	grid-template-rows: auto minmax(0, 1fr) auto auto;
-	gap: var(--space-card);
-	padding: var(--space-card);
+	grid-template-rows: none;
+	align-content: center;
+	justify-items: center;
+	gap: var(--space-roomy);
+	padding: var(--space-roomy);
 	min-block-size: 0;
 }
 
@@ -731,35 +749,27 @@ textarea {
 	grid-template-rows: minmax(0, 1fr);
 }
 
-.self-card[data-media-state="ready"] .self-card-body {
-	grid-template-rows: none;
-	align-content: center;
-	justify-items: center;
-	gap: var(--space-roomy);
-	padding: var(--space-roomy);
-}
-
-.self-card[data-media-state="ready"] .self-copy-shell {
+.self-card:not([data-media-state="live"]) .self-copy-shell {
 	inline-size: min(100%, var(--copy-inline));
 	justify-items: center;
 	text-align: center;
 }
 
-.self-card[data-media-state="ready"] .utility-header {
+.self-card:not([data-media-state="live"]) .utility-header {
 	justify-items: center;
 }
 
-.self-card[data-media-state="ready"] .card-actions,
-.self-card[data-media-state="ready"] .blip-composer,
-.self-card[data-media-state="ready"] .portrait-activity {
+.self-card:not([data-media-state="live"]) .card-actions,
+.self-card:not([data-media-state="live"]) .blip-composer,
+.self-card:not([data-media-state="live"]) .portrait-activity {
 	inline-size: min(100%, var(--action-inline));
 }
 
-.self-card[data-media-state="ready"] .card-actions {
+.self-card:not([data-media-state="live"]) .card-actions {
 	align-content: start;
 }
 
-.self-card[data-media-state="ready"] .card-actions button {
+.self-card:not([data-media-state="live"]) .card-actions button {
 	inline-size: 100%;
 }
 
