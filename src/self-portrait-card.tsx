@@ -30,7 +30,6 @@ const mediaFailureTitle = (status: SelfMediaStatus) => {
 const MediaFailureCard = (props: {
 	activity: PortraitActivityState
 	blipComposer: BlipComposerState
-	canBlip: boolean
 	title: string
 	media: SelfMedia
 	onEnableSelfMedia: () => void
@@ -41,10 +40,14 @@ const MediaFailureCard = (props: {
 		<SelfMediaCard
 			activity={props.activity}
 			blipComposer={props.blipComposer}
-			canBlip={props.canBlip}
+			canBlip
 			media={props.media}
 			title={props.title}
-			actions={[{ label: 'try again', onPress: props.onEnableSelfMedia }]}
+			actions={
+				<button type="button" onClick={props.onEnableSelfMedia}>
+					try again
+				</button>
+			}
 			onSendBlip={props.onSendBlip}
 			onSetBlipText={props.onSetBlipText}
 		>
@@ -59,7 +62,6 @@ const MediaFailureCard = (props: {
 
 export const SelfPortraitCard = (props: {
 	activity: PortraitActivityState
-	canBlip: boolean
 	blipComposer: BlipComposerState
 	media: SelfMedia
 	onSendBlip: () => void
@@ -75,7 +77,6 @@ export const SelfPortraitCard = (props: {
 				<MediaFailureCard
 					activity={props.activity}
 					blipComposer={props.blipComposer}
-					canBlip={props.canBlip}
 					title={mediaFailureTitle(props.media.status)}
 					media={props.media}
 					onEnableSelfMedia={props.onEnableSelfMedia}
@@ -87,16 +88,15 @@ export const SelfPortraitCard = (props: {
 			<Match when={props.media.status === 'ready'}>
 				<SelfMediaCard
 					activity={props.activity}
-					canBlip={props.canBlip}
+					canBlip
 					blipComposer={props.blipComposer}
 					media={props.media}
 					title="welcome to flop"
-					actions={[
-						{
-							label: 'enable cam and mic',
-							onPress: props.onEnableSelfMedia,
-						},
-					]}
+					actions={
+						<button type="button" onClick={props.onEnableSelfMedia}>
+							enable cam and mic
+						</button>
+					}
 					onSendBlip={props.onSendBlip}
 					onSetBlipText={props.onSetBlipText}
 				>
@@ -111,11 +111,15 @@ export const SelfPortraitCard = (props: {
 			<Match when={props.media.status === 'requesting'}>
 				<SelfMediaCard
 					activity={props.activity}
-					canBlip={props.canBlip}
+					canBlip
 					blipComposer={props.blipComposer}
 					media={props.media}
 					title="Allow cam and mic"
-					actions={[{ label: 'waiting for permission', disabled: true }]}
+					actions={
+						<button type="button" disabled>
+							waiting for permission
+						</button>
+					}
 					onSendBlip={props.onSendBlip}
 					onSetBlipText={props.onSetBlipText}
 				>
@@ -128,19 +132,13 @@ export const SelfPortraitCard = (props: {
 			<Match when={props.media.status === 'live'}>
 				<SelfMediaCard
 					activity={props.activity}
-					canBlip={props.canBlip}
+					canBlip
 					blipComposer={props.blipComposer}
 					media={props.media}
-					cameraToggle={{
-						onPress: props.onToggleCamera,
-						disabled: !props.media.cameraAvailable,
-					}}
-					microphoneToggle={{
-						onPress: props.onToggleMicrophone,
-						disabled: !props.media.microphoneAvailable,
-					}}
 					onSendBlip={props.onSendBlip}
 					onSetBlipText={props.onSetBlipText}
+					onToggleCamera={props.onToggleCamera}
+					onToggleMicrophone={props.onToggleMicrophone}
 				/>
 			</Match>
 		</Switch>

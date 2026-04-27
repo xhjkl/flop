@@ -75,12 +75,19 @@ import {
 	stopSelfMedia,
 } from './self-media'
 import { decodeSignal, encodeSignal, type SignalDescription } from './signal'
-import type { PeerMediaState, PeerState, PortraitFileState } from './state'
+import type {
+	PeerMediaState,
+	PeerState,
+	PortraitActivityState,
+	PortraitFileState,
+} from './state'
 import { createPeer, type Peer } from './webrtc'
 
-type RoomPeer = RoomParticipant & {
-	mediaState: PeerMediaState | null
-	mediaStream: MediaStream | null
+export type RoomPeer = {
+	activity: PortraitActivityState
+	id: ParticipantKey
+	mediaState?: PeerMediaState | null
+	mediaStream?: MediaStream | null
 	state: PeerState
 }
 
@@ -187,12 +194,20 @@ export const createRoom = () => {
 		linkRevision()
 		const link = linkByParticipantKey(key)
 		return {
-			...participant,
+			activity: participant.activity,
+			id: participant.id,
 			mediaState: link?.mediaState ?? null,
 			mediaStream: link?.mediaStream ?? null,
 			state: link?.live ? 'live' : 'waiting',
 		}
 	}
+
+	const peers = createMemo(() => {
+		return peerKeys().flatMap((key) => {
+			const peer = peerByKey(key)
+			return peer == null ? [] : [peer]
+		})
+	})
 
 	const participantById = (participantId: ParticipantId | null) => {
 		return participantId == null
@@ -2060,9 +2075,7 @@ export const createRoom = () => {
 	return {
 		actions,
 		state,
-		participant: participantByKey,
-		peer: peerByKey,
-		peerKeys,
+		peers,
 		selfActivity,
 	}
 }

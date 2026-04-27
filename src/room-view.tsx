@@ -1,25 +1,11 @@
 import { For, Show } from 'solid-js'
 import { ConnectionCard, type HostInviteMode } from './connection-card'
 import { PersonCard, Room } from './portraits'
-import type { SelfMedia } from './self-media'
+import type { RoomPeer, RoomState } from './room'
 import { SelfPortraitCard } from './self-portrait-card'
-import type {
-	BlipComposerState,
-	ConnectionState,
-	PeerMediaState,
-	PeerState,
-	PortraitActivityState,
-} from './state'
+import type { ConnectionState, PortraitActivityState } from './state'
 
-export type RoomViewPeer = {
-	activity: PortraitActivityState
-	colorSeed: string
-	mediaState?: PeerMediaState | null
-	mediaStream?: MediaStream | null
-	state: PeerState
-}
-
-export type RoomViewActions = {
+type RoomViewActions = {
 	acceptReply: (replyText?: string) => void
 	becomeGuest: () => void
 	becomeHost: () => void
@@ -36,16 +22,16 @@ export type RoomViewActions = {
 	toggleMicrophone: () => void
 }
 
-export type RoomViewProps = {
+type RoomViewRoom = {
 	actions: RoomViewActions
-	blipComposer: BlipComposerState
-	canBlip?: boolean
-	connection: ConnectionState
+	peers: () => RoomPeer[]
+	selfActivity: () => PortraitActivityState
+	state: RoomState
+}
+
+export type RoomViewProps = {
+	room: RoomViewRoom
 	hostInviteMode?: HostInviteMode
-	peers?: RoomViewPeer[]
-	selfActivity: PortraitActivityState
-	selfMedia: SelfMedia
-	themeSeed: string
 }
 
 const shouldShowConnection = (connection: ConnectionState) => {
@@ -54,52 +40,52 @@ const shouldShowConnection = (connection: ConnectionState) => {
 
 const canJoinExistingRoom = (
 	connection: ConnectionState,
-	peers: RoomViewPeer[],
+	peerCount: number,
 ) => {
-	return connection.side !== 'host' || peers.length === 0
+	return connection.side !== 'host' || peerCount === 0
 }
 
 export const RoomView = (props: RoomViewProps) => {
-	const peers = () => props.peers ?? []
-
 	return (
-		<Room themeSeed={props.themeSeed}>
+		<Room themeSeed={props.room.state.themeSeed}>
 			<SelfPortraitCard
-				activity={props.selfActivity}
-				canBlip={props.canBlip ?? true}
-				blipComposer={props.blipComposer}
-				media={props.selfMedia}
-				onSendBlip={props.actions.sendBlip}
-				onEnableSelfMedia={props.actions.enableSelfMedia}
-				onSetBlipText={props.actions.setBlipText}
-				onToggleCamera={props.actions.toggleCamera}
-				onToggleMicrophone={props.actions.toggleMicrophone}
+				activity={props.room.selfActivity()}
+				blipComposer={props.room.state.blipComposer}
+				media={props.room.state.selfMedia}
+				onSendBlip={props.room.actions.sendBlip}
+				onEnableSelfMedia={props.room.actions.enableSelfMedia}
+				onSetBlipText={props.room.actions.setBlipText}
+				onToggleCamera={props.room.actions.toggleCamera}
+				onToggleMicrophone={props.room.actions.toggleMicrophone}
 			/>
-			<For each={peers()}>
+			<For each={props.room.peers()}>
 				{(peer) => (
 					<PersonCard
 						activity={peer.activity}
-						colorSeed={peer.colorSeed}
+						colorSeed={peer.id}
 						mediaState={peer.mediaState}
 						mediaStream={peer.mediaStream}
 						state={peer.state}
 					/>
 				)}
 			</For>
-			<Show when={shouldShowConnection(props.connection)}>
+			<Show when={shouldShowConnection(props.room.state.connection)}>
 				<ConnectionCard
-					connection={props.connection}
-					canJoinExistingRoom={canJoinExistingRoom(props.connection, peers())}
+					connection={props.room.state.connection}
+					canJoinExistingRoom={canJoinExistingRoom(
+						props.room.state.connection,
+						props.room.peers().length,
+					)}
 					initialHostInviteMode={props.hostInviteMode}
-					onAcceptReply={props.actions.acceptReply}
-					onBecomeGuest={props.actions.becomeGuest}
-					onBecomeHost={props.actions.becomeHost}
-					onCopyAutoInviteLink={props.actions.copyAutoInviteLink}
-					onCopyManualInviteLink={props.actions.copyManualInviteLink}
-					onCopyReplyCode={props.actions.copyReplyCode}
-					onCreateReply={props.actions.createReply}
-					onSetInviteText={props.actions.setInviteText}
-					onSetReplyText={props.actions.setReplyText}
+					onAcceptReply={props.room.actions.acceptReply}
+					onBecomeGuest={props.room.actions.becomeGuest}
+					onBecomeHost={props.room.actions.becomeHost}
+					onCopyAutoInviteLink={props.room.actions.copyAutoInviteLink}
+					onCopyManualInviteLink={props.room.actions.copyManualInviteLink}
+					onCopyReplyCode={props.room.actions.copyReplyCode}
+					onCreateReply={props.room.actions.createReply}
+					onSetInviteText={props.room.actions.setInviteText}
+					onSetReplyText={props.room.actions.setReplyText}
 				/>
 			</Show>
 		</Room>

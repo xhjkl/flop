@@ -1,5 +1,4 @@
 import { createSignal, Match, onCleanup, Show, Switch } from 'solid-js'
-import { CardActions } from './portraits'
 import { canShareText, shareText } from './room/invite'
 import type {
 	ConnectionState,
@@ -9,46 +8,6 @@ import type {
 
 export type HostInviteMode = 'code' | 'link'
 
-const connectionTitle = (connection: ConnectionState) => {
-	if (connection.side === 'closed') return 'room closed'
-	if (connection.side === 'guest' && connection.status === 'connected') {
-		return 'connected'
-	}
-	return connection.side === 'host' ? 'invite' : 'reply code'
-}
-
-const connectionBody = (connection: ConnectionState) => {
-	if (connection.side === 'closed') {
-		return 'This room has ended. Start a new room or join someone else.'
-	}
-
-	if (connection.side === 'guest' && connection.status === 'connected') {
-		return 'The browsers are connected directly.'
-	}
-
-	if (connection.side === 'host') {
-		return ''
-	}
-
-	if (connection.status === 'needs-invite') {
-		return 'Paste the invite link or invite code from the other device. Then send a reply code back.'
-	}
-
-	if (connection.status === 'finding-link') {
-		return 'Finding the host from the invite link. If this keeps waiting, ask for the invite code instead.'
-	}
-
-	return 'Send this reply code back to the person who invited you. They will paste it to let you in.'
-}
-
-const ConnectionIssue = (props: { connection: ConnectionState }) => {
-	return (
-		<Show when={props.connection.side !== 'closed' && props.connection.issue}>
-			{(issue) => <p class="connection-issue">{issue()}</p>}
-		</Show>
-	)
-}
-
 const CopyBlock = (props: {
 	label: string
 	value: string
@@ -56,7 +15,7 @@ const CopyBlock = (props: {
 	copyLabel: string
 	shareLabel?: string
 	disabled?: boolean
-	onCopy: () => void
+	onCopy?: () => void
 }) => {
 	let copiedTimeout: ReturnType<typeof setTimeout> | null = null
 	const [copied, setCopied] = createSignal(false)
@@ -74,7 +33,7 @@ const CopyBlock = (props: {
 			return
 		}
 
-		props.onCopy()
+		props.onCopy?.()
 		setCopied(true)
 		if (copiedTimeout != null) clearTimeout(copiedTimeout)
 		copiedTimeout = setTimeout(() => setCopied(false), 1400)
@@ -144,16 +103,6 @@ const CodeInput = (props: {
 				disabled={props.disabled ?? false}
 			/>
 		</label>
-	)
-}
-
-const SideSwitch = (props: { label: string; onPress: () => void }) => {
-	return (
-		<div class="connection-side-switch">
-			<button type="button" onClick={props.onPress}>
-				{props.label}
-			</button>
-		</div>
 	)
 }
 
@@ -256,7 +205,9 @@ const HostConnectionFields = (props: {
 							Use the invite code if the invite link does not connect. Send the
 							invite code, then paste their reply code.
 						</p>
-						<ConnectionIssue connection={props.connection} />
+						<Show when={props.connection.issue}>
+							{(issue) => <p class="connection-issue">{issue()}</p>}
+						</Show>
 					</div>
 					<div class="connection-main">
 						<CopyBlock
@@ -278,10 +229,11 @@ const HostConnectionFields = (props: {
 						/>
 					</div>
 					<Show when={props.canJoinExistingRoom}>
-						<SideSwitch
-							label="join someone else instead"
-							onPress={props.onBecomeGuest}
-						/>
+						<div class="connection-side-switch">
+							<button type="button" onClick={props.onBecomeGuest}>
+								join someone else instead
+							</button>
+						</div>
 					</Show>
 				</div>
 			</div>
@@ -322,7 +274,6 @@ const GuestConnectionFields = (props: {
 									placeholder="finding host"
 									copyLabel="waiting"
 									disabled
-									onCopy={() => null}
 								/>
 							}
 						>
@@ -337,17 +288,15 @@ const GuestConnectionFields = (props: {
 						</Show>
 					</div>
 					<Show when={canShowCreate()}>
-						<CardActions
-							actions={[
-								{
-									label: creating()
-										? 'creating reply code'
-										: 'create reply code',
-									onPress: props.onCreateReply,
-									disabled: !canCreate(),
-								},
-							]}
-						/>
+						<div class="card-actions">
+							<button
+								type="button"
+								onClick={() => props.onCreateReply()}
+								disabled={!canCreate()}
+							>
+								{creating() ? 'creating reply code' : 'create reply code'}
+							</button>
+						</div>
 					</Show>
 				</Match>
 				<Match when={props.connection.status === 'reply-ready'}>
@@ -369,26 +318,13 @@ const GuestConnectionFields = (props: {
 					props.connection.status !== 'finding-link'
 				}
 			>
-				<SideSwitch label="start a room instead" onPress={props.onBecomeHost} />
+				<div class="connection-side-switch">
+					<button type="button" onClick={props.onBecomeHost}>
+						start a room instead
+					</button>
+				</div>
 			</Show>
 		</>
-	)
-}
-
-const ClosedConnectionFields = (props: {
-	canJoinExistingRoom: boolean
-	onBecomeGuest: () => void
-	onBecomeHost: () => void
-}) => {
-	return (
-		<CardActions
-			actions={[
-				{ label: 'start a new room', onPress: props.onBecomeHost },
-				...(props.canJoinExistingRoom
-					? [{ label: 'join someone else', onPress: props.onBecomeGuest }]
-					: []),
-			]}
-		/>
 	)
 }
 
@@ -420,26 +356,89 @@ export const ConnectionCard = (props: {
 			data-side={props.connection.side}
 		>
 			<header class="utility-header">
-				<Show
-					when={props.connection.side === 'host'}
-					fallback={<strong>{connectionTitle(props.connection)}</strong>}
-				>
-					<HostInviteTabs mode={hostInviteMode()} onMode={setHostInviteMode} />
-				</Show>
+				<Switch fallback={<strong>reply code</strong>}>
+					<Match when={props.connection.side === 'host'}>
+						<HostInviteTabs
+							mode={hostInviteMode()}
+							onMode={setHostInviteMode}
+						/>
+					</Match>
+					<Match when={props.connection.side === 'closed'}>
+						<strong>room closed</strong>
+					</Match>
+					<Match
+						when={
+							props.connection.side === 'guest' &&
+							props.connection.status === 'connected'
+						}
+					>
+						<strong>connected</strong>
+					</Match>
+				</Switch>
 			</header>
 			<Show when={props.connection.side !== 'host'}>
 				<div class="connection-copy">
-					<p>{connectionBody(props.connection)}</p>
-					<ConnectionIssue connection={props.connection} />
+					<Switch
+						fallback={
+							<p>
+								Send this reply code back to the person who invited you. They
+								will paste it to let you in.
+							</p>
+						}
+					>
+						<Match when={props.connection.side === 'closed'}>
+							<p>This room has ended. Start a new room or join someone else.</p>
+						</Match>
+						<Match
+							when={
+								props.connection.side === 'guest' &&
+								props.connection.status === 'connected'
+							}
+						>
+							<p>The browsers are connected directly.</p>
+						</Match>
+						<Match
+							when={
+								props.connection.side === 'guest' &&
+								props.connection.status === 'needs-invite'
+							}
+						>
+							<p>
+								Paste the invite link or invite code from the other device. Then
+								send a reply code back.
+							</p>
+						</Match>
+						<Match
+							when={
+								props.connection.side === 'guest' &&
+								props.connection.status === 'finding-link'
+							}
+						>
+							<p>
+								Finding the host from the invite link. If this keeps waiting,
+								ask for the invite code instead.
+							</p>
+						</Match>
+					</Switch>
+					<Show
+						when={props.connection.side !== 'closed' && props.connection.issue}
+					>
+						{(issue) => <p class="connection-issue">{issue()}</p>}
+					</Show>
 				</div>
 			</Show>
 			<Switch>
 				<Match when={props.connection.side === 'closed'}>
-					<ClosedConnectionFields
-						canJoinExistingRoom={props.canJoinExistingRoom}
-						onBecomeGuest={props.onBecomeGuest}
-						onBecomeHost={props.onBecomeHost}
-					/>
+					<div class="card-actions">
+						<button type="button" onClick={props.onBecomeHost}>
+							start a new room
+						</button>
+						<Show when={props.canJoinExistingRoom}>
+							<button type="button" onClick={props.onBecomeGuest}>
+								join someone else
+							</button>
+						</Show>
+					</div>
 				</Match>
 				<Match when={hostConnection()}>
 					{(connection) => (

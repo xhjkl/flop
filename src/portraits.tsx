@@ -16,15 +16,6 @@ import type {
 	PortraitFileState,
 } from './state'
 
-export type PressAction = {
-	onPress?: () => void
-	disabled?: boolean
-}
-
-export type CardAction = PressAction & {
-	label: string
-}
-
 const selfMediaStateLabels = {
 	ready: '',
 	requesting: 'requesting',
@@ -51,7 +42,6 @@ const hasActiveSelfPreview = (media: SelfMedia) => {
 const StreamVideo = (props: {
 	active?: boolean
 	class: string
-	label: string
 	muted?: boolean
 	stream?: MediaStream | null
 }) => {
@@ -91,26 +81,6 @@ const StreamVideo = (props: {
 			muted={props.muted}
 			playsinline
 		/>
-	)
-}
-
-export const CardActions = (props: { actions: CardAction[] }) => {
-	return (
-		<Show when={props.actions.length > 0}>
-			<div class="card-actions">
-				<For each={props.actions}>
-					{(action) => (
-						<button
-							type="button"
-							onClick={() => action.onPress?.()}
-							disabled={action.disabled ?? false}
-						>
-							{action.label}
-						</button>
-					)}
-				</For>
-			</div>
-		</Show>
 	)
 }
 
@@ -180,28 +150,25 @@ const FileChip = (props: { file: PortraitFileState }) => {
 	)
 }
 
-const PortraitActivity = (props: { activity: PortraitActivityState }) => {
+const PortraitActivity = (props: {
+	activity: PortraitActivityState
+	showBlip?: boolean
+}) => {
+	const blip = () =>
+		props.showBlip !== false ? props.activity.blip?.trim() || null : null
+
 	return (
-		<Show
-			when={
-				props.activity.files.length > 0 ||
-				(props.activity.blip ?? '').trim() !== ''
-			}
-		>
+		<Show when={props.activity.files.length > 0 || blip() != null}>
 			<div class="portrait-activity">
 				<For each={props.activity.files}>
 					{(file) => <FileChip file={file} />}
 				</For>
-				<Show when={props.activity.blip}>
-					{(blip) => <p class="portrait-blip">{blip()}</p>}
+				<Show when={blip()}>
+					{(text) => <p class="portrait-blip">{text()}</p>}
 				</Show>
 			</div>
 		</Show>
 	)
-}
-
-const filesActivity = (activity: PortraitActivityState | undefined) => {
-	return { blip: null, files: activity?.files ?? [] }
 }
 
 const BlipComposer = (props: {
@@ -250,76 +217,49 @@ const BlipComposer = (props: {
 		if (committedTimeout != null) clearTimeout(committedTimeout)
 	})
 
-	return (
-		<form class="blip-composer" onSubmit={submit}>
-			<Show when={props.composer.issue}>
-				{(issue) => <p class="blip-issue">{issue()}</p>}
-			</Show>
-			<Show
-				when={
-					props.showWhenIdle ||
-					props.canSend ||
-					props.composer.text.trim() !== ''
-				}
-			>
-				<textarea
-					value={props.composer.text}
-					aria-label="blip"
-					enterkeyhint="done"
-					placeholder="tap to edit blip"
-					rows={1}
-					data-editing={editing() ? 'true' : 'false'}
-					data-committed={committed() ? 'true' : 'false'}
-					onFocus={() => setEditing(true)}
-					onInput={(event) => {
-						setDirty(true)
-						setEditing(true)
-						setCommitted(false)
-						props.onSetText(event.currentTarget.value)
-					}}
-					onKeyDown={submitEnter}
-					onBlur={send}
-					disabled={!props.canSend}
-				/>
-			</Show>
-		</form>
-	)
-}
-
-const SelfBlipComposer = (props: {
-	canSend?: boolean
-	composer?: BlipComposerState
-	onSend?: () => void
-	onSetText?: (text: string) => void
-	showWhenIdle?: boolean
-}) => {
-	const blipProps = () => {
-		const composer = props.composer
-		const onSend = props.onSend
-		const onSetText = props.onSetText
-		if (composer == null || onSend == null || onSetText == null) return null
-
-		const visible =
-			(props.canSend ?? false) ||
-			(props.showWhenIdle ?? false) ||
-			composer.issue != null ||
-			composer.text.trim() !== ''
-		if (!visible) return null
-
-		return { composer, onSend, onSetText }
+	const visible = () => {
+		return (
+			props.showWhenIdle ||
+			props.canSend ||
+			props.composer.issue != null ||
+			props.composer.text.trim() !== ''
+		)
 	}
 
 	return (
-		<Show when={blipProps()}>
-			{(blip) => (
-				<BlipComposer
-					canSend={props.canSend ?? false}
-					composer={blip().composer}
-					onSend={blip().onSend}
-					onSetText={blip().onSetText}
-					showWhenIdle={props.showWhenIdle}
-				/>
-			)}
+		<Show when={visible()}>
+			<form class="blip-composer" onSubmit={submit}>
+				<Show when={props.composer.issue}>
+					{(issue) => <p class="blip-issue">{issue()}</p>}
+				</Show>
+				<Show
+					when={
+						props.showWhenIdle ||
+						props.canSend ||
+						props.composer.text.trim() !== ''
+					}
+				>
+					<textarea
+						value={props.composer.text}
+						aria-label="blip"
+						enterkeyhint="done"
+						placeholder="tap to edit blip"
+						rows={1}
+						data-editing={editing() ? 'true' : 'false'}
+						data-committed={committed() ? 'true' : 'false'}
+						onFocus={() => setEditing(true)}
+						onInput={(event) => {
+							setDirty(true)
+							setEditing(true)
+							setCommitted(false)
+							props.onSetText(event.currentTarget.value)
+						}}
+						onKeyDown={submitEnter}
+						onBlur={send}
+						disabled={!props.canSend}
+					/>
+				</Show>
+			</form>
 		</Show>
 	)
 }
@@ -344,7 +284,6 @@ export const PersonCard = (props: {
 				<StreamVideo
 					active={videoActive()}
 					class="remote-video"
-					label={`remote:${props.colorSeed}`}
 					stream={props.mediaStream ?? null}
 				/>
 				<div class="person-activity-shell">
@@ -356,17 +295,17 @@ export const PersonCard = (props: {
 }
 
 export const SelfMediaCard = (props: {
-	activity?: PortraitActivityState
-	canBlip?: boolean
-	blipComposer?: BlipComposerState
+	activity: PortraitActivityState
+	canBlip: boolean
+	blipComposer: BlipComposerState
 	media: SelfMedia
 	title?: string
 	children?: JSX.Element
-	actions?: CardAction[]
-	cameraToggle?: PressAction
-	microphoneToggle?: PressAction
-	onSendBlip?: () => void
-	onSetBlipText?: (text: string) => void
+	actions?: JSX.Element
+	onSendBlip: () => void
+	onSetBlipText: (text: string) => void
+	onToggleCamera?: () => void
+	onToggleMicrophone?: () => void
 }) => {
 	return (
 		<article
@@ -379,7 +318,6 @@ export const SelfMediaCard = (props: {
 					<StreamVideo
 						active={hasActiveSelfPreview(props.media)}
 						class="self-video"
-						label="self"
 						muted
 						stream={props.media.stream}
 					/>
@@ -408,20 +346,22 @@ export const SelfMediaCard = (props: {
 								</Show>
 							</div>
 						</Show>
-						<PortraitActivity activity={filesActivity(props.activity)} />
-						<SelfBlipComposer
+						<PortraitActivity activity={props.activity} showBlip={false} />
+						<BlipComposer
 							canSend={props.canBlip}
 							composer={props.blipComposer}
 							onSend={props.onSendBlip}
 							onSetText={props.onSetBlipText}
 						/>
-						<CardActions actions={props.actions ?? []} />
+						<Show when={props.actions != null}>
+							<div class="card-actions">{props.actions}</div>
+						</Show>
 					</div>
 				}
 			>
 				<div class="self-live-shell">
-					<PortraitActivity activity={filesActivity(props.activity)} />
-					<SelfBlipComposer
+					<PortraitActivity activity={props.activity} showBlip={false} />
+					<BlipComposer
 						canSend={props.canBlip}
 						composer={props.blipComposer}
 						onSend={props.onSendBlip}
@@ -429,21 +369,23 @@ export const SelfMediaCard = (props: {
 						showWhenIdle
 					/>
 					<div class="self-live-controls">
-						<Show when={props.cameraToggle}>
-							{(action) => (
+						<Show when={props.onToggleCamera}>
+							{(onToggleCamera) => (
 								<ToggleButton
 									label="cam"
 									enabled={props.media.cameraEnabled}
-									action={action()}
+									disabled={!props.media.cameraAvailable}
+									onPress={onToggleCamera()}
 								/>
 							)}
 						</Show>
-						<Show when={props.microphoneToggle}>
-							{(action) => (
+						<Show when={props.onToggleMicrophone}>
+							{(onToggleMicrophone) => (
 								<ToggleButton
 									label="mic"
 									enabled={props.media.microphoneEnabled}
-									action={action()}
+									disabled={!props.media.microphoneAvailable}
+									onPress={onToggleMicrophone()}
 								/>
 							)}
 						</Show>
@@ -457,15 +399,16 @@ export const SelfMediaCard = (props: {
 const ToggleButton = (props: {
 	label: string
 	enabled: boolean
-	action: PressAction
+	disabled?: boolean
+	onPress: () => void
 }) => {
 	return (
 		<button
 			type="button"
 			class="self-toggle"
 			data-enabled={props.enabled ? 'true' : 'false'}
-			onClick={() => props.action.onPress?.()}
-			disabled={props.action.disabled ?? false}
+			onClick={props.onPress}
+			disabled={props.disabled ?? false}
 			aria-pressed={props.enabled}
 		>
 			<span class="self-toggle-label">{props.label}</span>

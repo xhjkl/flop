@@ -1,9 +1,6 @@
 import type { JSX } from 'solid-js'
-import {
-	RoomView,
-	type RoomViewActions,
-	type RoomViewProps,
-} from '../room-view'
+import type { RoomPeer, RoomState } from '../room'
+import { RoomView, type RoomViewProps } from '../room-view'
 import type { SelfMedia } from '../self-media'
 import type {
 	ClosedConnectionState,
@@ -33,7 +30,7 @@ const noop = () => {}
 const noopText = (_text: string) => {}
 const noopTextMaybe = (_text?: string) => {}
 
-const fixtureActions: RoomViewActions = {
+const fixtureActions: RoomViewProps['room']['actions'] = {
 	acceptReply: noopTextMaybe,
 	becomeGuest: noop,
 	becomeHost: noop,
@@ -119,30 +116,39 @@ const fixture = (
 	id: string,
 	title: string,
 	description: string,
-	room: Omit<RoomViewProps, 'actions'>,
+	view: RoomViewProps,
 ): UiFixture => {
 	return {
 		id,
 		title,
 		description,
-		render: () => <RoomView {...room} actions={fixtureActions} />,
+		render: () => <RoomView {...view} />,
 	}
 }
 
 const room = (
 	props: {
-		connection: RoomViewProps['connection']
+		connection: RoomState['connection']
 		themeSeed: string
-	} & Partial<Omit<RoomViewProps, 'actions' | 'connection' | 'themeSeed'>>,
-): Omit<RoomViewProps, 'actions'> => {
+		hostInviteMode?: RoomViewProps['hostInviteMode']
+		peers?: RoomPeer[]
+		selfActivity?: PortraitActivityState
+		selfMedia?: SelfMedia
+	} & Partial<Pick<RoomState, 'blipComposer'>>,
+): RoomViewProps => {
 	return {
-		blipComposer: emptyComposer,
-		connection: props.connection,
 		hostInviteMode: props.hostInviteMode,
-		peers: props.peers ?? [],
-		selfActivity: props.selfActivity ?? emptyActivity,
-		selfMedia: props.selfMedia ?? selfMedia(),
-		themeSeed: props.themeSeed,
+		room: {
+			actions: fixtureActions,
+			peers: () => props.peers ?? [],
+			selfActivity: () => props.selfActivity ?? emptyActivity,
+			state: {
+				blipComposer: props.blipComposer ?? emptyComposer,
+				connection: props.connection,
+				selfMedia: props.selfMedia ?? selfMedia(),
+				themeSeed: props.themeSeed,
+			},
+		},
 	}
 }
 
@@ -256,7 +262,7 @@ export const uiFixtures: UiFixture[] = [
 			peers: [
 				{
 					activity: emptyActivity,
-					colorSeed: HOST_ID,
+					id: HOST_ID,
 					state: 'waiting',
 				},
 			],
@@ -276,7 +282,7 @@ export const uiFixtures: UiFixture[] = [
 			peers: [
 				{
 					activity: emptyActivity,
-					colorSeed: HOST_ID,
+					id: HOST_ID,
 					state: 'waiting',
 				},
 			],
@@ -323,10 +329,14 @@ export const uiFixtures: UiFixture[] = [
 							},
 						],
 					},
-					colorSeed: MARA_ID,
+					id: MARA_ID,
 					state: 'live',
 				},
-				{ activity: emptyActivity, colorSeed: JO_ID, state: 'live' },
+				{
+					activity: emptyActivity,
+					id: JO_ID,
+					state: 'live',
+				},
 			],
 			connection: hostConnection(),
 		}),
@@ -341,7 +351,7 @@ export const uiFixtures: UiFixture[] = [
 			peers: [
 				{
 					activity: emptyActivity,
-					colorSeed: HOST_ID,
+					id: HOST_ID,
 					mediaState: { cameraEnabled: true, microphoneEnabled: true },
 					state: 'live',
 				},
