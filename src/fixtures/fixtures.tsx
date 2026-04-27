@@ -1,8 +1,16 @@
 import type { JSX } from 'solid-js'
-import { ConnectionCard } from '../connection-card'
-import { PersonCard, Room, SelfMediaCard } from '../portraits'
+import {
+	RoomView,
+	type RoomViewActions,
+	type RoomViewProps,
+} from '../room-view'
 import type { SelfMedia } from '../self-media'
-import type { ConnectionState, PortraitActivityState } from '../state'
+import type {
+	ClosedConnectionState,
+	GuestConnectionState,
+	HostConnectionState,
+	PortraitActivityState,
+} from '../state'
 
 export type UiFixture = {
 	id: string
@@ -23,203 +31,287 @@ const JO_ID = 'b05e9d8328aa41c7'
 
 const noop = () => {}
 const noopText = (_text: string) => {}
-const emptyActivity: PortraitActivityState = { blip: null, files: [] }
-const fixtureComposer = { issue: null, text: '' }
-const idleMedia: SelfMedia = {
-	status: 'ready',
-	issue: null,
-	stream: null,
-	cameraAvailable: false,
-	cameraEnabled: false,
-	microphoneAvailable: false,
-	microphoneEnabled: false,
+const noopTextMaybe = (_text?: string) => {}
+
+const fixtureActions: RoomViewActions = {
+	acceptReply: noopTextMaybe,
+	becomeGuest: noop,
+	becomeHost: noop,
+	copyAutoInviteLink: noop,
+	copyManualInviteLink: noop,
+	copyReplyCode: noop,
+	createReply: noopTextMaybe,
+	enableSelfMedia: noop,
+	sendBlip: noop,
+	setBlipText: noopText,
+	setInviteText: noopText,
+	setReplyText: noopText,
+	toggleCamera: noop,
+	toggleMicrophone: noop,
 }
-const liveMedia: SelfMedia = {
-	status: 'live',
-	issue: null,
-	stream: null,
-	cameraAvailable: true,
-	cameraEnabled: false,
-	microphoneAvailable: true,
-	microphoneEnabled: true,
+
+const emptyActivity: PortraitActivityState = { blip: null, files: [] }
+const emptyComposer = { issue: null, text: '' }
+
+const selfMedia = (overrides: Partial<SelfMedia> = {}): SelfMedia => {
+	return {
+		status: 'ready',
+		issue: null,
+		stream: null,
+		cameraAvailable: false,
+		cameraEnabled: false,
+		microphoneAvailable: false,
+		microphoneEnabled: false,
+		...overrides,
+	}
+}
+
+const liveSelfMedia = (overrides: Partial<SelfMedia> = {}) => {
+	return selfMedia({
+		status: 'live',
+		cameraAvailable: true,
+		cameraEnabled: false,
+		microphoneAvailable: true,
+		microphoneEnabled: true,
+		...overrides,
+	})
+}
+
+const hostConnection = (
+	overrides: Partial<Omit<HostConnectionState, 'side'>> = {},
+): HostConnectionState => {
+	return {
+		side: 'host',
+		status: 'invite-ready',
+		autoInviteLink: SAMPLE_AUTO_LINK,
+		autoStatus: 'ready',
+		manualInviteLink: SAMPLE_INVITE_LINK,
+		replyText: '',
+		issue: null,
+		...overrides,
+	}
+}
+
+const guestConnection = (
+	overrides: Partial<Omit<GuestConnectionState, 'side'>> = {},
+): GuestConnectionState => {
+	return {
+		side: 'guest',
+		status: 'needs-invite',
+		inviteText: '',
+		replyCode: '',
+		issue: null,
+		...overrides,
+	}
+}
+
+const closedConnection = (
+	overrides: Partial<Omit<ClosedConnectionState, 'side'>> = {},
+): ClosedConnectionState => {
+	return {
+		side: 'closed',
+		issue: null,
+		...overrides,
+	}
 }
 
 const fixture = (
 	id: string,
 	title: string,
 	description: string,
-	render: () => JSX.Element,
+	room: Omit<RoomViewProps, 'actions'>,
 ): UiFixture => {
-	return { id, title, description, render }
+	return {
+		id,
+		title,
+		description,
+		render: () => <RoomView {...room} actions={fixtureActions} />,
+	}
 }
 
-const connectionCard = (connection: ConnectionState, hasPeers = false) => {
-	return (
-		<ConnectionCard
-			connection={connection}
-			hasPeers={hasPeers}
-			onAcceptReply={noop}
-			onBecomeGuest={noop}
-			onBecomeHost={noop}
-			onCopyAutoInviteLink={noop}
-			onCopyManualInviteLink={noop}
-			onCopyReplyCode={noop}
-			onCreateReply={noop}
-			onSetInviteText={noopText}
-			onSetReplyText={noopText}
-		/>
-	)
-}
-
-// Fixtures are sculpting shortcuts, not a second product model.
-const selfCard = (activity = emptyActivity) => {
-	return (
-		<SelfMediaCard
-			activity={activity}
-			canBlip
-			blipComposer={fixtureComposer}
-			media={idleMedia}
-			title="you"
-			onSendBlip={noop}
-			onSetBlipText={noopText}
-		/>
-	)
-}
-
-const liveSelfCard = (activity = emptyActivity) => {
-	return (
-		<SelfMediaCard
-			activity={activity}
-			canBlip
-			blipComposer={{ issue: null, text: activity.blip ?? '' }}
-			media={liveMedia}
-			cameraToggle={{ onPress: noop }}
-			microphoneToggle={{ onPress: noop }}
-			onSendBlip={noop}
-			onSetBlipText={noopText}
-		/>
-	)
+const room = (
+	props: {
+		connection: RoomViewProps['connection']
+		themeSeed: string
+	} & Partial<Omit<RoomViewProps, 'actions' | 'connection' | 'themeSeed'>>,
+): Omit<RoomViewProps, 'actions'> => {
+	return {
+		blipComposer: emptyComposer,
+		connection: props.connection,
+		hostInviteMode: props.hostInviteMode,
+		peers: props.peers ?? [],
+		selfActivity: props.selfActivity ?? emptyActivity,
+		selfMedia: props.selfMedia ?? selfMedia(),
+		themeSeed: props.themeSeed,
+	}
 }
 
 export const uiFixtures: UiFixture[] = [
 	fixture(
-		'main-screen',
-		'Main screen',
-		'The host is alone, invite ready, nothing else competing for attention.',
-		() => (
-			<Room themeSeed={SAMPLE_OFFER}>
-				<SelfMediaCard
-					activity={emptyActivity}
-					canBlip
-					blipComposer={fixtureComposer}
-					media={idleMedia}
-					title="welcome to flop"
-					actions={[{ label: 'enable camera + mic' }]}
-					onSendBlip={noop}
-					onSetBlipText={noopText}
-				>
-					<p>
-						Share an invite link to connect directly, then drop files here to
-						send them device-to-device. Use the button below to turn on camera
-						and microphone so other peers can see you.
-					</p>
-					{/* Future preflight? You'll get a quick mirror check before you go live. */}
-				</SelfMediaCard>
-				{connectionCard({
-					side: 'host',
-					status: 'invite-ready',
-					autoInviteLink: SAMPLE_AUTO_LINK,
-					autoStatus: 'ready',
-					manualInviteLink: SAMPLE_INVITE_LINK,
-					replyText: '',
-					issue: null,
-				})}
-			</Room>
-		),
+		'welcome-host',
+		'Welcome host',
+		'The first host screen: welcome copy, media enable action, and a ready automatic invite.',
+		room({
+			themeSeed: SAMPLE_AUTO_LINK,
+			connection: hostConnection(),
+		}),
 	),
 	fixture(
-		'host-link-preparing',
-		'Host link preparing',
-		'The host has a room secret, but no tracker has accepted the announce yet.',
-		() => (
-			<Room themeSeed={SAMPLE_AUTO_LINK}>
-				{selfCard()}
-				{connectionCard({
-					side: 'host',
-					status: 'invite-ready',
-					autoInviteLink: SAMPLE_AUTO_LINK,
-					autoStatus: 'finding',
-					manualInviteLink: SAMPLE_INVITE_LINK,
-					replyText: '',
-					issue: null,
-				})}
-			</Room>
-		),
+		'media-requesting',
+		'Media requesting',
+		'The browser permission prompt is outstanding and the local portrait is waiting.',
+		room({
+			themeSeed: SAMPLE_AUTO_LINK,
+			selfMedia: selfMedia({ status: 'requesting' }),
+			connection: hostConnection(),
+		}),
 	),
 	fixture(
-		'reply-screen',
-		'Reply screen',
+		'media-denied',
+		'Media denied',
+		'The shared self portrait renders the media failure branch and retry action.',
+		room({
+			themeSeed: SAMPLE_AUTO_LINK,
+			selfMedia: selfMedia({
+				status: 'denied',
+				issue:
+					'Camera or microphone access was denied. Allow it in the browser, then try again.',
+			}),
+			connection: hostConnection(),
+		}),
+	),
+	fixture(
+		'host-invite-creating',
+		'Host invite creating',
+		'The host room exists before either invite surface is ready.',
+		room({
+			themeSeed: HOST_ID,
+			connection: hostConnection({
+				status: 'creating-invite',
+				autoInviteLink: '',
+				autoStatus: 'idle',
+				manualInviteLink: '',
+			}),
+		}),
+	),
+	fixture(
+		'host-link-finding',
+		'Host link finding',
+		'The host has a manual invite, but the automatic tracker link is still preparing.',
+		room({
+			themeSeed: SAMPLE_AUTO_LINK,
+			connection: hostConnection({ autoStatus: 'finding' }),
+		}),
+	),
+	fixture(
+		'host-code-fallback',
+		'Host code fallback',
+		'The same connection card opened to the manual code and reply paste pane.',
+		room({
+			themeSeed: SAMPLE_INVITE_LINK,
+			hostInviteMode: 'code',
+			connection: hostConnection(),
+		}),
+	),
+	fixture(
+		'host-accepting-reply',
+		'Host accepting reply',
+		'The host has pasted a reply and the connection card is temporarily busy.',
+		room({
+			themeSeed: SAMPLE_INVITE_LINK,
+			hostInviteMode: 'code',
+			connection: hostConnection({
+				status: 'accepting-reply',
+				replyText: SAMPLE_REPLY,
+			}),
+		}),
+	),
+	fixture(
+		'guest-needs-invite',
+		'Guest needs invite',
+		'The guest has not received an invite yet and can still switch back to hosting.',
+		room({
+			themeSeed: 'guest-needs-invite',
+			connection: guestConnection(),
+		}),
+	),
+	fixture(
+		'guest-creating-reply',
+		'Guest creating reply',
+		'The guest accepted an invite and is building the manual reply.',
+		room({
+			themeSeed: SAMPLE_OFFER,
+			connection: guestConnection({
+				status: 'creating-reply',
+				inviteText: SAMPLE_OFFER,
+			}),
+		}),
+	),
+	fixture(
+		'reply-ready',
+		'Reply ready',
 		'You opened an invite and now need to send one reply back.',
-		() => (
-			<Room themeSeed={SAMPLE_REPLY}>
-				{selfCard()}
-				<PersonCard
-					activity={emptyActivity}
-					colorSeed={HOST_ID}
-					state="waiting"
-				/>
-				{connectionCard({
-					side: 'guest',
-					status: 'reply-ready',
-					inviteText: SAMPLE_OFFER,
-					replyCode: SAMPLE_REPLY,
-					issue: null,
-				})}
-			</Room>
-		),
+		room({
+			themeSeed: SAMPLE_REPLY,
+			peers: [
+				{
+					activity: emptyActivity,
+					colorSeed: HOST_ID,
+					state: 'waiting',
+				},
+			],
+			connection: guestConnection({
+				status: 'reply-ready',
+				inviteText: SAMPLE_OFFER,
+				replyCode: SAMPLE_REPLY,
+			}),
+		}),
 	),
 	fixture(
 		'guest-link-finding',
 		'Guest link finding',
 		'The guest opened an automatic invite link and should wait, not create a manual reply.',
-		() => (
-			<Room themeSeed={SAMPLE_AUTO_LINK}>
-				{selfCard()}
-				<PersonCard
-					activity={emptyActivity}
-					colorSeed={HOST_ID}
-					state="waiting"
-				/>
-				{connectionCard({
-					side: 'guest',
-					status: 'finding-link',
-					inviteText: SAMPLE_AUTO_LINK,
-					replyCode: '',
-					issue: null,
-				})}
-			</Room>
-		),
+		room({
+			themeSeed: SAMPLE_AUTO_LINK,
+			peers: [
+				{
+					activity: emptyActivity,
+					colorSeed: HOST_ID,
+					state: 'waiting',
+				},
+			],
+			connection: guestConnection({
+				status: 'finding-link',
+				inviteText: SAMPLE_AUTO_LINK,
+			}),
+		}),
 	),
 	fixture(
 		'connected-strip',
 		'Connected strip',
-		'Several live portraits, then the persistent invite.',
-		() => (
-			<Room themeSeed={SAMPLE_INVITE_LINK}>
-				{liveSelfCard({
-					blip: 'dragged a few screenshots over',
-					files: [
-						{
-							id: 'local-file',
-							name: 'screenshots.zip',
-							progress: 64,
-							state: 'sending',
-							url: null,
-						},
-					],
-				})}
-				<PersonCard
-					activity={{
+		'Several live portraits, transfer activity, and the host invite affordance at the end.',
+		room({
+			themeSeed: SAMPLE_INVITE_LINK,
+			selfActivity: {
+				blip: 'dragged a few screenshots over',
+				files: [
+					{
+						id: 'local-file',
+						name: 'screenshots.zip',
+						progress: 64,
+						state: 'sending',
+						url: null,
+					},
+				],
+			},
+			selfMedia: liveSelfMedia(),
+			blipComposer: {
+				issue: null,
+				text: 'dragged a few screenshots over',
+			},
+			peers: [
+				{
+					activity: {
 						blip: 'send the raw photos too',
 						files: [
 							{
@@ -230,58 +322,60 @@ export const uiFixtures: UiFixture[] = [
 								url: null,
 							},
 						],
-					}}
-					colorSeed={MARA_ID}
-					state="live"
-				/>
-				<PersonCard activity={emptyActivity} colorSeed={JO_ID} state="live" />
-				{connectionCard(
-					{
-						side: 'host',
-						status: 'invite-ready',
-						autoInviteLink: SAMPLE_AUTO_LINK,
-						autoStatus: 'ready',
-						manualInviteLink: SAMPLE_INVITE_LINK,
-						replyText: '',
-						issue: null,
 					},
-					true,
-				)}
-			</Room>
-		),
+					colorSeed: MARA_ID,
+					state: 'live',
+				},
+				{ activity: emptyActivity, colorSeed: JO_ID, state: 'live' },
+			],
+			connection: hostConnection(),
+		}),
+	),
+	fixture(
+		'guest-connected',
+		'Guest connected',
+		'The connected guest strip is people-first, so the connection card disappears.',
+		room({
+			themeSeed: HOST_ID,
+			selfMedia: liveSelfMedia({ cameraEnabled: true }),
+			peers: [
+				{
+					activity: emptyActivity,
+					colorSeed: HOST_ID,
+					mediaState: { cameraEnabled: true, microphoneEnabled: true },
+					state: 'live',
+				},
+			],
+			connection: guestConnection({
+				status: 'connected',
+				inviteText: SAMPLE_OFFER,
+				replyCode: SAMPLE_REPLY,
+			}),
+		}),
 	),
 	fixture(
 		'closed-room',
 		'Closed room',
 		'The room is dead, peer cards are gone, and recovery lives inside the connection card.',
-		() => (
-			<Room themeSeed="closed-room">
-				{selfCard()}
-				{connectionCard({
-					side: 'closed',
-					issue: null,
-				})}
-			</Room>
-		),
+		room({
+			themeSeed: 'closed-room',
+			connection: closedConnection(),
+		}),
 	),
 	fixture(
 		'error-screen',
 		'Error screen',
 		'The strip still holds the error instead of switching paradigms.',
-		() => (
-			<Room themeSeed="error-screen">
-				{selfCard()}
-				{connectionCard({
-					side: 'host',
-					status: 'creating-invite',
-					autoInviteLink: '',
-					autoStatus: 'failed',
-					manualInviteLink: '',
-					replyText: '',
-					issue: 'Could not create an invite.',
-				})}
-			</Room>
-		),
+		room({
+			themeSeed: 'error-screen',
+			connection: hostConnection({
+				status: 'creating-invite',
+				autoInviteLink: '',
+				autoStatus: 'failed',
+				manualInviteLink: '',
+				issue: 'Could not create an invite.',
+			}),
+		}),
 	),
 ]
 

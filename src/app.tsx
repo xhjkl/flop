@@ -1,10 +1,7 @@
-import { For, Show } from 'solid-js'
 import { BeforeUnloadGuard } from './before-unload-guard'
-import { ConnectionCard } from './connection-card'
 import { FileDropGuard } from './file-drop-guard'
-import { PersonCard, Room } from './portraits'
 import { createRoom, type RoomHandle } from './room'
-import { SelfPortraitCard } from './self-portrait-card'
+import { RoomView } from './room-view'
 import type { PortraitFileState } from './state'
 import './app.css'
 
@@ -46,57 +43,28 @@ const App = () => {
 		<>
 			<BeforeUnloadGuard when={shouldWarnBeforeUnload(room)} />
 			<FileDropGuard onDropFiles={actions.sendFiles} />
-			<Room themeSeed={state.themeSeed}>
-				<SelfPortraitCard
-					activity={room.selfActivity()}
-					canBlip
-					blipComposer={state.blipComposer}
-					media={state.selfMedia}
-					onSendBlip={actions.sendBlip}
-					onEnableSelfMedia={actions.enableSelfMedia}
-					onSetBlipText={actions.setBlipText}
-					onToggleCamera={actions.toggleCamera}
-					onToggleMicrophone={actions.toggleMicrophone}
-				/>
-				<For each={room.peerKeys()}>
-					{(key) => (
-						<Show when={room.peer(key)}>
-							{(peer) => (
-								<PersonCard
-									activity={peer().activity}
-									colorSeed={peer().id}
-									mediaState={peer().mediaState}
-									mediaStream={peer().mediaStream}
-									state={peer().state}
-								/>
-							)}
-						</Show>
-					)}
-				</For>
-				{/* Once connected, the strip should be people-first. Re-inviting is a host affordance, not the main event. */}
-				<Show
-					when={
-						!(
-							state.connection.side === 'guest' &&
-							state.connection.status === 'connected'
-						)
-					}
-				>
-					<ConnectionCard
-						connection={state.connection}
-						hasPeers={room.peerKeys().length > 0}
-						onAcceptReply={actions.acceptReply}
-						onBecomeGuest={actions.becomeGuest}
-						onBecomeHost={actions.becomeHost}
-						onCopyAutoInviteLink={actions.copyAutoInviteLink}
-						onCopyManualInviteLink={actions.copyManualInviteLink}
-						onCopyReplyCode={actions.copyReplyCode}
-						onCreateReply={actions.createReply}
-						onSetInviteText={actions.setInviteText}
-						onSetReplyText={actions.setReplyText}
-					/>
-				</Show>
-			</Room>
+			<RoomView
+				actions={actions}
+				blipComposer={state.blipComposer}
+				connection={state.connection}
+				peers={room.peerKeys().flatMap((key) => {
+					const peer = room.peer(key)
+					if (peer == null) return []
+
+					return [
+						{
+							activity: peer.activity,
+							colorSeed: peer.id,
+							mediaState: peer.mediaState,
+							mediaStream: peer.mediaStream,
+							state: peer.state,
+						},
+					]
+				})}
+				selfActivity={room.selfActivity()}
+				selfMedia={state.selfMedia}
+				themeSeed={state.themeSeed}
+			/>
 		</>
 	)
 }
