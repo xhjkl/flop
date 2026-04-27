@@ -1,54 +1,40 @@
-## flop
+## 🌀 flop
 
-Flop is a single-page, browser-to-browser room for sending files and small notes. It is built with Solid and Vite, with WebRTC data channels for the direct peer path.
+Flop is a single-page browser room for sending files and short notes directly over WebRTC to anyone with an invite link: no account, inbox, upload step, or storage server in the middle.
 
-### Product Shape
+The whole interface is a strip of portraits: you, peers, and special utility portraits for connection or room actions, which keeps the implementation small and the room easy to scan.
 
-The UI is one portrait strip. Your own portrait comes first, peer portraits follow, and room actions appear as utility portraits instead of dashboards or modal flows.
+Open Flop, send one invite link, and drop files once another browser joins. The link tries to find the room automatically by borrowing public WebTorrent trackers for rendezvous; if that path stalls, people can use manual invite and reply codes instead. Those codes are Flop's copy-paste wrapper around the WebRTC offer and answer browsers normally exchange through an app-owned signaling service, so any third channel of communication can become the rendezvous path. Once inside the same room, browsers carry data directly over their peer connection; no one else sees or stores the contents.
 
-### Visible Flows
+<details>
+<summary>How It Works</summary>
 
-#### Start
+Flop starts with the easy path: send an invite link, and the two browsers try to find each other through public WebTorrent trackers. If that does not work on a particular network, the same connection can be made manually with copy-paste codes.
 
-Opening the app starts a room and creates an invite. The welcome portrait explains the loop: send one invite link or invite code, paste back one reply code, then send files directly.
+The invite link contains a random room secret. Browsers turn that secret into two separate values: a short discovery hash and an HMAC auth key. The discovery hash is shaped like a BitTorrent `info_hash`, so public WebTorrent trackers can be used as a tiny "who else is here?" noticeboard. This is the pseudotorrent bit: Flop announces no real torrent, uploads no file to a tracker, and only borrows tracker infrastructure to swap WebRTC offers and answers. That means Flop does not need an app-owned rendezvous matchmaker server just to introduce two browsers.
 
-#### Camera And Microphone
+The public tracker bucket is not enough to enter a room. A tracker can introduce some random peer that noticed the BitTorrent-shaped traffic, but that peer still has to answer an HMAC challenge derived from the room secret in the invite link. That keeps the design small while making it effectively impossible in practice to brute-force or prank your way into someone else's room.
 
-The welcome portrait has one explicit `enable cam and mic` action. If permission works, the same card becomes a local mirror with camera and microphone toggles; if it fails, the card says whether access was denied, devices are missing, the browser is unsupported, or capture failed.
+Manual invite and reply codes are the same WebRTC offer and answer exchange with the tracker removed. The host copies an invite code, the guest turns it into a reply code, and the host pastes that reply back. Any chat, email, QR code, terminal, or sticky note can be the signaling channel.
 
-#### Invite Someone
+Flop is meant for lightweight, direct sharing, not hostile-network anonymity. Anyone with the invite link or manual codes should be treated as invited.
 
-The host connection card shows a copyable invite link, an invite code fallback, and one reply code input. Send the invite to another device, then paste the reply code back to let that guest in.
+</details>
 
-#### Join Someone
-
-A guest can open an invite link or choose to join instead. The reply code card accepts the invite, creates a copyable reply code, and waits for the host to paste it.
-
-#### Live Room
-
-Once connected, people show as portraits in the strip. The host introduces guests to each other, then guest-to-guest links are created directly instead of routing room traffic through the host.
-
-#### Files
-
-Drop files anywhere on the page to send them to connected peers. File chips appear under the sender’s portrait, show sending/receiving/ready/error state, and received files become download links.
-
-#### Blips
-
-A blip is the small text line on a portrait. Write it any time; Flop keeps it locally and sends it to peers as direct links come alive.
-
-#### Closed Room
-
-If a guest loses the host, the room becomes closed and offers start-or-join recovery inside the connection card. If a non-host guest leaves, the host room stays alive.
-
-### Dev
+### Development
 
 ```bash
 bun install
 bun run dev
+```
+
+### UI Fixtures
+
+```bash
 bun run sculpt
 ```
 
-`bun run sculpt` opens the fixture surface for shaping UI states against the same card renderer.
+`bun run sculpt` opens the fixture surface for shaping UI states against the same card renderer used by the app.
 
 ### Build
 
@@ -59,7 +45,7 @@ bun run build
 bun run preview
 ```
 
-The production build emits `dist/`. Fixtures are dev-only, and future publishing should be a dedicated action rather than a checked-in build folder.
+The production build emits `dist/`. Fixtures are dev-only.
 
 ### Publish
 
