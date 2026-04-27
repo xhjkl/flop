@@ -41,12 +41,10 @@ import {
 } from './room/initial-state'
 import {
 	autoInviteLinkFromSecret,
-	clearInviteHash,
 	copyText,
 	inviteFromInput,
 	manualInviteLinkFromCode,
 	readInviteFromHash,
-	replaceInviteHash,
 } from './room/invite'
 import {
 	findParticipantLink,
@@ -1323,7 +1321,6 @@ export const createRoom = () => {
 				localParticipantId = message.selfId
 				hostParticipantId = message.hostId
 				stopTrackerRendezvous()
-				clearInviteHash()
 				setState('themeSeed', participantIdToString(message.hostId))
 				setLocalKey(participantKey(message.selfId))
 				replaceParticipants(message.roster)
@@ -1699,7 +1696,6 @@ export const createRoom = () => {
 		try {
 			if (options.resetPeers) {
 				resetHostParticipants()
-				clearInviteHash()
 				setState('blipComposer', emptyBlipComposer())
 			} else if (localParticipantId == null || hostParticipantId == null) {
 				resetHostParticipants()
@@ -1709,7 +1705,6 @@ export const createRoom = () => {
 
 			if (roomSecret == null) roomSecret = randomRoomSecret()
 			const secret = roomSecret
-			replaceInviteHash(secret)
 			const autoInviteLink = autoInviteLinkFromSecret(secret)
 			setState('connection', {
 				...emptyHostConnection(),
@@ -1755,7 +1750,6 @@ export const createRoom = () => {
 
 	const becomeGuest = () => {
 		signalingVersion++
-		clearInviteHash()
 		resetGuestParticipants()
 		setState('connection', emptyGuestConnection())
 		setState('blipComposer', emptyBlipComposer())

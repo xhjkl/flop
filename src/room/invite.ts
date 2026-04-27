@@ -96,24 +96,10 @@ export const readInviteFromHash = () => {
 	return inviteFromHash(window.location.hash)
 }
 
-export const clearInviteHash = () => {
-	if (window.location.hash === '') return
-
-	const url = new URL(window.location.href)
-	url.hash = ''
-	window.history.replaceState(null, '', url)
-}
-
 const currentUrlWithHash = (hash: string) => {
 	const url = new URL(window.location.href)
 	url.hash = hash
 	return url.href
-}
-
-export const replaceInviteHash = (hash: string) => {
-	const url = new URL(window.location.href)
-	url.hash = hash
-	window.history.replaceState(null, '', url)
 }
 
 export const autoInviteLinkFromSecret = (secret: RoomSecret) => {
