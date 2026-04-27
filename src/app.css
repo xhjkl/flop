@@ -73,6 +73,9 @@
 	--muted-inverse: var(--chalk-soft);
 	--line: color-mix(in oklch, var(--ink) 42%, var(--paper));
 	--line-strong: color-mix(in oklch, var(--ink) 72%, var(--paper));
+	--line-card: oklch(0.96 0.035 var(--h) / 0.36);
+	--line-card-live: color-mix(in oklch, var(--ok) 58%, transparent);
+	--line-card-warn: color-mix(in oklch, var(--warn) 62%, transparent);
 	--line-glass: oklch(0.92 0.04 var(--h) / 0.26);
 	--line-soft: color-mix(in oklch, var(--ink) 26%, transparent);
 	--line-inverse: oklch(0.92 0.04 var(--h) / 0.3);
@@ -91,7 +94,7 @@
 	--line-warn: color-mix(in oklch, var(--ink) 56%, var(--warn));
 	--shadow-card-outer: 0 1rem 2.4rem oklch(0 0 0 / 0.14);
 	--shadow-card:
-		inset 0 1px 0 color-mix(in oklch, white 18%, transparent),
+		inset 0 1px 0 oklch(1 0 0 / 0.38), inset 0 0 0 1px oklch(1 0 0 / 0.08),
 		var(--shadow-card-outer);
 }
 
@@ -252,14 +255,11 @@ textarea {
 	display: grid;
 	overflow: hidden;
 	scroll-snap-align: start;
-	border: 1px solid var(--line);
+	border: 1px solid var(--line-card);
 	border-radius: var(--radius-card);
 	background: var(--surface);
-	box-shadow:
-		inset 0 1px 0 color-mix(in oklch, white 24%, transparent),
-		inset 0 -1px 0 color-mix(in oklch, var(--ink) 18%, transparent),
-		0 0 0 1px color-mix(in oklch, white 10%, transparent),
-		var(--shadow-card-outer);
+	background-clip: padding-box;
+	box-shadow: var(--shadow-card);
 }
 
 .portrait-face {
@@ -699,7 +699,7 @@ textarea {
 
 .self-card[data-has-preview="true"] {
 	background: var(--bg-deep);
-	box-shadow: var(--shadow-card-outer);
+	box-shadow: var(--shadow-card);
 }
 
 .self-card-body {
@@ -727,7 +727,7 @@ textarea {
 }
 
 .self-card[data-media-state="live"] {
-	border-color: var(--line-live);
+	border-color: var(--line-card-live);
 	grid-template-rows: minmax(0, 1fr);
 }
 
@@ -767,7 +767,7 @@ textarea {
 .self-card[data-media-state="missing"],
 .self-card[data-media-state="unsupported"],
 .self-card[data-media-state="error"] {
-	border-color: var(--line-warn);
+	border-color: var(--line-card-warn);
 }
 
 .self-portrait-face {
@@ -879,7 +879,7 @@ textarea {
 }
 
 .person-card[data-state="live"] {
-	border-color: var(--line-live);
+	border-color: var(--line-card-live);
 }
 
 @media (orientation: portrait), (max-width: 720px) {

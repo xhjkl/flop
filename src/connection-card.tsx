@@ -1,12 +1,13 @@
 import { createSignal, Match, onCleanup, Show, Switch } from 'solid-js'
 import { CardActions } from './portraits'
+import { canShareText, shareText } from './room/invite'
 import type {
 	ConnectionState,
 	GuestConnectionState,
 	HostConnectionState,
 } from './state'
 
-type HostInviteMode = 'code' | 'link'
+export type HostInviteMode = 'code' | 'link'
 
 const connectionTitle = (connection: ConnectionState) => {
 	if (connection.side === 'closed') return 'room closed'
@@ -53,14 +54,26 @@ const CopyBlock = (props: {
 	value: string
 	placeholder: string
 	copyLabel: string
+	shareLabel?: string
 	disabled?: boolean
 	onCopy: () => void
 }) => {
 	let copiedTimeout: ReturnType<typeof setTimeout> | null = null
 	const [copied, setCopied] = createSignal(false)
 	const empty = () => props.value.trim() === ''
+	const canShare = () => !empty() && canShareText(props.value)
+	const actionLabel = () => {
+		if (copied()) return 'copied'
+		if (canShare()) return props.shareLabel ?? 'share'
+		return props.copyLabel
+	}
 
-	const copy = () => {
+	const press = () => {
+		if (canShare()) {
+			void shareText(props.value)
+			return
+		}
+
 		props.onCopy()
 		setCopied(true)
 		if (copiedTimeout != null) clearTimeout(copiedTimeout)
@@ -77,11 +90,11 @@ const CopyBlock = (props: {
 				<span>{props.label}</span>
 				<button
 					type="button"
-					onClick={copy}
+					onClick={press}
 					disabled={empty() || (props.disabled ?? false)}
 					data-copied={copied() ? 'true' : 'false'}
 				>
-					{copied() ? 'copied' : props.copyLabel}
+					{actionLabel()}
 				</button>
 			</div>
 			{/* Codes are text memos. Show the whole thing; do not make users decode our UI. */}
@@ -172,7 +185,7 @@ const HostInviteTabs = (props: {
 
 const HostConnectionFields = (props: {
 	connection: HostConnectionState
-	hasPeers: boolean
+	canJoinExistingRoom: boolean
 	mode: HostInviteMode
 	onAcceptReply: (replyText?: string) => void
 	onBecomeGuest: () => void
@@ -227,6 +240,7 @@ const HostConnectionFields = (props: {
 							value={autoLinkCopyValue()}
 							placeholder={autoLinkPlaceholder()}
 							copyLabel={autoLinkReady() ? 'copy link' : 'preparing'}
+							shareLabel="share link"
 							disabled={!autoLinkReady()}
 							onCopy={props.onCopyAutoInviteLink}
 						/>
@@ -250,6 +264,7 @@ const HostConnectionFields = (props: {
 							value={props.connection.manualInviteLink}
 							placeholder="invite code is being created"
 							copyLabel="copy code"
+							shareLabel="share code"
 							disabled={props.mode !== 'code'}
 							onCopy={props.onCopyManualInviteLink}
 						/>
@@ -262,7 +277,7 @@ const HostConnectionFields = (props: {
 							onSubmit={props.onAcceptReply}
 						/>
 					</div>
-					<Show when={!props.hasPeers}>
+					<Show when={props.canJoinExistingRoom}>
 						<SideSwitch
 							label="join existing room instead"
 							onPress={props.onBecomeGuest}
@@ -340,6 +355,7 @@ const GuestConnectionFields = (props: {
 							value={props.connection.replyCode}
 							placeholder="reply appears here"
 							copyLabel="copy reply"
+							shareLabel="share reply"
 							onCopy={props.onCopyReplyCode}
 						/>
 					</div>
@@ -358,6 +374,7 @@ const GuestConnectionFields = (props: {
 }
 
 const ClosedConnectionFields = (props: {
+	canJoinExistingRoom: boolean
 	onBecomeGuest: () => void
 	onBecomeHost: () => void
 }) => {
@@ -365,7 +382,9 @@ const ClosedConnectionFields = (props: {
 		<CardActions
 			actions={[
 				{ label: 'host a fresh room', onPress: props.onBecomeHost },
-				{ label: 'join existing room', onPress: props.onBecomeGuest },
+				...(props.canJoinExistingRoom
+					? [{ label: 'join existing room', onPress: props.onBecomeGuest }]
+					: []),
 			]}
 		/>
 	)
@@ -373,7 +392,8 @@ const ClosedConnectionFields = (props: {
 
 export const ConnectionCard = (props: {
 	connection: ConnectionState
-	hasPeers?: boolean
+	canJoinExistingRoom: boolean
+	initialHostInviteMode?: HostInviteMode
 	onAcceptReply: (replyText?: string) => void
 	onBecomeGuest: () => void
 	onBecomeHost: () => void
@@ -388,8 +408,9 @@ export const ConnectionCard = (props: {
 		props.connection.side === 'host' ? props.connection : null
 	const guestConnection = () =>
 		props.connection.side === 'guest' ? props.connection : null
-	const [hostInviteMode, setHostInviteMode] =
-		createSignal<HostInviteMode>('link')
+	const [hostInviteMode, setHostInviteMode] = createSignal<HostInviteMode>(
+		props.initialHostInviteMode ?? 'link',
+	)
 
 	return (
 		<article
@@ -413,6 +434,7 @@ export const ConnectionCard = (props: {
 			<Switch>
 				<Match when={props.connection.side === 'closed'}>
 					<ClosedConnectionFields
+						canJoinExistingRoom={props.canJoinExistingRoom}
 						onBecomeGuest={props.onBecomeGuest}
 						onBecomeHost={props.onBecomeHost}
 					/>
@@ -421,7 +443,7 @@ export const ConnectionCard = (props: {
 					{(connection) => (
 						<HostConnectionFields
 							connection={connection()}
-							hasPeers={props.hasPeers ?? false}
+							canJoinExistingRoom={props.canJoinExistingRoom}
 							mode={hostInviteMode()}
 							onAcceptReply={props.onAcceptReply}
 							onBecomeGuest={props.onBecomeGuest}
