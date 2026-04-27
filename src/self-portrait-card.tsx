@@ -3,61 +3,17 @@ import { SelfMediaCard } from './portraits'
 import type { SelfMedia, SelfMediaStatus } from './self-media'
 import type { BlipComposerState, PortraitActivityState } from './state'
 
-type SelfMediaFailureState = Extract<
-	SelfMediaStatus,
-	'denied' | 'missing' | 'unsupported' | 'error'
->
-
-const selfMediaFailureTitles = {
-	denied: 'Access denied',
-	missing: 'No devices found',
-	unsupported: 'Browser unsupported',
-	error: 'Could not start media',
-} satisfies Record<SelfMediaFailureState, string>
-
-const mediaFailureIssue = (selfMedia: SelfMedia) => {
-	return (
-		selfMedia.issue ?? 'The browser could not open the camera and microphone.'
-	)
-}
-
 const mediaFailureTitle = (status: SelfMediaStatus) => {
-	return status in selfMediaFailureTitles
-		? selfMediaFailureTitles[status as SelfMediaFailureState]
-		: 'Could not start media'
-}
-
-const MediaFailureCard = (props: {
-	activity: PortraitActivityState
-	blipComposer: BlipComposerState
-	title: string
-	media: SelfMedia
-	onEnableSelfMedia: () => void
-	onSendBlip: () => void
-	onSetBlipText: (text: string) => void
-}) => {
-	return (
-		<SelfMediaCard
-			activity={props.activity}
-			blipComposer={props.blipComposer}
-			canBlip
-			media={props.media}
-			title={props.title}
-			actions={
-				<button type="button" onClick={props.onEnableSelfMedia}>
-					try again
-				</button>
-			}
-			onSendBlip={props.onSendBlip}
-			onSetBlipText={props.onSetBlipText}
-		>
-			<p>{mediaFailureIssue(props.media)}</p>
-			<p>
-				After changing the browser or device setting, try again. You can still
-				use the room without camera or microphone.
-			</p>
-		</SelfMediaCard>
-	)
+	switch (status) {
+		case 'denied':
+			return 'Access denied'
+		case 'missing':
+			return 'No devices found'
+		case 'unsupported':
+			return 'Browser unsupported'
+		default:
+			return 'Could not start media'
+	}
 }
 
 export const SelfPortraitCard = (props: {
@@ -74,15 +30,29 @@ export const SelfPortraitCard = (props: {
 		// Welcome and permission are one portrait so the first step never feels like a modal.
 		<Switch
 			fallback={
-				<MediaFailureCard
+				<SelfMediaCard
 					activity={props.activity}
 					blipComposer={props.blipComposer}
-					title={mediaFailureTitle(props.media.status)}
+					canBlip
 					media={props.media}
-					onEnableSelfMedia={props.onEnableSelfMedia}
+					title={mediaFailureTitle(props.media.status)}
+					actions={
+						<button type="button" onClick={props.onEnableSelfMedia}>
+							try again
+						</button>
+					}
 					onSendBlip={props.onSendBlip}
 					onSetBlipText={props.onSetBlipText}
-				/>
+				>
+					<p>
+						{props.media.issue ??
+							'The browser could not open the camera and microphone.'}
+					</p>
+					<p>
+						After changing the browser or device setting, try again. You can
+						still use the room without camera or microphone.
+					</p>
+				</SelfMediaCard>
 			}
 		>
 			<Match when={props.media.status === 'ready'}>

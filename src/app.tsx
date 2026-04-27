@@ -33,12 +33,11 @@ const shouldWarnBeforeUnload = (room: RoomHandle) => {
 
 const App = () => {
 	const room = createRoom()
-	const actions = room.actions
 
 	return (
 		<>
 			<BeforeUnloadGuard when={shouldWarnBeforeUnload(room)} />
-			<FileDropGuard onDropFiles={actions.sendFiles} />
+			<FileDropGuard onDropFiles={room.actions.sendFiles} />
 			<RoomView room={room} />
 		</>
 	)

@@ -106,32 +106,6 @@ const CodeInput = (props: {
 	)
 }
 
-const HostInviteTabs = (props: {
-	mode: HostInviteMode
-	onMode: (mode: HostInviteMode) => void
-}) => {
-	return (
-		<div class="connection-mode-heading">
-			<strong>invite:</strong>
-			<button
-				type="button"
-				data-active={props.mode === 'link' ? 'true' : 'false'}
-				onClick={() => props.onMode('link')}
-			>
-				with link
-			</button>
-			<span>|</span>
-			<button
-				type="button"
-				data-active={props.mode === 'code' ? 'true' : 'false'}
-				onClick={() => props.onMode('code')}
-			>
-				with code
-			</button>
-		</div>
-	)
-}
-
 const HostConnectionFields = (props: {
 	connection: HostConnectionState
 	canJoinExistingRoom: boolean
@@ -146,13 +120,6 @@ const HostConnectionFields = (props: {
 		props.connection.status === 'creating-invite' ||
 		props.connection.status === 'accepting-reply'
 	const autoLinkReady = () => props.connection.autoStatus === 'ready'
-	const autoLinkUnavailable = () => props.connection.autoStatus === 'failed'
-	const autoLinkCopyValue = () =>
-		autoLinkReady() ? props.connection.autoInviteLink : ''
-	const autoLinkPlaceholder = () =>
-		autoLinkUnavailable()
-			? 'invite link is unavailable'
-			: 'preparing invite link'
 
 	return (
 		<div class="connection-mode-frame" data-mode={props.mode}>
@@ -186,8 +153,12 @@ const HostConnectionFields = (props: {
 					<div class="connection-main">
 						<CopyBlock
 							label="invite link"
-							value={autoLinkCopyValue()}
-							placeholder={autoLinkPlaceholder()}
+							value={autoLinkReady() ? props.connection.autoInviteLink : ''}
+							placeholder={
+								props.connection.autoStatus === 'failed'
+									? 'invite link is unavailable'
+									: 'preparing invite link'
+							}
 							copyLabel={autoLinkReady() ? 'copy link' : 'preparing'}
 							shareLabel="share link"
 							disabled={!autoLinkReady()}
@@ -358,10 +329,24 @@ export const ConnectionCard = (props: {
 			<header class="utility-header">
 				<Switch fallback={<strong>reply code</strong>}>
 					<Match when={props.connection.side === 'host'}>
-						<HostInviteTabs
-							mode={hostInviteMode()}
-							onMode={setHostInviteMode}
-						/>
+						<div class="connection-mode-heading">
+							<strong>invite:</strong>
+							<button
+								type="button"
+								data-active={hostInviteMode() === 'link' ? 'true' : 'false'}
+								onClick={() => setHostInviteMode('link')}
+							>
+								with link
+							</button>
+							<span>|</span>
+							<button
+								type="button"
+								data-active={hostInviteMode() === 'code' ? 'true' : 'false'}
+								onClick={() => setHostInviteMode('code')}
+							>
+								with code
+							</button>
+						</div>
 					</Match>
 					<Match when={props.connection.side === 'closed'}>
 						<strong>room closed</strong>

@@ -91,6 +91,24 @@ export type RoomPeer = {
 	state: PeerState
 }
 
+type RoomActions = {
+	acceptReply: (replyText?: string) => void
+	becomeGuest: () => void
+	becomeHost: () => void
+	copyAutoInviteLink: () => void
+	copyManualInviteLink: () => void
+	copyReplyCode: () => void
+	createReply: (inviteText?: string) => void
+	enableSelfMedia: () => void
+	sendBlip: (text?: string) => void
+	sendFiles: (files: File[]) => void
+	setBlipText: (text: string) => void
+	setInviteText: (inviteText: string) => void
+	setReplyText: (replyText: string) => void
+	toggleCamera: () => void
+	toggleMicrophone: () => void
+}
+
 const sendPacket = (peer: Peer, packet: Packet) => {
 	return peer.send(encodePacket(packet))
 }
@@ -2024,7 +2042,7 @@ export const createRoom = () => {
 		disposeSelfMedia()
 	})
 
-	const actions = {
+	const actions: RoomActions = {
 		becomeGuest,
 		becomeHost: () => {
 			void startHostInvite()

@@ -27,6 +27,7 @@ const MARA_ID = '79df2a4c038be116'
 const JO_ID = 'b05e9d8328aa41c7'
 
 const noop = () => {}
+const noopFiles = (_files: File[]) => {}
 const noopText = (_text: string) => {}
 const noopTextMaybe = (_text?: string) => {}
 
@@ -40,6 +41,7 @@ const fixtureActions: RoomViewProps['room']['actions'] = {
 	createReply: noopTextMaybe,
 	enableSelfMedia: noop,
 	sendBlip: noop,
+	sendFiles: noopFiles,
 	setBlipText: noopText,
 	setInviteText: noopText,
 	setReplyText: noopText,
