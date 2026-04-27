@@ -46,6 +46,7 @@ import {
 	inviteFromInput,
 	manualInviteLinkFromCode,
 	readInviteFromHash,
+	replaceInviteHash,
 } from './room/invite'
 import {
 	findParticipantLink,
@@ -1675,6 +1676,7 @@ export const createRoom = () => {
 
 			if (roomSecret == null) roomSecret = randomRoomSecret()
 			const secret = roomSecret
+			replaceInviteHash(secret)
 			const autoInviteLink = autoInviteLinkFromSecret(secret)
 			setState('connection', {
 				...emptyHostConnection(),
