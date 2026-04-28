@@ -8,8 +8,8 @@ import {
 	ICE_GATHER_TIMEOUT_MS,
 	waitForIce,
 } from './webrtc/ice'
-import { firstTrack } from './webrtc/media'
 
+// The room wants one simple peer: one text lane, optional camera/mic.
 export type Peer = {
 	createOffer: () => Promise<SignalDescription>
 	acceptAnswer: (answer: SignalDescription) => Promise<void>
@@ -22,6 +22,7 @@ export type Peer = {
 
 type MediaKind = 'audio' | 'video'
 
+// Raw browser state is useful for logs; the room renders a smaller story.
 type PeerOptions = {
 	onOpen?: () => void
 	onClose?: () => void
@@ -38,6 +39,14 @@ type PeerStateSnapshot = {
 	signalingState: RTCSignalingState
 }
 
+// We only publish one local track per kind. That keeps renegotiation out of the room.
+const localTrack = (stream: MediaStream | null, kind: MediaKind) => {
+	const tracks =
+		kind === 'audio' ? stream?.getAudioTracks() : stream?.getVideoTracks()
+
+	return tracks?.[0] ?? null
+}
+
 const localDescription = async (pc: RTCPeerConnection) => {
 	// Manual signaling has no trickle path; one srflx candidate is enough to stop making people wait.
 	await waitForIce(pc, ICE_GATHER_TIMEOUT_MS, hasServerReflexiveCandidate)
@@ -52,16 +61,26 @@ const localDescription = async (pc: RTCPeerConnection) => {
 }
 
 export const createPeer = (options: PeerOptions = {}): Peer => {
+	// The wrapper collapses three browser surfaces into one room primitive:
+	// SDP for setup, data channel for packets, transceivers for optional media.
 	const pc = new RTCPeerConnection({
 		iceServers: options.iceServers ?? DEFAULT_ICE_SERVERS,
 	})
+	// Tracks can arrive one by one; the UI wants one stream to hang on a card.
 	const remoteTracks = new Map<string, MediaStreamTrack>()
+	// A peer has one data lane. Everything room-shaped rides as packets on it.
 	let channel: RTCDataChannel | null = null
+	// WebRTC reports endings from several doors. The room should hear one goodbye.
 	let closeEmitted = false
+	// Short network blips are normal. Give them a chance to heal.
 	let disconnectTimeout: ReturnType<typeof setTimeout> | null = null
+	// Keep the latest self media here so new senders can catch up.
 	let localMedia: MediaStream | null = null
+	// Late replaceTrack calls lose if a newer camera state already exists.
 	let localMediaVersion = 0
+	// State logs should mark changes, not spam every browser callback.
 	let stateKey = ''
+	// Browsers handle per-sender swaps best when we serialize them.
 	const replaceTrackQueues: Record<MediaKind, Promise<void>> = {
 		audio: Promise.resolve(),
 		video: Promise.resolve(),
@@ -75,6 +94,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	const closeTransport = () => {
+		// Close both surfaces; either one may have been the first to notice.
 		clearDisconnectTimeout(false)
 		try {
 			channel?.close()
@@ -94,6 +114,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	const scheduleDisconnectClose = () => {
 		if (disconnectTimeout != null) return
 
+		// "Disconnected" is a warning, not a verdict, especially on phones.
 		warnLog('rtc', 'disconnect.grace.start', {
 			connectionState: pc.connectionState,
 			iceConnectionState: pc.iceConnectionState,
@@ -136,6 +157,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	const handleConnectionHealth = () => {
+		// ICE and peer connection states overlap. Treat either healthy signal as enough.
 		emitState()
 		const connectionState = pc.connectionState
 		const iceState = pc.iceConnectionState
@@ -161,6 +183,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	const attachChannel = (nextChannel: RTCDataChannel) => {
+		// Offerers create the lane; answerers receive it. After this, both look the same.
 		channel = nextChannel
 		bindChannel(
 			nextChannel,
@@ -177,6 +200,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	const negotiatedOrFirstTransceiver = (kind: MediaKind) => {
+		// A negotiated mid means this sender is already in the SDP the other side saw.
 		const transceivers = pc
 			.getTransceivers()
 			.filter(
@@ -211,21 +235,23 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	const replaceLocalTracks = (version = localMediaVersion) => {
+		// Null tracks mean "stay connected, but stop sending this kind."
 		replaceSenderTrack(
 			'audio',
 			currentSender('audio'),
-			firstTrack(localMedia, 'audio'),
+			localTrack(localMedia, 'audio'),
 			version,
 		)
 		replaceSenderTrack(
 			'video',
 			currentSender('video'),
-			firstTrack(localMedia, 'video'),
+			localTrack(localMedia, 'video'),
 			version,
 		)
 	}
 
 	const prepareMediaSlots = () => {
+		// Reserve audio/video before offer/answer so media can turn on later.
 		ensureSender('audio')
 		ensureSender('video')
 		replaceLocalTracks()
@@ -241,6 +267,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	pc.ontrack = (event) => {
+		// Muted tracks still count; the remote card should be ready when they wake.
 		if (!remoteTracks.has(event.track.id)) {
 			remoteTracks.set(event.track.id, event.track)
 		}
@@ -260,6 +287,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	const createOffer = async () => {
+		// Whoever offers also names the data lane.
 		attachChannel(pc.createDataChannel('data'))
 		prepareMediaSlots()
 		const offer = await pc.createOffer()
@@ -268,10 +296,12 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	const acceptAnswer = async (answer: SignalDescription) => {
+		// This completes the offerer's half of a copy-paste or tracker handshake.
 		await pc.setRemoteDescription(answer)
 	}
 
 	const createAnswer = async (offer: SignalDescription) => {
+		// Answerers inherit the offer's media shape, then attach their own tracks.
 		await pc.setRemoteDescription(offer)
 		prepareMediaSlots()
 
@@ -281,11 +311,13 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	const close = () => {
+		// Manual close is final; don't echo it back as a surprise event.
 		closeEmitted = true
 		closeTransport()
 	}
 
 	const send = (text: string) => {
+		// Callers use false as backpressure-by-failure, not exceptions.
 		if (channel?.readyState !== 'open') return false
 
 		try {
@@ -297,6 +329,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	const setLocalMedia = (stream: MediaStream | null) => {
+		// Media is room state; this peer just mirrors the latest version.
 		localMedia = stream
 		const version = ++localMediaVersion
 		replaceLocalTracks(version)
@@ -312,6 +345,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 			return
 		}
 
+		// Keep each kind ordered. A stale queued swap should quietly step aside.
 		replaceTrackQueues[kind] = replaceTrackQueues[kind]
 			.catch(() => {})
 			.then(async () => {
@@ -330,6 +364,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	const waitForBufferBelow = (bytes: number) => {
+		// Large file sends need a breathing point or the channel becomes a memory queue.
 		const activeChannel = channel
 		if (
 			activeChannel == null ||

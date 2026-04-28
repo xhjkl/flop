@@ -9,6 +9,7 @@ export type LinkRole = 'guest-rendezvous' | 'host-rendezvous' | 'mesh'
 export type LinkSource = 'manual' | 'tracker'
 export type LinkAuthState = 'pending' | 'verified'
 
+// A link starts as transport, then becomes a person once we know who is there.
 export type RoomLink = {
 	auth: LinkAuthState
 	authNonce: string | null
@@ -27,6 +28,7 @@ export const isRendezvousLink = (link: RoomLink) => {
 	return link.role === 'host-rendezvous' || link.role === 'guest-rendezvous'
 }
 
+// The open invite/reply lane has no person yet. That is the one the UI is waiting on.
 export const findRendezvousLink = (
 	links: Iterable<RoomLink>,
 	role?: LinkRole,
@@ -46,6 +48,7 @@ export const findParticipantLink = (
 	links: Iterable<RoomLink>,
 	key: ParticipantKey,
 ) => {
+	// Participant ids are protocol values; keys are how Solid stores them.
 	for (const link of links) {
 		if (link.remoteId != null && participantKey(link.remoteId) === key) {
 			return link
@@ -56,5 +59,6 @@ export const findParticipantLink = (
 }
 
 export const liveIdentifiedLinks = (links: Iterable<RoomLink>) => {
+	// Broadcasts only go to links that made it past the hello/welcome line.
 	return [...links].filter((link) => link.live && link.remoteId != null)
 }

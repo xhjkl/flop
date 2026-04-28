@@ -15,10 +15,12 @@ export type RoomParticipant = {
 }
 
 export const emptyParticipantActivity = (): PortraitActivityState => {
+	// New people arrive quiet; the portrait grows as packets land.
 	return { blip: null, files: [] }
 }
 
 export const participantKey = (id: ParticipantId): ParticipantKey => {
+	// BigInt is good protocol state, but store paths need plain strings.
 	return participantIdToString(id)
 }
 
@@ -38,12 +40,14 @@ export const mergeParticipant = (
 export const rosterParticipant = (
 	participant: RoomParticipant,
 ): Participant => {
+	// Rosters are identity only. Activity stays local and social.
 	return {
 		id: participant.participantId,
 	}
 }
 
 export const randomParticipantId = (): ParticipantId => {
+	// Eight random bytes is plenty for a room-sized temporary identity.
 	const bytes = new Uint8Array(8)
 	crypto.getRandomValues(bytes)
 	let id = 0n

@@ -27,7 +27,7 @@ const shouldWarnBeforeUnload = (room: RoomHandle) => {
 				connection.status === 'reply-ready' ||
 				connection.status === 'connected')) ||
 		hasBusyFiles(room) ||
-		room.peers().some((peer) => peer.state === 'live')
+		room.peers().some((peer) => peer.connectionState === 'live')
 	)
 }
 

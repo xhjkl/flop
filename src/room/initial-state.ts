@@ -16,16 +16,18 @@ export type RoomState = {
 }
 
 export const emptyHostConnection = (): HostConnectionState => ({
+	// The host card first promises an invite, then fills link and code as they land.
 	side: 'host',
 	status: 'creating-invite',
-	autoInviteLink: '',
-	autoStatus: 'idle',
-	manualInviteLink: '',
+	inviteLink: '',
+	inviteLinkStatus: 'idle',
+	inviteCode: '',
 	replyText: '',
 	issue: null,
 })
 
 export const emptyGuestConnection = (): GuestConnectionState => ({
+	// The guest card starts with one job: paste what the host sent.
 	side: 'guest',
 	status: 'needs-invite',
 	inviteText: '',
@@ -34,16 +36,19 @@ export const emptyGuestConnection = (): GuestConnectionState => ({
 })
 
 export const closedConnection = (): ClosedConnectionState => ({
+	// Closed is a visible recovery state, not just missing transport.
 	side: 'closed',
 	issue: null,
 })
 
 export const emptyBlipComposer = (): BlipComposerState => ({
+	// Text survives typing; issues are short-lived nudges.
 	issue: null,
 	text: '',
 })
 
 export const emptyRoomState = (themeSeed: string): RoomState => {
+	// The first host identity paints the room before anyone joins.
 	return {
 		blipComposer: emptyBlipComposer(),
 		connection: emptyHostConnection(),

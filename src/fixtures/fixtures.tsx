@@ -18,8 +18,8 @@ export type UiFixture = {
 
 const SAMPLE_OFFER =
 	'v=0\no=- 0 0 IN IP4 127.0.0.1\ns=flop\nt=0 0\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel'
-const SAMPLE_INVITE_LINK = `https://flop.local/#${encodeURIComponent(SAMPLE_OFFER)}`
-const SAMPLE_AUTO_LINK = 'https://flop.local/#ybybybybybybybybybybybybyb'
+const SAMPLE_INVITE_CODE = `https://flop.local/#${encodeURIComponent(SAMPLE_OFFER)}`
+const SAMPLE_INVITE_LINK = 'https://flop.local/#ybybybybybybybybybybybybyb'
 const SAMPLE_REPLY =
 	'v=0\no=- 0 0 IN IP4 127.0.0.1\ns=flop-reply\nt=0 0\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel'
 const HOST_ID = '48b6a1e2c59d730f'
@@ -35,8 +35,8 @@ const fixtureActions: RoomViewProps['room']['actions'] = {
 	acceptReply: noopTextMaybe,
 	becomeGuest: noop,
 	becomeHost: noop,
-	copyAutoInviteLink: noop,
-	copyManualInviteLink: noop,
+	copyInviteLink: noop,
+	copyInviteCode: noop,
 	copyReplyCode: noop,
 	createReply: noopTextMaybe,
 	enableSelfMedia: noop,
@@ -82,9 +82,9 @@ const hostConnection = (
 	return {
 		side: 'host',
 		status: 'invite-ready',
-		autoInviteLink: SAMPLE_AUTO_LINK,
-		autoStatus: 'ready',
-		manualInviteLink: SAMPLE_INVITE_LINK,
+		inviteLink: SAMPLE_INVITE_LINK,
+		inviteLinkStatus: 'ready',
+		inviteCode: SAMPLE_INVITE_CODE,
 		replyText: '',
 		issue: null,
 		...overrides,
@@ -160,7 +160,7 @@ export const uiFixtures: UiFixture[] = [
 		'Welcome host',
 		'The first host screen: welcome copy, media enable action, and a ready invite link.',
 		room({
-			themeSeed: SAMPLE_AUTO_LINK,
+			themeSeed: SAMPLE_INVITE_LINK,
 			connection: hostConnection(),
 		}),
 	),
@@ -169,7 +169,7 @@ export const uiFixtures: UiFixture[] = [
 		'Media requesting',
 		'The browser permission prompt is outstanding and the local portrait is waiting.',
 		room({
-			themeSeed: SAMPLE_AUTO_LINK,
+			themeSeed: SAMPLE_INVITE_LINK,
 			selfMedia: selfMedia({ status: 'requesting' }),
 			connection: hostConnection(),
 		}),
@@ -179,7 +179,7 @@ export const uiFixtures: UiFixture[] = [
 		'Media denied',
 		'The shared self portrait renders the media failure branch and retry action.',
 		room({
-			themeSeed: SAMPLE_AUTO_LINK,
+			themeSeed: SAMPLE_INVITE_LINK,
 			selfMedia: selfMedia({
 				status: 'denied',
 				issue:
@@ -196,9 +196,9 @@ export const uiFixtures: UiFixture[] = [
 			themeSeed: HOST_ID,
 			connection: hostConnection({
 				status: 'creating-invite',
-				autoInviteLink: '',
-				autoStatus: 'idle',
-				manualInviteLink: '',
+				inviteLink: '',
+				inviteLinkStatus: 'idle',
+				inviteCode: '',
 			}),
 		}),
 	),
@@ -207,8 +207,8 @@ export const uiFixtures: UiFixture[] = [
 		'Host link finding',
 		'The host has an invite code, but the tracker invite link is still preparing.',
 		room({
-			themeSeed: SAMPLE_AUTO_LINK,
-			connection: hostConnection({ autoStatus: 'finding' }),
+			themeSeed: SAMPLE_INVITE_LINK,
+			connection: hostConnection({ inviteLinkStatus: 'finding' }),
 		}),
 	),
 	fixture(
@@ -216,7 +216,7 @@ export const uiFixtures: UiFixture[] = [
 		'Host code fallback',
 		'The same connection card opened to the invite code and reply code paste pane.',
 		room({
-			themeSeed: SAMPLE_INVITE_LINK,
+			themeSeed: SAMPLE_INVITE_CODE,
 			hostInviteMode: 'code',
 			connection: hostConnection(),
 		}),
@@ -226,7 +226,7 @@ export const uiFixtures: UiFixture[] = [
 		'Host accepting reply',
 		'The host has pasted a reply code and the connection card is temporarily busy.',
 		room({
-			themeSeed: SAMPLE_INVITE_LINK,
+			themeSeed: SAMPLE_INVITE_CODE,
 			hostInviteMode: 'code',
 			connection: hostConnection({
 				status: 'accepting-reply',
@@ -265,7 +265,7 @@ export const uiFixtures: UiFixture[] = [
 				{
 					activity: emptyActivity,
 					id: HOST_ID,
-					state: 'waiting',
+					connectionState: 'waiting',
 				},
 			],
 			connection: guestConnection({
@@ -280,17 +280,17 @@ export const uiFixtures: UiFixture[] = [
 		'Guest link finding',
 		'The guest opened an invite link and should wait, not create a reply code.',
 		room({
-			themeSeed: SAMPLE_AUTO_LINK,
+			themeSeed: SAMPLE_INVITE_LINK,
 			peers: [
 				{
 					activity: emptyActivity,
 					id: HOST_ID,
-					state: 'waiting',
+					connectionState: 'waiting',
 				},
 			],
 			connection: guestConnection({
 				status: 'finding-link',
-				inviteText: SAMPLE_AUTO_LINK,
+				inviteText: SAMPLE_INVITE_LINK,
 			}),
 		}),
 	),
@@ -306,7 +306,8 @@ export const uiFixtures: UiFixture[] = [
 					{
 						id: 'local-file',
 						name: 'screenshots.zip',
-						progress: 64,
+						receivedBytes: 64,
+						size: 100,
 						state: 'sending',
 						url: null,
 					},
@@ -325,19 +326,20 @@ export const uiFixtures: UiFixture[] = [
 							{
 								id: 'mara-file',
 								name: 'photo-export.zip',
-								progress: 37,
+								receivedBytes: 37,
+								size: 100,
 								state: 'receiving',
 								url: null,
 							},
 						],
 					},
 					id: MARA_ID,
-					state: 'live',
+					connectionState: 'live',
 				},
 				{
 					activity: emptyActivity,
 					id: JO_ID,
-					state: 'live',
+					connectionState: 'live',
 				},
 			],
 			connection: hostConnection(),
@@ -355,7 +357,7 @@ export const uiFixtures: UiFixture[] = [
 					activity: emptyActivity,
 					id: HOST_ID,
 					mediaState: { cameraEnabled: true, microphoneEnabled: true },
-					state: 'live',
+					connectionState: 'live',
 				},
 			],
 			connection: guestConnection({
@@ -382,9 +384,9 @@ export const uiFixtures: UiFixture[] = [
 			themeSeed: 'error-screen',
 			connection: hostConnection({
 				status: 'creating-invite',
-				autoInviteLink: '',
-				autoStatus: 'failed',
-				manualInviteLink: '',
+				inviteLink: '',
+				inviteLinkStatus: 'failed',
+				inviteCode: '',
 				issue: 'Could not create the invite link or invite code.',
 			}),
 		}),

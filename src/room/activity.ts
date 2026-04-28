@@ -1,5 +1,4 @@
 import type { Packet, ParticipantId } from '../protocol'
-import type { PortraitFileState } from '../state'
 
 // File transfer is transport work, but the UI result is still portrait activity.
 export type IncomingFileTransfer = {
@@ -11,15 +10,6 @@ export type IncomingFileTransfer = {
 	size: number
 }
 
-export type FileProgress = {
-	id: string
-	name: string
-	receivedBytes: number
-	size: number
-	state: PortraitFileState['state']
-	url: string | null
-}
-
 export const FILE_CHUNK_BYTES = 16 * 1024
 // Keep data channels breathing while large drops are in flight.
 export const FILE_BUFFER_LOW_BYTES = 512 * 1024
@@ -28,6 +18,7 @@ export const createIncomingFileTransfer = (
 	from: ParticipantId,
 	message: Extract<Packet, { type: 'file-start' }>,
 ): IncomingFileTransfer => {
+	// The portrait gets progress; bytes wait here until the file is whole.
 	return {
 		chunks: [],
 		from,
@@ -38,22 +29,8 @@ export const createIncomingFileTransfer = (
 	}
 }
 
-export const fileProgressState = (file: FileProgress): PortraitFileState => {
-	const progress =
-		file.size <= 0
-			? 100
-			: Math.min(100, Math.round((file.receivedBytes / file.size) * 100))
-
-	return {
-		id: file.id,
-		name: file.name,
-		progress,
-		state: file.state,
-		url: file.url,
-	}
-}
-
 export const randomTransferId = () => {
+	// Transfer ids only need to be unique inside this short-lived room.
 	const bytes = new Uint8Array(12)
 	crypto.getRandomValues(bytes)
 	return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')

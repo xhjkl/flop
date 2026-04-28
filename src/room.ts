@@ -27,8 +27,6 @@ import {
 	createIncomingFileTransfer,
 	FILE_BUFFER_LOW_BYTES,
 	FILE_CHUNK_BYTES,
-	type FileProgress,
-	fileProgressState,
 	type IncomingFileTransfer,
 	randomTransferId,
 } from './room/activity'
@@ -40,10 +38,10 @@ import {
 	emptyRoomState,
 } from './room/initial-state'
 import {
-	autoInviteLinkFromSecret,
 	copyText,
+	inviteCodeFromSignal,
 	inviteFromInput,
-	manualInviteLinkFromCode,
+	inviteLinkFromSecret,
 	readInviteFromHash,
 } from './room/invite'
 import {
@@ -74,27 +72,29 @@ import {
 } from './self-media'
 import { decodeSignal, encodeSignal, type SignalDescription } from './signal'
 import type {
+	PeerConnectionState,
 	PeerMediaState,
-	PeerState,
 	PortraitActivityState,
 	PortraitFileState,
 } from './state'
 import { createPeer, type Peer } from './webrtc'
 
+// This is the shape the strip renders: person facts plus their current transport.
 export type RoomPeer = {
 	activity: PortraitActivityState
 	id: ParticipantKey
 	mediaState?: PeerMediaState | null
 	mediaStream?: MediaStream | null
-	state: PeerState
+	connectionState: PeerConnectionState
 }
 
+// Actions are UI verbs. They deliberately hide the host/guest ceremony below.
 type RoomActions = {
 	acceptReply: (replyText?: string) => void
 	becomeGuest: () => void
 	becomeHost: () => void
-	copyAutoInviteLink: () => void
-	copyManualInviteLink: () => void
+	copyInviteLink: () => void
+	copyInviteCode: () => void
 	copyReplyCode: () => void
 	createReply: (inviteText?: string) => void
 	enableSelfMedia: () => void
@@ -108,10 +108,12 @@ type RoomActions = {
 }
 
 const sendPacket = (peer: Peer, packet: Packet) => {
+	// Keep packets typed until the last inch before the data channel.
 	return peer.send(encodePacket(packet))
 }
 
 const linkLog = (link: RoomLink) => {
+	// Logs need identities and roles, not raw SDP or file payloads.
 	return {
 		auth: link.auth,
 		id: link.id,
@@ -138,28 +140,47 @@ const TRACKER_CANDIDATE_LIMIT = 12
 const TRACKER_CANDIDATE_TTL_MS = 45_000
 
 export const createRoom = () => {
+	// Three ledgers keep the room understandable:
+	// participants are roster order plus visible activity;
+	// links are mutable transports that may or may not be people yet;
+	// state.connection is only the invite/reply card the UI shows.
+	// Incoming bytes live off-store until complete; the store carries only progress.
 	const incomingFiles = new Map<string, IncomingFileTransfer>()
+	// Object URLs are browser resources. Keep every one we mint so cleanup is exact.
 	let fileUrls = new Set<string>()
+	// Guests can write a blip before the host gives them a participant id.
 	let pendingLocalBlip: string | null = null
 	// Host identity is the closest thing we have to room identity, so it also paints the room.
 	let localParticipantId: ParticipantId | null = randomParticipantId()
+	// Guests learn this from welcome. Hosts start as their own host.
 	let hostParticipantId: ParticipantId | null = localParticipantId
+	// The secret backs tracker discovery; manual codes do not need it.
 	let roomSecret: RoomSecret | null = null
+	// Derived keys prove tracker peers actually know the invite link.
 	let roomKeys: RoomKeys | null = null
+	// Tracker rendezvous is a helper, not the room. It can come and go.
 	let trackerRendezvous: TrackerRendezvous | null = null
+	// Every new signaling attempt invalidates older async work.
 	let signalingVersion = 0
+	// Links need stable ids before they know who is on the other side.
 	let linkSequence = 0
+	// Camera permission can race with teardown; versioning keeps late streams out.
 	let selfMediaVersion = 0
+	// Tracker answers come back by offer id, before a person is known.
 	const trackerOffers = new Map<string, RoomLink>()
 	const hostParticipant = mergeParticipant({ id: localParticipantId })
+	// Links are transport state. Solid sees them through linkRevision.
 	const links = new Map<LinkId, RoomLink>()
 	const [linkRevision, setLinkRevision] = createSignal(0)
+	// Keep roster order explicit so cards do not reshuffle from object keys.
 	const [participantKeys, setParticipantKeys] = createSignal<ParticipantKey[]>([
 		hostParticipant.id,
 	])
+	// Null local key means "guest has not been welcomed yet."
 	const [localKey, setLocalKey] = createSignal<ParticipantKey | null>(
 		hostParticipant.id,
 	)
+	// Participant records hold identity plus visible activity.
 	const [participants, setParticipants] = createStore<
 		Partial<Record<ParticipantKey, RoomParticipant>>
 	>({
@@ -169,6 +190,7 @@ export const createRoom = () => {
 	const [state, setState] = createStore(emptyRoomState(hostParticipant.id))
 
 	const peerKeys = createMemo(() => {
+		// The self portrait is special; everyone else is a peer card.
 		const local = localKey()
 		return participantKeys().filter((key) => key !== local)
 	})
@@ -178,19 +200,22 @@ export const createRoom = () => {
 	}
 
 	const selfActivity = createMemo(() => {
+		// Before welcome, pendingLocalBlip is the only self activity we have.
 		const key = localKey()
 		return key == null
 			? emptyParticipantActivity()
 			: (participantByKey(key)?.activity ?? emptyParticipantActivity())
 	})
 
-	const isHostRoom = () => {
+	const isSelfHost = () => {
+		// Hostness is identity, not which card is currently visible.
 		return (
 			localParticipantId != null && localParticipantId === hostParticipantId
 		)
 	}
 
-	const isGuestRoom = () => {
+	const isSelfGuest = () => {
+		// A welcomed guest has both ids, and they differ.
 		return (
 			localParticipantId != null &&
 			hostParticipantId != null &&
@@ -199,6 +224,7 @@ export const createRoom = () => {
 	}
 
 	const touchLinks = () => {
+		// Links are mutable on purpose; this is the one Solid wake-up bell.
 		setLinkRevision((revision) => revision + 1)
 	}
 
@@ -206,7 +232,7 @@ export const createRoom = () => {
 		const participant = participantByKey(key)
 		if (participant == null) return null
 
-		// links is intentionally a transport map; this signal bridges it into Solid projections.
+		// Link state decides whether a person is live; participant state decides what they showed.
 		linkRevision()
 		const link = linkByParticipantKey(key)
 		return {
@@ -214,7 +240,7 @@ export const createRoom = () => {
 			id: participant.id,
 			mediaState: link?.mediaState ?? null,
 			mediaStream: link?.mediaStream ?? null,
-			state: link?.live ? 'live' : 'waiting',
+			connectionState: link?.live ? 'live' : 'waiting',
 		}
 	}
 
@@ -232,11 +258,13 @@ export const createRoom = () => {
 	}
 
 	const nextLinkId = (role: LinkRole): LinkId => {
+		// Roles make debugging readable before a remote participant exists.
 		linkSequence++
 		return `${role}:${linkSequence}`
 	}
 
 	const currentRendezvousLink = (role?: LinkRole, source?: LinkSource) => {
+		// There should be at most one open invite lane for a given path.
 		return findRendezvousLink(links.values(), role, source)
 	}
 
@@ -249,6 +277,7 @@ export const createRoom = () => {
 	}
 
 	const removeLink = (link: RoomLink) => {
+		// Remove means "stop routing"; closeLink adds browser teardown.
 		if (links.get(link.id) !== link) return
 
 		link.live = false
@@ -260,6 +289,7 @@ export const createRoom = () => {
 	}
 
 	const closeLink = (link: RoomLink) => {
+		// Close from our side should still clean room bookkeeping first.
 		removeLink(link)
 
 		try {
@@ -268,11 +298,13 @@ export const createRoom = () => {
 	}
 
 	const closeRendezvousLink = (role?: LinkRole, source?: LinkSource) => {
+		// Replacing an invite should not disturb established mesh links.
 		const link = currentRendezvousLink(role, source)
 		if (link != null) closeLink(link)
 	}
 
 	const closeAllLinks = () => {
+		// Snapshot first; close callbacks may try to mutate the same map.
 		const closingLinks = [...links.values()]
 		links.clear()
 		trackerOffers.clear()
@@ -287,16 +319,19 @@ export const createRoom = () => {
 	}
 
 	const stopTrackerRendezvous = () => {
+		// Tracker candidates are meaningless once the tracker loop stops.
 		trackerRendezvous?.close()
 		trackerRendezvous = null
 		trackerOffers.clear()
 	}
 
 	const participantLink = (participantId: ParticipantId) => {
+		// Most protocol packets name participants, not link ids.
 		return linkByParticipantKey(participantKey(participantId))
 	}
 
 	const adoptLink = (link: RoomLink, participantId: ParticipantId) => {
+		// Adoption needs a participant record first, then enforces one link per person.
 		if (links.get(link.id) !== link) return false
 		if (link.remoteId != null && link.remoteId !== participantId) return false
 
@@ -316,6 +351,7 @@ export const createRoom = () => {
 	}
 
 	const closeSiblingRendezvousLinks = (link: RoomLink) => {
+		// Once one candidate wins a doorway, parallel candidates there retire.
 		for (const candidate of [...links.values()]) {
 			if (candidate === link) continue
 			if (candidate.remoteId != null) continue
@@ -335,6 +371,7 @@ export const createRoom = () => {
 	}
 
 	const isTrackerCandidate = (link: RoomLink, role?: LinkRole) => {
+		// Tracker flow starts with anonymous WebRTC links; auth and welcome promote one.
 		return (
 			link.source === 'tracker' &&
 			link.remoteId == null &&
@@ -343,6 +380,7 @@ export const createRoom = () => {
 	}
 
 	const trackerCandidates = (role: LinkRole) => {
+		// Candidate order is insertion order; oldest loses when the budget is full.
 		return [...links.values()].filter((link) => isTrackerCandidate(link, role))
 	}
 
@@ -351,6 +389,7 @@ export const createRoom = () => {
 	}
 
 	const expireTrackerCandidate = (link: RoomLink, reason: string) => {
+		// Dead candidates should disappear quietly from the portrait projection.
 		if (links.get(link.id) !== link) return
 		if (!isTrackerCandidate(link)) return
 
@@ -374,6 +413,7 @@ export const createRoom = () => {
 		role: LinkRole,
 		options: { offerId?: string | null; trackerPeerId?: string | null } = {},
 	) => {
+		// Public trackers can be noisy. Keep only a small bench of hopeful links.
 		pruneTrackerCandidateBudget(role)
 		if (!candidateBudgetAllows(role)) {
 			warnRoom('tracker.candidate.budget-full', { role })
@@ -396,6 +436,7 @@ export const createRoom = () => {
 		link: RoomLink,
 		participantId: ParticipantId,
 	) => {
+		// Tracker discovery earns a room seat only after auth proves the secret.
 		if (link.source === 'tracker' && link.auth !== 'verified') {
 			warnRoom('tracker.candidate.promote.before-auth', {
 				link: linkLog(link),
@@ -416,6 +457,7 @@ export const createRoom = () => {
 		trackerPeerId: string,
 		except: RoomLink | null = null,
 	) => {
+		// One verified tracker link per tracker peer is enough.
 		for (const link of links.values()) {
 			if (link === except) continue
 			if (link.role !== role) continue
@@ -428,6 +470,7 @@ export const createRoom = () => {
 	}
 
 	const replaceParticipants = (roster: Participant[]) => {
+		// The host owns membership; guests keep local activity while matching it.
 		const nextKeys = roster.map((person) => participantKey(person.id))
 		const nextKeySet = new Set(nextKeys)
 		const host =
@@ -455,6 +498,7 @@ export const createRoom = () => {
 	}
 
 	const deleteParticipant = (participantId: ParticipantId) => {
+		// Remove the card first; callers may still close the old peer afterward.
 		const key = participantKey(participantId)
 		const link = participantLink(participantId)
 
@@ -466,20 +510,19 @@ export const createRoom = () => {
 	}
 
 	const allocateParticipantId = () => {
-		let id = randomParticipantId()
+		// The host hands guests ids so all peers agree on the same roster.
+		while (true) {
+			const id = randomParticipantId()
+			if (id === localParticipantId) continue
+			if (id === hostParticipantId) continue
+			if (participants[participantKey(id)] != null) continue
 
-		while (
-			id === localParticipantId ||
-			id === hostParticipantId ||
-			participants[participantKey(id)] != null
-		) {
-			id = randomParticipantId()
+			return id
 		}
-
-		return id
 	}
 
-	const resetHostParticipants = () => {
+	const resetAsHost = () => {
+		// Starting fresh as host makes a new room identity and color.
 		stopTrackerRendezvous()
 		pendingLocalBlip = null
 		roomSecret = null
@@ -495,9 +538,8 @@ export const createRoom = () => {
 		setState('themeSeed', host.id)
 	}
 
-	const resetGuestParticipants = (
-		options: { keepPendingBlip?: boolean } = {},
-	) => {
+	const resetBeforeJoining = (options: { keepPendingBlip?: boolean } = {}) => {
+		// Before welcome, a guest has no durable identity in this room.
 		stopTrackerRendezvous()
 		if (!options.keepPendingBlip) pendingLocalBlip = null
 		roomSecret = null
@@ -511,6 +553,7 @@ export const createRoom = () => {
 	}
 
 	const roomRoster = () => {
+		// Send only protocol identity; activity moves as live packets.
 		return participantKeys()
 			.map((key) => participants[key])
 			.filter((person): person is RoomParticipant => person != null)
@@ -522,6 +565,7 @@ export const createRoom = () => {
 	}
 
 	const sendToParticipant = (participantId: ParticipantId, packet: Packet) => {
+		// Missing links are normal while the mesh is still forming.
 		const link = participantLink(participantId)
 		if (link == null || !link.live) return false
 
@@ -529,6 +573,7 @@ export const createRoom = () => {
 	}
 
 	const sendToLinks = (targetLinks: RoomLink[], packet: Packet) => {
+		// Return a count so file sends can fail fast when everyone disappears.
 		let sent = 0
 
 		for (const link of targetLinks) {
@@ -542,6 +587,7 @@ export const createRoom = () => {
 		packet: Packet,
 		except: ParticipantId | null = null,
 	) => {
+		// Broadcast follows the roster order and skips the optional sender.
 		const exceptKey = except == null ? null : participantKey(except)
 
 		for (const key of participantKeys()) {
@@ -565,12 +611,14 @@ export const createRoom = () => {
 	}
 
 	const liveParticipantLinks = () => {
+		// Common packets go only to people, not invite candidates.
 		return liveIdentifiedLinks(links.values())
 	}
 
 	const selfMediaState = (
 		media: SelfMedia = state.selfMedia,
 	): PeerMediaState => {
+		// Peers care about what we are actually sending, not permission details.
 		return {
 			cameraEnabled:
 				media.status === 'live' && media.cameraAvailable && media.cameraEnabled,
@@ -585,6 +633,7 @@ export const createRoom = () => {
 		participantId: ParticipantId,
 		mediaState: PeerMediaState,
 	) => {
+		// Remote media state decorates the link because it is transport-adjacent.
 		const link = participantLink(participantId)
 		if (link == null) return
 
@@ -608,6 +657,7 @@ export const createRoom = () => {
 	}
 
 	const applyPendingLocalBlip = () => {
+		// Welcome gives the pending blip a real owner.
 		if (localParticipantId == null || pendingLocalBlip == null) return
 
 		setParticipantBlip(localParticipantId, pendingLocalBlip)
@@ -615,6 +665,7 @@ export const createRoom = () => {
 	}
 
 	const sendLocalBlipToPeer = (peer: Peer) => {
+		// New links should see the current blip without waiting for the next edit.
 		const blip = localBlip()
 		if (blip == null) return false
 
@@ -629,12 +680,14 @@ export const createRoom = () => {
 	}
 
 	const verifyLink = (link: RoomLink) => {
+		// After auth, normal room packets may pass on this candidate.
 		link.auth = 'verified'
 		link.authNonce = null
 		touchLinks()
 	}
 
 	const sendTrackerChallenge = (link: RoomLink) => {
+		// The host makes tracker candidates prove they know the room secret.
 		if (roomKeys == null) {
 			errorRoom('auth.challenge.missing-room-keys', { link: linkLog(link) })
 			closeLink(link)
@@ -652,6 +705,7 @@ export const createRoom = () => {
 	}
 
 	const answerTrackerChallenge = async (link: RoomLink, nonce: string) => {
+		// The guest signs the nonce; no room identity is revealed yet.
 		if (roomKeys == null) {
 			errorRoom('auth.response.missing-room-keys', { link: linkLog(link) })
 			closeLink(link)
@@ -677,6 +731,7 @@ export const createRoom = () => {
 	}
 
 	const acceptTrackerResponse = async (link: RoomLink, mac: string) => {
+		// A valid MAC tells apart the public tracker noise from a trusted candidate with the link on hands.
 		if (roomKeys == null) {
 			errorRoom('auth.accept.missing-room-keys', { link: linkLog(link) })
 			closeLink(link)
@@ -715,6 +770,7 @@ export const createRoom = () => {
 	}
 
 	const handleAuthPacket = (link: RoomLink, message: Packet) => {
+		// Auth packets are consumed before room-role dispatch.
 		switch (message.type) {
 			case 'auth-challenge':
 				if (link.source !== 'tracker' || link.role !== 'guest-rendezvous') {
@@ -752,6 +808,7 @@ export const createRoom = () => {
 	}
 
 	const publishLocalBlip = () => {
+		// Replay the current blip to newly welcomed peers; edits send their own packet.
 		const blip = localBlip()
 		if (blip == null) return 0
 
@@ -759,6 +816,7 @@ export const createRoom = () => {
 	}
 
 	const publishLocalMediaState = (mediaState = selfMediaState()) => {
+		// When camera state changes, every live portrait should update.
 		return sendToLinks(liveParticipantLinks(), {
 			...mediaState,
 			type: 'media-state',
@@ -771,15 +829,15 @@ export const createRoom = () => {
 
 	const upsertParticipantFile = (
 		participantId: ParticipantId,
-		file: FileProgress,
+		nextFile: PortraitFileState,
 	) => {
+		// File chips update in place so progress does not reorder the activity stack.
 		const key = participantKey(participantId)
 		const person = participants[key]
 		if (person == null) return
 
-		const nextFile = fileProgressState(file)
 		setParticipants(key, 'activity', 'files', (files) => {
-			const index = files.findIndex((item) => item.id === file.id)
+			const index = files.findIndex((item) => item.id === nextFile.id)
 			if (index === -1) return [...files, nextFile]
 
 			return files.map((item, itemIndex) =>
@@ -789,6 +847,7 @@ export const createRoom = () => {
 	}
 
 	const markLocalSendingFilesError = () => {
+		// One failed drop marks any in-flight local chips as failed.
 		const key = localKey()
 		if (key == null) return
 
@@ -803,6 +862,7 @@ export const createRoom = () => {
 	}
 
 	const disposeFileUrls = () => {
+		// Download links are cheap to show but not free to keep.
 		for (const url of fileUrls) {
 			URL.revokeObjectURL(url)
 		}
@@ -818,6 +878,7 @@ export const createRoom = () => {
 		participantId: ParticipantId,
 		message: Extract<Packet, { type: 'file-start' }>,
 	) => {
+		// Start creates both the byte bucket and the visible receiving chip.
 		const transfer = createIncomingFileTransfer(participantId, message)
 
 		incomingFiles.set(message.id, transfer)
@@ -834,6 +895,7 @@ export const createRoom = () => {
 	const handleFileChunk = (
 		message: Extract<Packet, { type: 'file-chunk' }>,
 	) => {
+		// Chunks can outlive their sender; unknown ids are just stale packets.
 		const transfer = incomingFiles.get(message.id)
 		if (transfer == null) return
 
@@ -869,6 +931,7 @@ export const createRoom = () => {
 	}
 
 	const handleFileEnd = (message: Extract<Packet, { type: 'file-end' }>) => {
+		// Only at the end do bytes become a downloadable browser URL.
 		const transfer = incomingFiles.get(message.id)
 		if (transfer == null) return
 
@@ -918,6 +981,7 @@ export const createRoom = () => {
 	}
 
 	const clearPeerParticipants = () => {
+		// When a room ends, keep only the self card's history.
 		const local = localKey()
 		const self = local == null ? null : participants[local]
 
@@ -928,6 +992,7 @@ export const createRoom = () => {
 	}
 
 	const markRoomClosed = () => {
+		// Closed is visible state plus real transport teardown.
 		stopTrackerRendezvous()
 		closeAllLinks()
 		clearPeerParticipants()
@@ -938,6 +1003,7 @@ export const createRoom = () => {
 		participantId: ParticipantId,
 		options: { peer?: Peer | null } = {},
 	) => {
+		// Link loss can mean "one guest left" or "the whole room ended."
 		const key = participantKey(participantId)
 		const link = participantLink(participantId)
 		if (link == null) return
@@ -945,13 +1011,13 @@ export const createRoom = () => {
 
 		removeLink(link)
 
-		if (isGuestRoom() && participantId === hostParticipantId) {
+		if (isSelfGuest() && participantId === hostParticipantId) {
 			markRoomClosed()
 			return
 		}
 
 		// Guests can come and go. A guest only loses the room when the host disappears.
-		if (isHostRoom()) {
+		if (isSelfHost()) {
 			setParticipantKeys((keys) => keys.filter((item) => item !== key))
 			setParticipants(key, undefined)
 			broadcastMembershipChange({ left: participantId })
@@ -960,7 +1026,7 @@ export const createRoom = () => {
 				liveParticipantLinkCount() === 0 &&
 				currentRendezvousLink('host-rendezvous', 'manual') == null
 			) {
-				void startHostInvite({ resetPeers: false })
+				void startInviteAsHost({ resetPeers: false })
 			}
 		}
 	}
@@ -978,12 +1044,14 @@ export const createRoom = () => {
 			trackerPeerId?: string | null
 		} = {},
 	) => {
+		// Create the transport first; the room role decides what it becomes.
 		const source = options.source ?? 'manual'
 		const id = nextLinkId(role)
 		const peer = createPeer({
 			onOpen: () => handleLinkOpen(id),
 			onMessage: (text) => handleLinkMessage(id, text),
 			onRemoteMedia: (stream) => {
+				// Remote media belongs to the link, because the participant may reconnect.
 				const link = links.get(id)
 				if (link == null) return
 
@@ -991,6 +1059,7 @@ export const createRoom = () => {
 				touchLinks()
 			},
 			onState: (state) => {
+				// Tracker links are the hard part; log their RTC state while they settle.
 				const link = links.get(id)
 				if (link == null || link.source !== 'tracker') return
 
@@ -1014,11 +1083,13 @@ export const createRoom = () => {
 		}
 		links.set(id, link)
 		touchLinks()
+		// New links should inherit any already-enabled camera/mic immediately.
 		peer.setLocalMedia(state.selfMedia.stream)
 		return link
 	}
 
 	const handleLinkOpen = (linkId: LinkId) => {
+		// Open transport is not always room membership; tracker auth may still be pending.
 		const link = links.get(linkId)
 		if (link == null) return
 
@@ -1036,17 +1107,20 @@ export const createRoom = () => {
 		}
 
 		if (link.role === 'guest-rendezvous') {
+			// Guests say hello first; hosts answer with welcome and identity.
 			sendPacket(link.peer, { type: 'hello' })
 			return
 		}
 
 		if (link.remoteId != null) {
+			// Reconnected or mesh links should receive the current self presence.
 			sendLocalBlipToPeer(link.peer)
 			sendLocalMediaStateToPeer(link.peer)
 		}
 	}
 
 	const handleLinkClose = (linkId: LinkId) => {
+		// Close callbacks arrive after many paths; look up the current link before acting.
 		const link = links.get(linkId)
 		if (link == null) return
 
@@ -1060,9 +1134,10 @@ export const createRoom = () => {
 		if (
 			link.role === 'host-rendezvous' &&
 			link.source === 'manual' &&
-			isHostRoom()
+			isSelfHost()
 		) {
-			void startHostInvite({ resetPeers: false })
+			// A closed manual host invite should be replaced so the host stays joinable.
+			void startInviteAsHost({ resetPeers: false })
 		} else if (
 			link.role === 'guest-rendezvous' &&
 			link.source === 'tracker' &&
@@ -1070,11 +1145,13 @@ export const createRoom = () => {
 		) {
 			return
 		} else if (link.role === 'guest-rendezvous') {
+			// Losing the host rendezvous before membership means the guest is done here.
 			markRoomClosed()
 		}
 	}
 
 	const handleLinkMessage = (linkId: LinkId, text: string) => {
+		// Every incoming string becomes either auth, setup, or common room activity.
 		const link = links.get(linkId)
 		if (link == null) return
 
@@ -1107,6 +1184,7 @@ export const createRoom = () => {
 	}
 
 	const handlePeerMessage = (link: RoomLink, message: Packet) => {
+		// Mesh packets are only meaningful after the link is tied to a participant.
 		if (link.remoteId == null) {
 			warnRoom('mesh.message.missing-remote', {
 				link: linkLog(link),
@@ -1119,6 +1197,7 @@ export const createRoom = () => {
 	}
 
 	const createMeshLink = (participantId: ParticipantId) => {
+		// Mesh links skip rendezvous; the roster already names the target.
 		const link = createLink('mesh', { remoteId: participantId })
 
 		if (participantById(participantId) == null) {
@@ -1137,9 +1216,11 @@ export const createRoom = () => {
 		return sendToParticipant(hostParticipantId, message)
 	}
 
+	// Mesh flow: the host shares the roster and forwards offers/answers;
+	// guests use a deterministic tie-break so exactly one side dials each edge.
 	const createMeshOffer = async (participantId: ParticipantId) => {
 		if (
-			!isGuestRoom() ||
+			!isSelfGuest() ||
 			localParticipantId == null ||
 			hostParticipantId == null ||
 			participantLink(participantId) != null
@@ -1180,8 +1261,9 @@ export const createRoom = () => {
 	}
 
 	const startMissingMeshOffers = () => {
+		// After each roster update, fill in direct guest-to-guest edges.
 		if (
-			!isGuestRoom() ||
+			!isSelfGuest() ||
 			localParticipantId == null ||
 			hostParticipantId == null
 		) {
@@ -1196,7 +1278,6 @@ export const createRoom = () => {
 				participant.participantId === localParticipantId ||
 				participant.participantId === hostParticipantId ||
 				linkByParticipantKey(key) != null ||
-				// Deterministic tie-break: only one guest dials for each guest-to-guest edge.
 				localParticipantId < participant.participantId
 			) {
 				continue
@@ -1209,7 +1290,8 @@ export const createRoom = () => {
 	const acceptMeshOffer = async (
 		message: Extract<Packet, { type: 'peer-offer' }>,
 	) => {
-		if (!isGuestRoom() || localParticipantId == null) {
+		// The target guest answers, then the host carries that answer back.
+		if (!isSelfGuest() || localParticipantId == null) {
 			return
 		}
 		if (message.to !== localParticipantId) {
@@ -1258,6 +1340,7 @@ export const createRoom = () => {
 	const acceptMeshAnswer = async (
 		message: Extract<Packet, { type: 'peer-answer' }>,
 	) => {
+		// The dialing guest completes the direct edge here.
 		if (localParticipantId == null) return
 		if (message.to !== localParticipantId) {
 			warnRoom('mesh.answer.wrong-target', {
@@ -1287,6 +1370,7 @@ export const createRoom = () => {
 	}
 
 	const applyRoster = (roster: Participant[]) => {
+		// If the host is gone from the roster, the room is gone for guests.
 		if (
 			hostParticipantId != null &&
 			!roster.some((p) => p.id === hostParticipantId)
@@ -1303,6 +1387,7 @@ export const createRoom = () => {
 	}
 
 	const removeRosterParticipant = (participantId: ParticipantId) => {
+		// Roster leaves are host-approved; close any direct link we had.
 		if (participantId === hostParticipantId) {
 			markRoomClosed()
 			return
@@ -1312,6 +1397,7 @@ export const createRoom = () => {
 	}
 
 	const handleGuestMessage = (link: RoomLink, message: Packet) => {
+		// Before welcome, the rendezvous link itself is the best sender hint.
 		const senderId = hostParticipantId ?? link.remoteId
 		if (senderId != null && handleCommonMessage(senderId, message)) return
 
@@ -1367,6 +1453,7 @@ export const createRoom = () => {
 	}
 
 	const sendHostWelcome = (participantId: ParticipantId) => {
+		// Welcome gives the guest its id, host id, and first full roster.
 		if (localParticipantId == null) {
 			errorRoom('welcome.missing-local-host-id', {
 				participantId: participantIdToString(participantId),
@@ -1395,6 +1482,7 @@ export const createRoom = () => {
 	}
 
 	const handleHostPacket = (participantId: ParticipantId, message: Packet) => {
+		// Hosts accept room activity and broker mesh setup.
 		if (handleCommonMessage(participantId, message)) return
 		switch (message.type) {
 			case 'hello':
@@ -1434,6 +1522,7 @@ export const createRoom = () => {
 	}
 
 	const admitHostRendezvous = (link: RoomLink) => {
+		// The first hello on a host rendezvous claims a participant slot.
 		const existingId = link.remoteId
 		if (existingId != null) {
 			return { fresh: false, participantId: existingId }
@@ -1469,6 +1558,7 @@ export const createRoom = () => {
 	}
 
 	const handleHostRendezvousMessage = (link: RoomLink, message: Packet) => {
+		// Host rendezvous packets may be pre-admission or normal guest packets.
 		let participantId = link.remoteId
 		let fresh = false
 		if (participantId == null && message.type === 'hello') {
@@ -1490,27 +1580,30 @@ export const createRoom = () => {
 		handleHostPacket(participantId, message)
 		if (fresh) {
 			// Keep the host ready for the next person only after this peer joined the room protocol.
-			void startHostInvite({ resetPeers: false })
+			void startInviteAsHost({ resetPeers: false })
 		}
 	}
 
 	const setHostAutoStatus = (status: TrackerStatus) => {
+		// Tracker status is only visible on the host invite link pane.
 		if (state.connection.side !== 'host') return
 
 		setState('connection', {
 			...state.connection,
-			autoStatus: status,
+			inviteLinkStatus: status,
 		})
 	}
 
 	const trackerRendezvousRole = (): LinkRole | null => {
-		if (isHostRoom()) return 'host-rendezvous'
-		if (isGuestRoomLike()) return 'guest-rendezvous'
+		// The tracker path mirrors the manual host/guest doorway.
+		if (isSelfHost()) return 'host-rendezvous'
+		if (usesGuestRendezvous()) return 'guest-rendezvous'
 
 		return null
 	}
 
 	const createTrackerOffer = async (offerId: string) => {
+		// Tracker offers are speculative; they may never become room members.
 		const role = trackerRendezvousRole()
 		if (role == null) return null
 
@@ -1541,6 +1634,7 @@ export const createRoom = () => {
 		trackerPeerId: string,
 		answer: SignalDescription,
 	) => {
+		// An answer names the tracker peer that responded to our speculative offer.
 		const link = trackerOffers.get(offerId)
 		if (link == null) {
 			warnRoom('tracker.answer.missing-offer', { offerId })
@@ -1582,6 +1676,7 @@ export const createRoom = () => {
 		trackerPeerId: string,
 		reply: (answer: SignalDescription) => void,
 	) => {
+		// A tracker offer is worth answering only while we know this room secret.
 		const role = trackerRendezvousRole()
 		if (roomKeys == null || role == null) {
 			warnRoom('tracker.offer.unexpected', {
@@ -1619,8 +1714,9 @@ export const createRoom = () => {
 			})
 	}
 
-	const isGuestRoomLike = () => {
-		return localParticipantId == null || isGuestRoom()
+	const usesGuestRendezvous = () => {
+		// Invite-link guests start identity-less, then become normal guests on welcome.
+		return localParticipantId == null || isSelfGuest()
 	}
 
 	const startTrackerRendezvous = async (
@@ -1628,6 +1724,7 @@ export const createRoom = () => {
 		role: 'guest' | 'host',
 		version: number,
 	) => {
+		// The invite link becomes discovery plus auth; trackers never see room contents.
 		try {
 			const keys = await deriveRoomKeys(secret)
 			if (version !== signalingVersion || roomSecret !== secret) return
@@ -1644,6 +1741,7 @@ export const createRoom = () => {
 				onAnswer: acceptTrackerAnswer,
 				onOffer: answerTrackerOffer,
 				onStatus: (status) => {
+					// Ignore old tracker loops after a new invite/reply attempt starts.
 					if (version !== signalingVersion || roomSecret !== secret) return
 
 					if (role === 'host') {
@@ -1675,47 +1773,53 @@ export const createRoom = () => {
 		}
 	}
 
-	const joinAutoRoom = (secret: RoomSecret) => {
+	const joinRoomWithInviteLink = (secret: RoomSecret) => {
+		// Opening an invite link makes the guest wait for the host, no reply code needed.
 		const version = ++signalingVersion
-		resetGuestParticipants({ keepPendingBlip: true })
+		resetBeforeJoining({ keepPendingBlip: true })
 		roomSecret = secret
 		setState('connection', {
 			...emptyGuestConnection(),
 			status: 'finding-link',
-			inviteText: autoInviteLinkFromSecret(secret),
+			inviteText: inviteLinkFromSecret(secret),
 		})
 		void startTrackerRendezvous(secret, 'guest', version)
 	}
 
-	const startHostInvite = async (
+	const startInviteAsHost = async (
 		options: { resetPeers: boolean } = { resetPeers: true },
 	) => {
+		// Invite flow: every host room prepares the link path and the code path.
+		// The link path uses tracker discovery; the code path is one manual offer.
 		const version = ++signalingVersion
 		let nextLink: RoomLink | null = null
 
 		try {
 			if (options.resetPeers) {
-				resetHostParticipants()
+				// A full host restart means a new room, not a new invite for old peers.
+				resetAsHost()
 				setState('blipComposer', emptyBlipComposer())
 			} else if (localParticipantId == null || hostParticipantId == null) {
-				resetHostParticipants()
+				resetAsHost()
 			} else {
 				closeRendezvousLink('host-rendezvous', 'manual')
 			}
 
 			if (roomSecret == null) roomSecret = randomRoomSecret()
+			// One secret powers all invite link attempts for this host room.
 			const secret = roomSecret
-			const autoInviteLink = autoInviteLinkFromSecret(secret)
+			const inviteLink = inviteLinkFromSecret(secret)
 			setState('connection', {
 				...emptyHostConnection(),
-				autoInviteLink,
-				autoStatus: 'finding',
+				inviteLink,
+				inviteLinkStatus: 'finding',
 			})
 			void startTrackerRendezvous(secret, 'host', version)
 
 			nextLink = createLink('host-rendezvous', { source: 'manual' })
+			// The invite code is a one-shot offer waiting for one guest reply.
 			const offer = await nextLink.peer.createOffer()
-			const inviteCode = await encodeSignal(offer)
+			const inviteSignal = await encodeSignal(offer)
 			if (
 				version !== signalingVersion ||
 				currentRendezvousLink('host-rendezvous', 'manual') !== nextLink
@@ -1724,16 +1828,16 @@ export const createRoom = () => {
 				return
 			}
 
-			const manualInviteLink = manualInviteLinkFromCode(inviteCode)
+			const inviteCode = inviteCodeFromSignal(inviteSignal)
 			setState('connection', {
 				...emptyHostConnection(),
-				autoInviteLink,
-				autoStatus:
+				inviteLink,
+				inviteLinkStatus:
 					state.connection.side === 'host'
-						? state.connection.autoStatus
+						? state.connection.inviteLinkStatus
 						: 'finding',
 				status: 'invite-ready',
-				manualInviteLink,
+				inviteCode,
 			})
 		} catch (error) {
 			warnRoom('invite.create.failed', { error })
@@ -1749,21 +1853,23 @@ export const createRoom = () => {
 	}
 
 	const becomeGuest = () => {
+		// Switching sides abandons host identity and any old invites.
 		signalingVersion++
-		resetGuestParticipants()
+		resetBeforeJoining()
 		setState('connection', emptyGuestConnection())
 		setState('blipComposer', emptyBlipComposer())
 	}
 
 	const createReply = async (inviteText?: string) => {
+		// Guest paste decides the path: invite link or manual answer code.
 		const inviteInput = (
 			inviteText ??
 			(state.connection.side === 'guest' ? state.connection.inviteText : '')
 		).trim()
 		const invite = inviteFromInput(inviteInput)
 		if (invite.type === 'empty') return
-		if (invite.type === 'auto-link') {
-			joinAutoRoom(invite.secret)
+		if (invite.type === 'invite-link') {
+			joinRoomWithInviteLink(invite.secret)
 			return
 		}
 
@@ -1771,7 +1877,7 @@ export const createRoom = () => {
 		let nextLink: RoomLink | null = null
 
 		try {
-			resetGuestParticipants({ keepPendingBlip: true })
+			resetBeforeJoining({ keepPendingBlip: true })
 			setState('connection', {
 				...emptyGuestConnection(),
 				status: 'creating-reply',
@@ -1779,6 +1885,7 @@ export const createRoom = () => {
 			})
 
 			nextLink = createLink('guest-rendezvous', { source: 'manual' })
+			// Manual reply turns the host's offer into an answer they can paste back.
 			const offer = await decodeSignal(invite.code)
 			const answer = await nextLink.peer.createAnswer(offer)
 			const replyCode = await encodeSignal(answer)
@@ -1811,6 +1918,7 @@ export const createRoom = () => {
 	}
 
 	const acceptReply = async (replyText?: string) => {
+		// The host finishes the manual handshake by accepting the guest answer.
 		const replyCode = (
 			replyText ??
 			(state.connection.side === 'host' ? state.connection.replyText : '')
@@ -1848,6 +1956,7 @@ export const createRoom = () => {
 	}
 
 	const sendBlip = (text = state.blipComposer.text) => {
+		// Blips are tiny presence, so we store locally and fan out immediately.
 		const blip = text.trim()
 		const currentBlip = localBlip()
 		if (blip === '' && currentBlip == null) return
@@ -1876,6 +1985,7 @@ export const createRoom = () => {
 	}
 
 	const sendFileToPeers = async (file: File, peers: RoomLink[]) => {
+		// File flow: choose recipients at drop time, then show local progress from bytes sent.
 		const id = randomTransferId()
 
 		if (localParticipantId == null) return
@@ -1940,6 +2050,7 @@ export const createRoom = () => {
 	}
 
 	const sendFiles = async (files: File[]) => {
+		// Drops without peers become composer feedback, not hidden work.
 		if (files.length === 0) return
 
 		const peers = liveParticipantLinks()
@@ -1960,6 +2071,7 @@ export const createRoom = () => {
 	}
 
 	const disposeSelfMedia = () => {
+		// Media flow: local SelfMedia drives tracks on every link plus media-state packets.
 		selfMediaVersion++
 		publishSelfMedia(null)
 		stopSelfMedia(state.selfMedia)
@@ -1992,6 +2104,7 @@ export const createRoom = () => {
 	}
 
 	const setTracksEnabled = (kind: 'audio' | 'video', enabled: boolean) => {
+		// Toggling a track changes both local hardware state and remote affordances.
 		if (!setSelfMediaTracksEnabled(state.selfMedia, kind, enabled)) return
 
 		const selfMedia = {
@@ -2014,10 +2127,11 @@ export const createRoom = () => {
 	}
 
 	onMount(() => {
+		// URL hash wins on load; otherwise this browser starts as host.
 		const invite = readInviteFromHash()
 
-		if (invite.type === 'auto-link') {
-			joinAutoRoom(invite.secret)
+		if (invite.type === 'invite-link') {
+			joinRoomWithInviteLink(invite.secret)
 			return
 		}
 
@@ -2026,10 +2140,11 @@ export const createRoom = () => {
 			return
 		}
 
-		void startHostInvite()
+		void startInviteAsHost()
 	})
 
 	onCleanup(() => {
+		// Tear down browser resources in the opposite order people see them.
 		stopTrackerRendezvous()
 		closeAllLinks()
 		disposeFileUrls()
@@ -2037,19 +2152,18 @@ export const createRoom = () => {
 	})
 
 	const actions: RoomActions = {
+		// Keep UI callbacks synchronous-looking even when the room work is async.
 		becomeGuest,
 		becomeHost: () => {
-			void startHostInvite()
+			void startInviteAsHost()
 		},
-		copyAutoInviteLink: () =>
+		copyInviteLink: () =>
 			void copyText(
-				state.connection.side === 'host' ? state.connection.autoInviteLink : '',
+				state.connection.side === 'host' ? state.connection.inviteLink : '',
 			),
-		copyManualInviteLink: () =>
+		copyInviteCode: () =>
 			void copyText(
-				state.connection.side === 'host'
-					? state.connection.manualInviteLink
-					: '',
+				state.connection.side === 'host' ? state.connection.inviteCode : '',
 			),
 		copyReplyCode: () =>
 			void copyText(

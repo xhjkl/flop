@@ -8,6 +8,7 @@ export const ICE_GATHER_TIMEOUT_MS = 2500
 export const DISCONNECT_GRACE_MS = 30_000
 
 export const candidateTypeCounts = (sdp: string) => {
+	// SDP is the browser's ledger. We only need the candidate flavors.
 	const counts: Record<string, number> = {}
 
 	for (const match of sdp.matchAll(/^a=candidate:.*\styp\s+(\S+)/gm)) {
@@ -24,6 +25,7 @@ export const waitForIce = (
 	isEnough: (pc: RTCPeerConnection) => boolean = (pc) =>
 		pc.iceGatheringState === 'complete',
 ) => {
+	// Copy-paste signaling gets one SDP. Wait until it has useful addresses.
 	if (pc.iceGatheringState === 'complete') return Promise.resolve()
 	if (isEnough(pc)) return Promise.resolve()
 
@@ -38,6 +40,7 @@ export const waitForIce = (
 		}
 
 		const maybeResolve = () => {
+			// "Enough" lets the UI move once the SDP can probably work.
 			if (pc.iceGatheringState !== 'complete' && !isEnough(pc)) return
 			cleanup()
 			resolve()
@@ -52,6 +55,7 @@ export const waitForIce = (
 		}
 
 		const handleSignalChange = () => {
+			// Closed peers should not leave callers waiting for ICE that cannot arrive.
 			if (pc.signalingState !== 'closed') return
 			cleanup()
 			resolve()
@@ -71,5 +75,6 @@ export const waitForIce = (
 }
 
 export const hasServerReflexiveCandidate = (pc: RTCPeerConnection) => {
+	// A srflx address means STUN has found the public-facing path.
 	return candidateTypeCounts(pc.localDescription?.sdp ?? '').srflx != null
 }

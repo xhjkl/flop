@@ -3,28 +3,42 @@ import {
 	createSignal,
 	For,
 	type JSX,
+	Match,
 	onCleanup,
 	Show,
+	Switch,
 } from 'solid-js'
 import { hueFromSeed, themeHueFromSeed } from './hue'
 import type { SelfMedia, SelfMediaStatus } from './self-media'
 import type {
 	BlipComposerState,
+	PeerConnectionState,
 	PeerMediaState,
-	PeerState,
 	PortraitActivityState,
 	PortraitFileState,
 } from './state'
 
-const selfMediaStateLabels = {
-	ready: '',
-	requesting: 'requesting',
-	live: '',
-	denied: 'access denied',
-	missing: 'device missing',
-	unsupported: 'unsupported',
-	error: 'capture failed',
-} satisfies Record<SelfMediaStatus, string>
+const SelfMediaStatusLabel = (props: { status: SelfMediaStatus }) => {
+	return (
+		<Switch fallback={null}>
+			<Match when={props.status === 'requesting'}>
+				<small>requesting</small>
+			</Match>
+			<Match when={props.status === 'denied'}>
+				<small>access denied</small>
+			</Match>
+			<Match when={props.status === 'missing'}>
+				<small>device missing</small>
+			</Match>
+			<Match when={props.status === 'unsupported'}>
+				<small>unsupported</small>
+			</Match>
+			<Match when={props.status === 'error'}>
+				<small>capture failed</small>
+			</Match>
+		</Switch>
+	)
+}
 
 const hasLiveSelfPreview = (media: SelfMedia) => {
 	return media.status === 'live' && media.stream != null
@@ -114,6 +128,13 @@ const fileChipLabel = (file: PortraitFileState) => {
 	}
 }
 
+const fileProgress = (file: PortraitFileState) => {
+	if (file.state !== 'sending' && file.state !== 'receiving') return 100
+	if (file.size <= 0) return 100
+
+	return Math.min(100, Math.round((file.receivedBytes / file.size) * 100))
+}
+
 const FileChip = (props: { file: PortraitFileState }) => {
 	const body = () => (
 		<>
@@ -123,7 +144,7 @@ const FileChip = (props: { file: PortraitFileState }) => {
 					props.file.state === 'sending' || props.file.state === 'receiving'
 				}
 			>
-				<i style={{ '--progress': `${props.file.progress}%` }} />
+				<i style={{ '--progress': `${fileProgress(props.file)}%` }} />
 			</Show>
 		</>
 	)
@@ -269,13 +290,16 @@ export const PersonCard = (props: {
 	colorSeed: string
 	mediaState?: PeerMediaState | null
 	mediaStream?: MediaStream | null
-	state: PeerState
+	connectionState: PeerConnectionState
 }) => {
 	const videoActive = () =>
 		props.mediaStream != null && props.mediaState?.cameraEnabled !== false
 
 	return (
-		<article class="portrait-card person-card" data-state={props.state}>
+		<article
+			class="portrait-card person-card"
+			data-state={props.connectionState}
+		>
 			<div
 				class="portrait-face person-face"
 				data-has-video={videoActive() ? 'true' : 'false'}
@@ -334,11 +358,7 @@ export const SelfMediaCard = (props: {
 								<Show when={(props.title ?? '').trim() !== ''}>
 									<header class="utility-header">
 										<strong>{props.title}</strong>
-										<Show
-											when={selfMediaStateLabels[props.media.status] !== ''}
-										>
-											<small>{selfMediaStateLabels[props.media.status]}</small>
-										</Show>
+										<SelfMediaStatusLabel status={props.media.status} />
 									</header>
 								</Show>
 								<Show when={props.children != null}>

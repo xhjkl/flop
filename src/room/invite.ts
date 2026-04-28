@@ -6,15 +6,17 @@ import {
 } from '../rendezvous/secret'
 
 export type InviteInput =
-	| { type: 'auto-link'; secret: RoomSecret }
 	| { type: 'empty' }
+	| { type: 'invite-link'; secret: RoomSecret }
 	| { code: string; type: 'manual-code' }
 
 export const copyText = (text: string) => {
+	// Copy is best-effort; the UI already gave the person the text.
 	return navigator.clipboard?.writeText(text).catch(() => null) ?? null
 }
 
 const shareDataFromText = (text: string): ShareData => {
+	// Share sheets treat URLs better than plain text when we can prove one.
 	const value = text.trim()
 
 	try {
@@ -28,6 +30,7 @@ const shareDataFromText = (text: string): ShareData => {
 }
 
 export const canShareText = (text: string) => {
+	// Native share is a bonus path, never a requirement.
 	if (typeof navigator === 'undefined') return false
 	if (typeof navigator.share !== 'function') return false
 
@@ -45,6 +48,7 @@ export const shareText = (text: string) => {
 }
 
 const safeDecodeURIComponent = (value: string) => {
+	// A mangled hash can still be a pasted manual code, so keep the raw text.
 	try {
 		return decodeURIComponent(value)
 	} catch (error) {
@@ -57,12 +61,13 @@ const safeDecodeURIComponent = (value: string) => {
 }
 
 export const inviteFromHash = (hashText: string): InviteInput => {
+	// Hashes carry either the invite link secret or a manual WebRTC signal.
 	const hash = hashText.replace(/^#/, '')
 	if (hash.trim() === '') return { type: 'empty' }
 
 	const decoded = safeDecodeURIComponent(hash)
 	const secret = parseRoomSecret(decoded)
-	if (secret != null) return { secret, type: 'auto-link' }
+	if (secret != null) return { secret, type: 'invite-link' }
 	if (decoded.trim().length === ROOM_SECRET_LENGTH) {
 		warnLog('invite', 'invalid-room-secret-hash', {
 			length: decoded.trim().length,
@@ -73,13 +78,13 @@ export const inviteFromHash = (hashText: string): InviteInput => {
 }
 
 export const inviteFromInput = (text: string): InviteInput => {
+	// Pasting should feel forgiving: link, hash, secret, or raw code.
 	const input = text.trim()
 	if (input === '') return { type: 'empty' }
 
 	const secret = parseRoomSecret(input)
-	if (secret != null) return { secret, type: 'auto-link' }
+	if (secret != null) return { secret, type: 'invite-link' }
 
-	// People paste full links, hashes, and raw codes. Make all of them feel like the same gesture.
 	try {
 		const url = new URL(input)
 		return inviteFromHash(url.hash)
@@ -93,19 +98,23 @@ export const inviteFromInput = (text: string): InviteInput => {
 }
 
 export const readInviteFromHash = () => {
+	// Opening a shared URL should join before the user has to touch anything.
 	return inviteFromHash(window.location.hash)
 }
 
 const currentUrlWithHash = (hash: string) => {
+	// Wrap codes in the current URL so share sheets and copy-paste both work.
 	const url = new URL(window.location.href)
 	url.hash = hash
 	return url.href
 }
 
-export const autoInviteLinkFromSecret = (secret: RoomSecret) => {
+export const inviteLinkFromSecret = (secret: RoomSecret) => {
+	// The link hides only a room secret; tracker auth comes from derived keys.
 	return currentUrlWithHash(secret)
 }
 
-export const manualInviteLinkFromCode = (inviteCode: string) => {
-	return currentUrlWithHash(inviteCode)
+export const inviteCodeFromSignal = (signal: string) => {
+	// Manual "code" is just the WebRTC signal in a paste-friendly wrapper.
+	return currentUrlWithHash(signal)
 }

@@ -29,7 +29,7 @@ export const RoomView = (props: RoomViewProps) => {
 						colorSeed={peer.id}
 						mediaState={peer.mediaState}
 						mediaStream={peer.mediaStream}
-						state={peer.state}
+						connectionState={peer.connectionState}
 					/>
 				)}
 			</For>
@@ -49,8 +49,8 @@ export const RoomView = (props: RoomViewProps) => {
 					onAcceptReply={props.room.actions.acceptReply}
 					onBecomeGuest={props.room.actions.becomeGuest}
 					onBecomeHost={props.room.actions.becomeHost}
-					onCopyAutoInviteLink={props.room.actions.copyAutoInviteLink}
-					onCopyManualInviteLink={props.room.actions.copyManualInviteLink}
+					onCopyInviteLink={props.room.actions.copyInviteLink}
+					onCopyInviteCode={props.room.actions.copyInviteCode}
 					onCopyReplyCode={props.room.actions.copyReplyCode}
 					onCreateReply={props.room.actions.createReply}
 					onSetInviteText={props.room.actions.setInviteText}

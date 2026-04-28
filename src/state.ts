@@ -1,4 +1,4 @@
-export type PeerState = 'live' | 'waiting'
+export type PeerConnectionState = 'live' | 'waiting'
 
 export type PeerMediaState = {
 	cameraEnabled: boolean
@@ -10,7 +10,7 @@ export type HostConnectionStatus =
 	| 'creating-invite'
 	| 'invite-ready'
 
-export type AutoInviteStatus = 'failed' | 'finding' | 'idle' | 'ready'
+export type InviteLinkStatus = 'failed' | 'finding' | 'idle' | 'ready'
 
 export type GuestConnectionStatus =
 	| 'connected'
@@ -22,9 +22,9 @@ export type GuestConnectionStatus =
 export type HostConnectionState = {
 	side: 'host'
 	status: HostConnectionStatus
-	autoInviteLink: string
-	autoStatus: AutoInviteStatus
-	manualInviteLink: string
+	inviteLink: string
+	inviteLinkStatus: InviteLinkStatus
+	inviteCode: string
 	replyText: string
 	issue: string | null
 }
@@ -50,7 +50,8 @@ export type ConnectionState =
 export type PortraitFileState = {
 	id: string
 	name: string
-	progress: number
+	receivedBytes: number
+	size: number
 	state: 'sending' | 'receiving' | 'ready' | 'error'
 	url: string | null
 }
