@@ -25,6 +25,7 @@ export const SelfPortraitCard = (props: {
 	onSetBlipText: (text: string) => void
 	onToggleCamera: () => void
 	onToggleMicrophone: () => void
+	onToggleScreen: () => void
 }) => {
 	return (
 		// Welcome and permission are one portrait so the first step never feels like a modal.
@@ -43,6 +44,7 @@ export const SelfPortraitCard = (props: {
 					}
 					onSendBlip={props.onSendBlip}
 					onSetBlipText={props.onSetBlipText}
+					onToggleScreen={props.onToggleScreen}
 				>
 					<p>
 						{props.media.issue ??
@@ -69,6 +71,7 @@ export const SelfPortraitCard = (props: {
 					}
 					onSendBlip={props.onSendBlip}
 					onSetBlipText={props.onSetBlipText}
+					onToggleScreen={props.onToggleScreen}
 				>
 					<p>
 						Send an invite to another device. Once connected, drop files here to
@@ -92,6 +95,7 @@ export const SelfPortraitCard = (props: {
 					}
 					onSendBlip={props.onSendBlip}
 					onSetBlipText={props.onSetBlipText}
+					onToggleScreen={props.onToggleScreen}
 				>
 					<p>
 						Your browser should be asking for permission now. Once allowed, this
@@ -109,6 +113,7 @@ export const SelfPortraitCard = (props: {
 					onSetBlipText={props.onSetBlipText}
 					onToggleCamera={props.onToggleCamera}
 					onToggleMicrophone={props.onToggleMicrophone}
+					onToggleScreen={props.onToggleScreen}
 				/>
 			</Match>
 		</Switch>

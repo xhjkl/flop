@@ -64,11 +64,14 @@ import {
 	rosterParticipant,
 } from './room/participant'
 import {
+	captureScreenMedia,
 	captureSelfMedia,
 	emptySelfMedia,
 	type SelfMedia,
 	setSelfMediaTracksEnabled,
+	stopMediaStream,
 	stopSelfMedia,
+	withActiveSelfMediaStream,
 } from './self-media'
 import { decodeSignal, encodeSignal, type SignalDescription } from './signal'
 import type {
@@ -105,6 +108,7 @@ type RoomActions = {
 	setReplyText: (replyText: string) => void
 	toggleCamera: () => void
 	toggleMicrophone: () => void
+	toggleScreen: () => void
 }
 
 const sendPacket = (peer: Peer, packet: Packet) => {
@@ -166,6 +170,7 @@ export const createRoom = () => {
 	let linkSequence = 0
 	// Camera permission can race with teardown; versioning keeps late streams out.
 	let selfMediaVersion = 0
+	let screenTrackEndCleanup: (() => void) | null = null
 	// Tracker answers come back by offer id, before a person is known.
 	const trackerOffers = new Map<string, RoomLink>()
 	const hostParticipant = mergeParticipant({ id: localParticipantId })
@@ -626,6 +631,10 @@ export const createRoom = () => {
 				media.status === 'live' &&
 				media.microphoneAvailable &&
 				media.microphoneEnabled,
+			screenEnabled:
+				media.status === 'live' &&
+				media.screenEnabled &&
+				media.screenStream != null,
 		}
 	}
 
@@ -964,6 +973,7 @@ export const createRoom = () => {
 				setPeerMediaState(participantId, {
 					cameraEnabled: message.cameraEnabled,
 					microphoneEnabled: message.microphoneEnabled,
+					screenEnabled: message.screenEnabled,
 				})
 				return true
 			case 'file-start':
@@ -1984,6 +1994,54 @@ export const createRoom = () => {
 		}
 	}
 
+	const publishSelfMediaSnapshot = (selfMedia: SelfMedia) => {
+		setState('selfMedia', selfMedia)
+		publishSelfMedia(selfMedia.stream)
+		publishLocalMediaState(selfMediaState(selfMedia))
+	}
+
+	const clearScreenTrackEndListener = () => {
+		screenTrackEndCleanup?.()
+		screenTrackEndCleanup = null
+	}
+
+	const stopScreenShare = (
+		options: { stopTracks?: boolean } = { stopTracks: true },
+	) => {
+		const screenStream = state.selfMedia.screenStream
+		clearScreenTrackEndListener()
+		if (options.stopTracks ?? true) stopMediaStream(screenStream)
+
+		const selfMedia = withActiveSelfMediaStream({
+			...state.selfMedia,
+			screenEnabled: false,
+			screenRequesting: false,
+			screenStream: null,
+		})
+		publishSelfMediaSnapshot(selfMedia)
+	}
+
+	const watchScreenMediaEnd = (screenStream: MediaStream, version: number) => {
+		clearScreenTrackEndListener()
+		const track = screenStream.getVideoTracks()[0] ?? null
+		if (track == null) return
+
+		const handleEnd = () => {
+			if (
+				version !== selfMediaVersion ||
+				state.selfMedia.screenStream !== screenStream
+			) {
+				return
+			}
+
+			stopScreenShare({ stopTracks: false })
+		}
+
+		track.addEventListener('ended', handleEnd)
+		screenTrackEndCleanup = () => track.removeEventListener('ended', handleEnd)
+		if (track.readyState === 'ended') handleEnd()
+	}
+
 	const sendFileToPeers = async (file: File, peers: RoomLink[]) => {
 		// File flow: choose recipients at drop time, then show local progress from bytes sent.
 		const id = randomTransferId()
@@ -2073,11 +2131,11 @@ export const createRoom = () => {
 	const disposeSelfMedia = () => {
 		// Media flow: local SelfMedia drives tracks on every link plus media-state packets.
 		selfMediaVersion++
+		clearScreenTrackEndListener()
 		publishSelfMedia(null)
 		stopSelfMedia(state.selfMedia)
 		const selfMedia = emptySelfMedia()
-		setState('selfMedia', selfMedia)
-		publishLocalMediaState(selfMediaState(selfMedia))
+		publishSelfMediaSnapshot(selfMedia)
 	}
 
 	const enableSelfMedia = async () => {
@@ -2085,6 +2143,7 @@ export const createRoom = () => {
 
 		// Camera permission belongs to the self portrait, not to page load.
 		const version = ++selfMediaVersion
+		clearScreenTrackEndListener()
 		publishSelfMedia(null)
 		stopSelfMedia(state.selfMedia)
 		setState('selfMedia', {
@@ -2098,9 +2157,7 @@ export const createRoom = () => {
 			return
 		}
 
-		setState('selfMedia', selfMedia)
-		publishSelfMedia(selfMedia.stream)
-		publishLocalMediaState(selfMediaState(selfMedia))
+		publishSelfMediaSnapshot(selfMedia)
 	}
 
 	const setTracksEnabled = (kind: 'audio' | 'video', enabled: boolean) => {
@@ -2124,6 +2181,56 @@ export const createRoom = () => {
 	const toggleMicrophone = () => {
 		if (!state.selfMedia.microphoneAvailable) return
 		setTracksEnabled('audio', !state.selfMedia.microphoneEnabled)
+	}
+
+	const startScreenShare = async () => {
+		if (
+			state.selfMedia.status !== 'live' ||
+			!state.selfMedia.screenAvailable ||
+			state.selfMedia.screenRequesting
+		) {
+			return
+		}
+
+		const version = selfMediaVersion
+		setState('selfMedia', 'screenRequesting', true)
+
+		let screenStream: MediaStream
+		try {
+			screenStream = await captureScreenMedia()
+		} catch {
+			if (version === selfMediaVersion) {
+				setState('selfMedia', 'screenRequesting', false)
+			}
+			return
+		}
+
+		if (version !== selfMediaVersion || state.selfMedia.status !== 'live') {
+			stopMediaStream(screenStream)
+			return
+		}
+
+		clearScreenTrackEndListener()
+		stopMediaStream(state.selfMedia.screenStream)
+		const selfMedia = withActiveSelfMediaStream({
+			...state.selfMedia,
+			issue: null,
+			screenEnabled: true,
+			screenRequesting: false,
+			screenStream,
+		})
+		publishSelfMediaSnapshot(selfMedia)
+		watchScreenMediaEnd(screenStream, version)
+	}
+
+	const toggleScreen = () => {
+		if (state.selfMedia.screenRequesting) return
+		if (state.selfMedia.screenEnabled) {
+			stopScreenShare()
+			return
+		}
+
+		void startScreenShare()
 	}
 
 	onMount(() => {
@@ -2196,6 +2303,7 @@ export const createRoom = () => {
 		},
 		toggleCamera,
 		toggleMicrophone,
+		toggleScreen,
 	}
 
 	return {

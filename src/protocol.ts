@@ -19,6 +19,7 @@ export type Packet =
 	| {
 			cameraEnabled: boolean
 			microphoneEnabled: boolean
+			screenEnabled: boolean
 			type: 'media-state'
 	  }
 	| {
@@ -137,7 +138,8 @@ export const decodePacket = (text: string): Packet | null => {
 			return typeof message.text === 'string' ? message : null
 		case 'media-state':
 			return typeof message.cameraEnabled === 'boolean' &&
-				typeof message.microphoneEnabled === 'boolean'
+				typeof message.microphoneEnabled === 'boolean' &&
+				typeof message.screenEnabled === 'boolean'
 				? message
 				: null
 		case 'file-start':

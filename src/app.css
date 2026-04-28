@@ -298,7 +298,7 @@ textarea {
 	background-color: var(--bg-deep);
 }
 
-.self-video {
+.self-video[data-mirrored="true"] {
 	transform: scaleX(-1);
 }
 

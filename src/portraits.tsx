@@ -48,14 +48,15 @@ const hasActiveSelfPreview = (media: SelfMedia) => {
 	return (
 		media.status === 'live' &&
 		media.stream != null &&
-		media.cameraAvailable &&
-		media.cameraEnabled
+		((media.screenEnabled && media.screenStream != null) ||
+			(media.cameraAvailable && media.cameraEnabled))
 	)
 }
 
-const StreamVideo = (props: {
+const VideoStream = (props: {
 	active?: boolean
 	class: string
+	mirrored?: boolean
 	muted?: boolean
 	stream?: MediaStream | null
 }) => {
@@ -91,6 +92,7 @@ const StreamVideo = (props: {
 					? 'true'
 					: 'false'
 			}
+			data-mirrored={props.mirrored === true ? 'true' : 'false'}
 			autoplay
 			muted={props.muted}
 			playsinline
@@ -293,7 +295,10 @@ export const PersonCard = (props: {
 	connectionState: PeerConnectionState
 }) => {
 	const videoActive = () =>
-		props.mediaStream != null && props.mediaState?.cameraEnabled !== false
+		props.mediaStream != null &&
+		(props.mediaState == null ||
+			props.mediaState.cameraEnabled ||
+			props.mediaState.screenEnabled)
 
 	return (
 		<article
@@ -305,7 +310,7 @@ export const PersonCard = (props: {
 				data-has-video={videoActive() ? 'true' : 'false'}
 				style={{ '--card-h': `${hueFromSeed(props.colorSeed)}` }}
 			>
-				<StreamVideo
+				<VideoStream
 					active={videoActive()}
 					class="remote-video"
 					stream={props.mediaStream ?? null}
@@ -330,6 +335,7 @@ export const SelfMediaCard = (props: {
 	onSetBlipText: (text: string) => void
 	onToggleCamera?: () => void
 	onToggleMicrophone?: () => void
+	onToggleScreen: () => void
 }) => {
 	return (
 		<article
@@ -339,9 +345,10 @@ export const SelfMediaCard = (props: {
 		>
 			<Show when={hasLiveSelfPreview(props.media)}>
 				<div class="portrait-face self-portrait-face">
-					<StreamVideo
+					<VideoStream
 						active={hasActiveSelfPreview(props.media)}
 						class="self-video"
+						mirrored={!props.media.screenEnabled}
 						muted
 						stream={props.media.stream}
 					/>
@@ -381,7 +388,14 @@ export const SelfMediaCard = (props: {
 			>
 				<div class="self-live-shell">
 					<div class="self-screen-control">
-						<ToggleButton label="scr" enabled={false} onPress={() => null} />
+						<ToggleButton
+							label="scr"
+							enabled={props.media.screenEnabled}
+							disabled={
+								!props.media.screenAvailable || props.media.screenRequesting
+							}
+							onPress={props.onToggleScreen}
+						/>
 					</div>
 					<PortraitActivity activity={props.activity} showBlip={false} />
 					<BlipComposer

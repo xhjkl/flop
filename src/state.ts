@@ -3,6 +3,7 @@ export type PeerConnectionState = 'live' | 'waiting'
 export type PeerMediaState = {
 	cameraEnabled: boolean
 	microphoneEnabled: boolean
+	screenEnabled: boolean
 }
 
 export type HostConnectionStatus =

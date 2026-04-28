@@ -21,6 +21,7 @@ export const RoomView = (props: RoomViewProps) => {
 				onSetBlipText={props.room.actions.setBlipText}
 				onToggleCamera={props.room.actions.toggleCamera}
 				onToggleMicrophone={props.room.actions.toggleMicrophone}
+				onToggleScreen={props.room.actions.toggleScreen}
 			/>
 			<For each={props.room.peers()}>
 				{(peer) => (

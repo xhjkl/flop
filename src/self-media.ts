@@ -12,10 +12,26 @@ export type SelfMedia = {
 	status: SelfMediaStatus
 	issue: string | null
 	stream: MediaStream | null
+	cameraStream: MediaStream | null
+	screenStream: MediaStream | null
 	cameraAvailable: boolean
 	cameraEnabled: boolean
 	microphoneAvailable: boolean
 	microphoneEnabled: boolean
+	screenAvailable: boolean
+	screenEnabled: boolean
+	screenRequesting: boolean
+}
+
+const canCaptureSelfMedia = () => {
+	return typeof navigator !== 'undefined' && navigator.mediaDevices != null
+}
+
+const canCaptureScreen = () => {
+	return (
+		canCaptureSelfMedia() &&
+		typeof navigator.mediaDevices.getDisplayMedia === 'function'
+	)
 }
 
 export const emptySelfMedia = (): SelfMedia => {
@@ -23,17 +39,53 @@ export const emptySelfMedia = (): SelfMedia => {
 		status: 'ready',
 		issue: null,
 		stream: null,
+		cameraStream: null,
+		screenStream: null,
 		cameraAvailable: false,
 		cameraEnabled: false,
 		microphoneAvailable: false,
 		microphoneEnabled: false,
+		screenAvailable: canCaptureScreen(),
+		screenEnabled: false,
+		screenRequesting: false,
+	}
+}
+
+export const stopMediaStream = (stream: MediaStream | null) => {
+	for (const track of stream?.getTracks() ?? []) {
+		track.stop()
 	}
 }
 
 export const stopSelfMedia = (media: SelfMedia) => {
-	for (const track of media.stream?.getTracks() ?? []) {
+	const tracks = new Set<MediaStreamTrack>()
+	for (const stream of [media.stream, media.cameraStream, media.screenStream]) {
+		for (const track of stream?.getTracks() ?? []) {
+			tracks.add(track)
+		}
+	}
+
+	for (const track of tracks) {
 		track.stop()
 	}
+}
+
+export const activeSelfMediaStream = (media: SelfMedia) => {
+	const tracks: MediaStreamTrack[] = []
+	const audioTrack = media.cameraStream?.getAudioTracks()[0] ?? null
+	if (audioTrack != null) tracks.push(audioTrack)
+
+	const screenTrack = media.screenStream?.getVideoTracks()[0] ?? null
+	const cameraTrack = media.cameraStream?.getVideoTracks()[0] ?? null
+	const videoTrack =
+		media.screenEnabled && screenTrack != null ? screenTrack : cameraTrack
+	if (videoTrack != null) tracks.push(videoTrack)
+
+	return tracks.length === 0 ? null : new MediaStream(tracks)
+}
+
+export const withActiveSelfMediaStream = (media: SelfMedia): SelfMedia => {
+	return { ...media, stream: activeSelfMediaStream(media) }
 }
 
 export const setSelfMediaTracksEnabled = (
@@ -43,8 +95,8 @@ export const setSelfMediaTracksEnabled = (
 ) => {
 	const tracks =
 		kind === 'video'
-			? (media.stream?.getVideoTracks() ?? [])
-			: (media.stream?.getAudioTracks() ?? [])
+			? (media.cameraStream?.getVideoTracks() ?? [])
+			: (media.cameraStream?.getAudioTracks() ?? [])
 	if (tracks.length === 0) return false
 
 	for (const track of tracks) {
@@ -55,7 +107,7 @@ export const setSelfMediaTracksEnabled = (
 }
 
 export const captureSelfMedia = async (): Promise<SelfMedia> => {
-	if (navigator.mediaDevices?.getUserMedia == null) {
+	if (!canCaptureSelfMedia() || navigator.mediaDevices.getUserMedia == null) {
 		return {
 			...emptySelfMedia(),
 			status: 'unsupported',
@@ -72,18 +124,36 @@ export const captureSelfMedia = async (): Promise<SelfMedia> => {
 		const cameraAvailable = stream.getVideoTracks().length > 0
 		const microphoneAvailable = stream.getAudioTracks().length > 0
 
-		return {
+		return withActiveSelfMediaStream({
+			...emptySelfMedia(),
 			status: 'live',
 			issue: null,
-			stream,
+			cameraStream: stream,
 			cameraAvailable,
 			cameraEnabled: cameraAvailable,
 			microphoneAvailable,
 			microphoneEnabled: microphoneAvailable,
-		}
+		})
 	} catch (error) {
 		return { ...emptySelfMedia(), ...classifySelfMediaFailure(error) }
 	}
+}
+
+export const captureScreenMedia = async () => {
+	if (!canCaptureScreen()) {
+		throw new Error('Screen sharing is unavailable')
+	}
+
+	const stream = await navigator.mediaDevices.getDisplayMedia({
+		audio: false,
+		video: true,
+	})
+	if (stream.getVideoTracks().length === 0) {
+		stopMediaStream(stream)
+		throw new Error('Screen sharing returned no video track')
+	}
+
+	return stream
 }
 
 const classifySelfMediaFailure = (

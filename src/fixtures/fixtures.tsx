@@ -49,6 +49,7 @@ const fixtureActions: RoomViewProps['room']['actions'] = {
 	setReplyText: noopText,
 	toggleCamera: noop,
 	toggleMicrophone: noop,
+	toggleScreen: noop,
 }
 
 const emptyActivity: PortraitActivityState = { blip: null, files: [] }
@@ -59,10 +60,15 @@ const selfMedia = (overrides: Partial<SelfMedia> = {}): SelfMedia => {
 		status: 'ready',
 		issue: null,
 		stream: null,
+		cameraStream: null,
+		screenStream: null,
 		cameraAvailable: false,
 		cameraEnabled: false,
 		microphoneAvailable: false,
 		microphoneEnabled: false,
+		screenAvailable: true,
+		screenEnabled: false,
+		screenRequesting: false,
 		...overrides,
 	}
 }
@@ -386,6 +392,34 @@ export const uiFixtures: UiFixture[] = [
 		}),
 	),
 	fixture(
+		'connected-no-screen-share',
+		'No screen share support',
+		'Live self controls with screen sharing unavailable, so scr renders disabled.',
+		room({
+			themeSeed: SAMPLE_INVITE_LINK,
+			selfActivity: {
+				blip: 'dragged a few screenshots over',
+				files: [],
+			},
+			selfMedia: liveSelfMedia({
+				cameraEnabled: true,
+				screenAvailable: false,
+			}),
+			blipComposer: {
+				issue: null,
+				text: 'dragged a few screenshots over',
+			},
+			peers: [
+				{
+					activity: emptyActivity,
+					id: OLEG_ID,
+					connectionState: 'live',
+				},
+			],
+			connection: hostConnection(),
+		}),
+	),
+	fixture(
 		'guest-connected',
 		'Guest connected',
 		'The connected guest strip is people-first, so the connection card disappears.',
@@ -396,7 +430,11 @@ export const uiFixtures: UiFixture[] = [
 				{
 					activity: emptyActivity,
 					id: HOST_ID,
-					mediaState: { cameraEnabled: true, microphoneEnabled: true },
+					mediaState: {
+						cameraEnabled: true,
+						microphoneEnabled: true,
+						screenEnabled: false,
+					},
 					connectionState: 'live',
 				},
 			],
