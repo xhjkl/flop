@@ -59,7 +59,7 @@ export const captureSelfMedia = async (): Promise<SelfMedia> => {
 		return {
 			...emptySelfMedia(),
 			status: 'unsupported',
-			issue: 'This browser cannot open the camera and microphone here.',
+			issue: 'This browser cannot open camera and microphone here.',
 		}
 	}
 
@@ -101,7 +101,7 @@ const classifySelfMediaFailure = (
 			return {
 				status: 'denied',
 				issue:
-					'Camera or microphone access was denied. Allow it in the browser, then try again.',
+					'Camera or microphone access was denied. Allow access in your browser, then try again.',
 			}
 		case 'NotFoundError':
 		case 'DevicesNotFoundError':
@@ -117,12 +117,12 @@ const classifySelfMediaFailure = (
 			return {
 				status: 'error',
 				issue:
-					'The browser could not start the camera or microphone. Another app may already be using them.',
+					'This browser could not start camera or microphone. Another app may already be using a device.',
 			}
 		default:
 			return {
 				status: 'error',
-				issue: 'The browser could not open the camera and microphone.',
+				issue: 'This browser could not open camera and microphone.',
 			}
 	}
 }

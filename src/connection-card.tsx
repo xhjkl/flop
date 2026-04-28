@@ -133,20 +133,19 @@ const HostInvitePane = (props: {
 							when={inviteLinkReady()}
 							fallback={
 								<p>
-									Preparing the invite link. Wait for it to be ready, then send
-									the invite link to the other device.
+									Preparing an invite link. When it is ready, send it to another
+									device.
 								</p>
 							}
 						>
 							<p>
-								Send the invite link to the other device. Flop will try to find
-								it automatically.
+								Send this invite link to another device. Flop will try to find
+								the other browser automatically.
 							</p>
 						</Show>
 						<Show when={props.connection.inviteLinkStatus === 'failed'}>
 							<p class="connection-issue">
-								The invite link could not finish connecting. Use the invite code
-								instead.
+								This invite link did not work. Use an invite code instead.
 							</p>
 						</Show>
 					</div>
@@ -173,8 +172,8 @@ const HostInvitePane = (props: {
 					{/* Manual host flow: send one invite out, paste one reply code back, admit one guest. */}
 					<div class="connection-copy">
 						<p>
-							Use the invite code if the invite link does not connect. Send the
-							invite code, then paste their reply code.
+							Use this invite code if the link does not connect. Send it, then
+							paste their reply code here to let them in.
 						</p>
 						<Show when={props.connection.issue}>
 							{(issue) => <p class="connection-issue">{issue()}</p>}
@@ -380,7 +379,7 @@ export const ConnectionCard = (props: {
 								props.connection.status === 'connected'
 							}
 						>
-							<p>The browsers are connected directly.</p>
+							<p>Connected directly.</p>
 						</Match>
 						<Match
 							when={
@@ -389,8 +388,8 @@ export const ConnectionCard = (props: {
 							}
 						>
 							<p>
-								Paste the invite link or invite code from the other device. Then
-								send a reply code back.
+								Paste an invite link or invite code from another device. Then
+								send back a reply code.
 							</p>
 						</Match>
 						<Match
@@ -400,8 +399,8 @@ export const ConnectionCard = (props: {
 							}
 						>
 							<p>
-								Finding the host from the invite link. If this keeps waiting,
-								ask for the invite code instead.
+								Finding the host from this invite link. If this keeps waiting,
+								ask for an invite code instead.
 							</p>
 						</Match>
 					</Switch>

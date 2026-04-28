@@ -1,4 +1,6 @@
 import type { JSX } from 'solid-js'
+import { ConnectionCard } from '../connection-card'
+import { Room } from '../portraits'
 import type { RoomPeer, RoomState } from '../room'
 import { RoomView, type RoomViewProps } from '../room-view'
 import type { SelfMedia } from '../self-media'
@@ -23,8 +25,8 @@ const SAMPLE_INVITE_LINK = 'https://flop.local/#ybybybybybybybybybybybybyb'
 const SAMPLE_REPLY =
 	'v=0\no=- 0 0 IN IP4 127.0.0.1\ns=flop-reply\nt=0 0\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel'
 const HOST_ID = '48b6a1e2c59d730f'
-const MARA_ID = '79df2a4c038be116'
-const JO_ID = 'b05e9d8328aa41c7'
+const OLEG_ID = '79df2a4c038be116'
+const NADIA_ID = 'b05e9d8328aa41c7'
 
 const noop = () => {}
 const noopFiles = (_files: File[]) => {}
@@ -128,6 +130,36 @@ const fixture = (
 	}
 }
 
+const connectionCardFixture = (
+	id: string,
+	title: string,
+	description: string,
+	connection: RoomState['connection'],
+): UiFixture => {
+	return {
+		id,
+		title,
+		description,
+		render: () => (
+			<Room themeSeed={HOST_ID}>
+				<ConnectionCard
+					connection={connection}
+					canJoinExistingRoom
+					onAcceptReply={noopTextMaybe}
+					onBecomeGuest={noop}
+					onBecomeHost={noop}
+					onCopyInviteLink={noop}
+					onCopyInviteCode={noop}
+					onCopyReplyCode={noop}
+					onCreateReply={noopTextMaybe}
+					onSetInviteText={noopText}
+					onSetReplyText={noopText}
+				/>
+			</Room>
+		),
+	}
+}
+
 const room = (
 	props: {
 		connection: RoomState['connection']
@@ -167,7 +199,7 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'media-requesting',
 		'Media requesting',
-		'The browser permission prompt is outstanding and the local portrait is waiting.',
+		'Browser permission prompt is open and the local portrait is waiting.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			selfMedia: selfMedia({ status: 'requesting' }),
@@ -183,7 +215,7 @@ export const uiFixtures: UiFixture[] = [
 			selfMedia: selfMedia({
 				status: 'denied',
 				issue:
-					'Camera or microphone access was denied. Allow it in the browser, then try again.',
+					'Camera or microphone access was denied. Allow access in your browser, then try again.',
 			}),
 			connection: hostConnection(),
 		}),
@@ -214,7 +246,7 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'host-code-fallback',
 		'Host code fallback',
-		'The same connection card opened to the invite code and reply code paste pane.',
+		'Connection card opened to the invite code and reply code paste pane.',
 		room({
 			themeSeed: SAMPLE_INVITE_CODE,
 			hostInviteMode: 'code',
@@ -246,7 +278,7 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'guest-creating-reply',
 		'Guest creating reply code',
-		'The guest accepted an invite and is building the reply code.',
+		'Guest accepted an invite and is building the reply code.',
 		room({
 			themeSeed: SAMPLE_OFFER,
 			connection: guestConnection({
@@ -324,7 +356,7 @@ export const uiFixtures: UiFixture[] = [
 						blip: 'send the raw photos too',
 						files: [
 							{
-								id: 'mara-file',
+								id: 'oleg-file',
 								name: 'photo-export.zip',
 								receivedBytes: 37,
 								size: 100,
@@ -333,12 +365,12 @@ export const uiFixtures: UiFixture[] = [
 							},
 						],
 					},
-					id: MARA_ID,
+					id: OLEG_ID,
 					connectionState: 'live',
 				},
 				{
 					activity: emptyActivity,
-					id: JO_ID,
+					id: NADIA_ID,
 					connectionState: 'live',
 				},
 			],
@@ -367,6 +399,16 @@ export const uiFixtures: UiFixture[] = [
 			}),
 		}),
 	),
+	connectionCardFixture(
+		'connected-card',
+		'Connected card',
+		'Component fixture for the connected connection-card branch hidden by the app strip.',
+		guestConnection({
+			status: 'connected',
+			inviteText: SAMPLE_OFFER,
+			replyCode: SAMPLE_REPLY,
+		}),
+	),
 	fixture(
 		'closed-room',
 		'Closed room',
@@ -387,7 +429,7 @@ export const uiFixtures: UiFixture[] = [
 				inviteLink: '',
 				inviteLinkStatus: 'failed',
 				inviteCode: '',
-				issue: 'Could not create the invite link or invite code.',
+				issue: 'Could not create an invite link or invite code.',
 			}),
 		}),
 	),

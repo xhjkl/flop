@@ -46,10 +46,10 @@ export const SelfPortraitCard = (props: {
 				>
 					<p>
 						{props.media.issue ??
-							'The browser could not open the camera and microphone.'}
+							'This browser could not open camera and microphone.'}
 					</p>
 					<p>
-						After changing the browser or device setting, try again. You can
+						After changing your browser or device setting, try again. You can
 						still use the room without camera or microphone.
 					</p>
 				</SelfMediaCard>
@@ -71,9 +71,9 @@ export const SelfPortraitCard = (props: {
 					onSetBlipText={props.onSetBlipText}
 				>
 					<p>
-						Send an invite to the other device. Once you are connected, drop
-						files here to send them directly. Turn on camera and microphone when
-						you want other peers to see or hear you.
+						Send an invite to another device. Once connected, drop files here to
+						send them directly. Turn on camera and microphone when you want
+						peers to see or hear you.
 					</p>
 					{/* Future preflight? You'll get a quick mirror check before you go live. */}
 				</SelfMediaCard>
@@ -94,8 +94,8 @@ export const SelfPortraitCard = (props: {
 					onSetBlipText={props.onSetBlipText}
 				>
 					<p>
-						The browser should be asking for permission now so this card can
-						turn into your live portrait.
+						Your browser should be asking for permission now. Once allowed, this
+						card becomes your live portrait.
 					</p>
 				</SelfMediaCard>
 			</Match>
