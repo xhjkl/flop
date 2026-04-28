@@ -380,6 +380,9 @@ export const SelfMediaCard = (props: {
 				}
 			>
 				<div class="self-live-shell">
+					<div class="self-screen-control">
+						<ToggleButton label="scr" enabled={false} onPress={() => null} />
+					</div>
 					<PortraitActivity activity={props.activity} showBlip={false} />
 					<BlipComposer
 						canSend={props.canBlip}

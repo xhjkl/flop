@@ -816,6 +816,13 @@ textarea {
 	justify-self: stretch;
 }
 
+.self-screen-control {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--space-touch);
+	justify-self: stretch;
+}
+
 .self-live-controls {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -847,6 +854,11 @@ textarea {
 	box-shadow:
 		inset 0 1px 0 color-mix(in oklch, white 18%, transparent),
 		inset 0 -1px 0 color-mix(in oklch, black 28%, transparent);
+}
+
+.self-screen-control .self-toggle {
+	grid-column: 2;
+	inline-size: 100%;
 }
 
 .self-toggle-label {
