@@ -1,5 +1,5 @@
 name = "flop-beacon"
-main = "index.js"
+main = "index.ts"
 compatibility_date = "2026-05-25"
 workers_dev = false
 preview_urls = false
