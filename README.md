@@ -11,7 +11,7 @@ Open Flop, send one invite link, and drop files once another browser joins. The 
 
 Flop starts with the easy path: send an invite link, and the two browsers try to find each other through the same-origin rendezvous beacon at `/-/<discovery-id>`. If that does not work on a particular network, the same connection can be made manually with copy-paste codes.
 
-The invite link contains a random room secret. Browsers turn that secret into two separate values: a short public discovery id and an HMAC auth key. The Worker routes rendezvous traffic to one Durable Object beacon, and that object groups live sockets by discovery id while fanning out WebRTC offers and answers. It stores no files, no room messages, and no room secret.
+The invite link contains a random room secret. Browsers turn that secret into two separate values: a short public discovery id and an HMAC auth key. The Worker routes each discovery id to its own Durable Object beacon, and that object fans out WebRTC offers and answers between connected browsers. It stores no files, no room messages, and no room secret.
 
 The discovery id is not enough to enter a room. A browser introduced by the beacon still has to answer an HMAC challenge derived from the room secret in the invite link. That keeps the beacon small while making it effectively impossible in practice to brute-force or prank your way into someone else's room.
 
@@ -82,4 +82,4 @@ Then attach the Worker to the Pages hostname at `/-/*`, for example:
 flop.example.com/-/*
 ```
 
-The Pages project owns the static app. The Worker owns only rendezvous WebSockets and sends them to the Durable Object beacon. File and note traffic stays on WebRTC between browsers.
+The Pages project owns the static app. The Worker owns only rendezvous WebSockets and routes each discovery id to a Durable Object. File and note traffic stays on WebRTC between browsers.
