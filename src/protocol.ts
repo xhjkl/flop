@@ -13,8 +13,8 @@ export type SignalDescription = {
 export type Packet =
 	| { type: 'hello' }
 	| { nonce: string; type: 'auth-challenge' }
-	| { type: 'auth-accepted' }
-	| { mac: string; type: 'auth-response' }
+	| { mac: string; type: 'auth-accepted' }
+	| { mac: string; nonce: string; type: 'auth-response' }
 	| { text: string; type: 'blip' }
 	| {
 			cameraEnabled: boolean
@@ -131,9 +131,12 @@ export const decodePacket = (text: string): Packet | null => {
 		case 'auth-challenge':
 			return typeof message.nonce === 'string' ? message : null
 		case 'auth-accepted':
-			return message
-		case 'auth-response':
 			return typeof message.mac === 'string' ? message : null
+		case 'auth-response':
+			return typeof message.mac === 'string' &&
+				typeof message.nonce === 'string'
+				? message
+				: null
 		case 'blip':
 			return typeof message.text === 'string' ? message : null
 		case 'media-state':

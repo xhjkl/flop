@@ -696,6 +696,16 @@ export const createRoom = () => {
 		touchLinks()
 	}
 
+	const linkAuthTranscript = (link: RoomLink, event: string) => {
+		// Bind room-secret proof to this concrete offer/answer exchange.
+		const transcript = link.peer.authTranscript()
+		if (transcript != null) return transcript
+
+		warnRoom(`${event}.missing-transcript`, { link: linkLog(link) })
+		closeLink(link)
+		return null
+	}
+
 	const sendBeaconChallenge = (link: RoomLink) => {
 		// The host makes beacon candidates prove they know the room secret.
 		if (roomKeys == null) {
@@ -714,17 +724,26 @@ export const createRoom = () => {
 		infoRoom('auth.challenge.sent', { link: linkLog(link) })
 	}
 
-	const answerBeaconChallenge = async (link: RoomLink, nonce: string) => {
-		// The guest signs the nonce; no room identity is revealed yet.
+	const answerBeaconChallenge = async (link: RoomLink, hostNonce: string) => {
+		// The guest signs the host nonce, then asks the host to prove the same key.
 		if (roomKeys == null) {
 			errorRoom('auth.response.missing-room-keys', { link: linkLog(link) })
 			closeLink(link)
 			return
 		}
+		const transcript = linkAuthTranscript(link, 'auth.response')
+		if (transcript == null) return
 
+		const nonce = randomNonce()
+		link.authNonce = nonce
 		let mac: string
 		try {
-			mac = await signRoomAuth(roomKeys.authKey, nonce)
+			mac = await signRoomAuth(
+				roomKeys.authKey,
+				'guest-to-host',
+				hostNonce,
+				transcript,
+			)
 		} catch (error) {
 			warnRoom('auth.response.sign.failed', { error, link: linkLog(link) })
 			closeLink(link)
@@ -732,7 +751,7 @@ export const createRoom = () => {
 		}
 		if (links.get(link.id) !== link) return
 
-		if (!sendPacket(link.peer, { mac, type: 'auth-response' })) {
+		if (!sendPacket(link.peer, { mac, nonce, type: 'auth-response' })) {
 			warnRoom('auth.response.send.failed', { link: linkLog(link) })
 			closeLink(link)
 			return
@@ -740,8 +759,12 @@ export const createRoom = () => {
 		infoRoom('auth.response.sent', { link: linkLog(link) })
 	}
 
-	const acceptBeaconResponse = async (link: RoomLink, mac: string) => {
-		// A valid MAC tells apart the public beacon noise from a trusted candidate with the link on hands.
+	const acceptBeaconResponse = async (
+		link: RoomLink,
+		mac: string,
+		guestNonce: string,
+	) => {
+		// Valid MACs tell apart public beacon noise from a peer with the invite secret.
 		if (roomKeys == null) {
 			errorRoom('auth.accept.missing-room-keys', { link: linkLog(link) })
 			closeLink(link)
@@ -754,9 +777,18 @@ export const createRoom = () => {
 			return
 		}
 
+		const transcript = linkAuthTranscript(link, 'auth.accept')
+		if (transcript == null) return
+
 		let verified: boolean
 		try {
-			verified = await verifyRoomAuth(roomKeys.authKey, link.authNonce, mac)
+			verified = await verifyRoomAuth(
+				roomKeys.authKey,
+				'guest-to-host',
+				link.authNonce,
+				transcript,
+				mac,
+			)
 		} catch (error) {
 			warnRoom('auth.accept.verify.failed', { error, link: linkLog(link) })
 			closeLink(link)
@@ -770,13 +802,76 @@ export const createRoom = () => {
 			return
 		}
 
+		let acceptMac: string
+		try {
+			acceptMac = await signRoomAuth(
+				roomKeys.authKey,
+				'host-to-guest',
+				guestNonce,
+				transcript,
+			)
+		} catch (error) {
+			warnRoom('auth.accept.sign.failed', { error, link: linkLog(link) })
+			closeLink(link)
+			return
+		}
+		if (links.get(link.id) !== link) return
+
 		verifyLink(link)
-		if (!sendPacket(link.peer, { type: 'auth-accepted' })) {
+		if (!sendPacket(link.peer, { mac: acceptMac, type: 'auth-accepted' })) {
 			warnRoom('auth.accept.send.failed', { link: linkLog(link) })
 			closeLink(link)
 			return
 		}
 		infoRoom('auth.accept.sent', { link: linkLog(link) })
+	}
+
+	const acceptBeaconAccepted = async (link: RoomLink, mac: string) => {
+		// The guest accepts only a host that can sign the guest's nonce.
+		if (roomKeys == null) {
+			errorRoom('auth.accepted.missing-room-keys', { link: linkLog(link) })
+			closeLink(link)
+			return
+		}
+
+		if (link.authNonce == null) {
+			warnRoom('auth.accepted.missing-nonce', { link: linkLog(link) })
+			closeLink(link)
+			return
+		}
+
+		const transcript = linkAuthTranscript(link, 'auth.accepted')
+		if (transcript == null) return
+
+		let verified: boolean
+		try {
+			verified = await verifyRoomAuth(
+				roomKeys.authKey,
+				'host-to-guest',
+				link.authNonce,
+				transcript,
+				mac,
+			)
+		} catch (error) {
+			warnRoom('auth.accepted.verify.failed', { error, link: linkLog(link) })
+			closeLink(link)
+			return
+		}
+		if (links.get(link.id) !== link) return
+
+		if (!verified) {
+			warnRoom('auth.accepted.rejected', { link: linkLog(link) })
+			closeLink(link)
+			return
+		}
+
+		verifyLink(link)
+		if (!sendPacket(link.peer, { type: 'hello' })) {
+			warnRoom('auth.hello.send.failed', { link: linkLog(link) })
+			closeLink(link)
+			return
+		}
+		infoRoom('auth.hello.sent', { link: linkLog(link) })
 	}
 
 	const handleAuthPacket = (link: RoomLink, message: Packet) => {
@@ -796,13 +891,7 @@ export const createRoom = () => {
 					return true
 				}
 
-				verifyLink(link)
-				if (!sendPacket(link.peer, { type: 'hello' })) {
-					warnRoom('auth.hello.send.failed', { link: linkLog(link) })
-					closeLink(link)
-					return true
-				}
-				infoRoom('auth.hello.sent', { link: linkLog(link) })
+				void acceptBeaconAccepted(link, message.mac)
 				return true
 			case 'auth-response':
 				if (link.source !== 'beacon' || link.role !== 'host-rendezvous') {
@@ -810,7 +899,7 @@ export const createRoom = () => {
 					return true
 				}
 
-				void acceptBeaconResponse(link, message.mac)
+				void acceptBeaconResponse(link, message.mac, message.nonce)
 				return true
 			default:
 				return false

@@ -6,9 +6,12 @@ export type RoomKeys = {
 	discoveryId: Uint8Array
 }
 
+export type RoomAuthPurpose = 'guest-to-host' | 'host-to-guest'
+
 const encoder = new TextEncoder()
-const DISCOVERY_ID_DOMAIN = encoder.encode('flop:rendezvous')
-const AUTH_KEY_DOMAIN = encoder.encode('flop:yo')
+const DISCOVERY_ID_DOMAIN = encoder.encode('flop:where')
+const AUTH_KEY_DOMAIN = encoder.encode('flop:hey')
+const ROOM_AUTH_TAG = 'flop:knock'
 
 const randomBytes = (length: number) => {
 	const bytes = new Uint8Array(length)
@@ -40,12 +43,9 @@ export const randomNonce = () => {
 
 export const deriveRoomKeys = async (secret: RoomSecret): Promise<RoomKeys> => {
 	const secretBytes = roomSecretBytes(secret)
-	// The beacon sees only this truncated public room name. The full room secret
-	// still protects auth below and never leaves the browsers.
-	const discoveryId = (await sha256(DISCOVERY_ID_DOMAIN, secretBytes)).slice(
-		0,
-		20,
-	)
+	// The invite fragment is the secret. The Worker sees only this derived
+	// lookup id; joining still requires the separate HMAC key derived below.
+	const discoveryId = await sha256(DISCOVERY_ID_DOMAIN, secretBytes)
 	const authBytes = await sha256(AUTH_KEY_DOMAIN, secretBytes)
 	const authKey = await crypto.subtle.importKey(
 		'raw',
@@ -58,16 +58,38 @@ export const deriveRoomKeys = async (secret: RoomSecret): Promise<RoomKeys> => {
 	return { authKey, discoveryId }
 }
 
-export const signRoomAuth = async (key: CryptoKey, nonce: string) => {
-	const mac = await crypto.subtle.sign('HMAC', key, encoder.encode(nonce))
+const roomAuthPayload = (
+	purpose: RoomAuthPurpose,
+	nonce: string,
+	transcript: string,
+) => {
+	// A valid knock proves the invite secret and this exact RTC offer/answer.
+	return encoder.encode(
+		JSON.stringify([ROOM_AUTH_TAG, purpose, nonce, transcript]),
+	)
+}
+
+export const signRoomAuth = async (
+	key: CryptoKey,
+	purpose: RoomAuthPurpose,
+	nonce: string,
+	transcript: string,
+) => {
+	const mac = await crypto.subtle.sign(
+		'HMAC',
+		key,
+		roomAuthPayload(purpose, nonce, transcript),
+	)
 	return bytesToBase64Url(new Uint8Array(mac))
 }
 
 export const verifyRoomAuth = async (
 	key: CryptoKey,
+	purpose: RoomAuthPurpose,
 	nonce: string,
+	transcript: string,
 	mac: string,
 ) => {
-	const expected = await signRoomAuth(key, nonce)
+	const expected = await signRoomAuth(key, purpose, nonce, transcript)
 	return mac === expected
 }
