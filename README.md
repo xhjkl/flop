@@ -13,7 +13,7 @@ Flop starts with the easy path: send an invite link, and the two browsers try to
 
 The invite link contains a random room secret. Browsers turn that secret into two separate values: a short public discovery id and an HMAC auth key. The Worker routes each discovery id to its own Durable Object beacon, and that object fans out WebRTC offers and answers between connected browsers. It stores no files, no room messages, and no room secret.
 
-The discovery id is not enough to enter a room. A browser introduced by the beacon still has to answer an HMAC challenge derived from the room secret in the invite link. That keeps the beacon small while making it effectively impossible in practice to brute-force or prank your way into someone else's room.
+The discovery id is not enough to enter a room. A browser introduced by the beacon still has to pass a room-secret HMAC check bound to the WebRTC offer and answer it negotiated. That keeps the beacon small while making it effectively impossible in practice to brute-force or prank your way into someone else's room.
 
 Manual invite and reply codes are the same WebRTC offer and answer exchange with the beacon removed. The host copies an invite code, the guest turns it into a reply code, and the host pastes that reply back. Any chat, email, QR code, terminal, or sticky note can be the signaling channel.
 
