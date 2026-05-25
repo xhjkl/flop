@@ -1,0 +1,13 @@
+name = "flop-beacon"
+main = "index.js"
+compatibility_date = "2026-05-25"
+workers_dev = false
+preview_urls = false
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "FlopRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["FlopRoom"]
