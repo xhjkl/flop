@@ -58,27 +58,20 @@ export const deriveRoomKeys = async (secret: RoomSecret): Promise<RoomKeys> => {
 	return { authKey, discoveryId }
 }
 
-const roomAuthPayload = (
-	purpose: RoomAuthPurpose,
-	nonce: string,
-	transcript: string,
-) => {
-	// A valid knock proves the invite secret and this exact RTC offer/answer.
-	return encoder.encode(
-		JSON.stringify([ROOM_AUTH_TAG, purpose, nonce, transcript]),
-	)
+const roomAuthPayload = (purpose: RoomAuthPurpose, nonce: string) => {
+	// A valid knock proves the invite secret without sending a reusable secret.
+	return encoder.encode(JSON.stringify([ROOM_AUTH_TAG, purpose, nonce]))
 }
 
 export const signRoomAuth = async (
 	key: CryptoKey,
 	purpose: RoomAuthPurpose,
 	nonce: string,
-	transcript: string,
 ) => {
 	const mac = await crypto.subtle.sign(
 		'HMAC',
 		key,
-		roomAuthPayload(purpose, nonce, transcript),
+		roomAuthPayload(purpose, nonce),
 	)
 	return bytesToBase64Url(new Uint8Array(mac))
 }
@@ -87,9 +80,8 @@ export const verifyRoomAuth = async (
 	key: CryptoKey,
 	purpose: RoomAuthPurpose,
 	nonce: string,
-	transcript: string,
 	mac: string,
 ) => {
-	const expected = await signRoomAuth(key, purpose, nonce, transcript)
+	const expected = await signRoomAuth(key, purpose, nonce)
 	return mac === expected
 }

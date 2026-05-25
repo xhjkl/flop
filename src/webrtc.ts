@@ -9,13 +9,10 @@ import {
 	waitForIce,
 } from './webrtc/ice'
 
-const RTC_TRANSCRIPT_TAG = 'flop:wire'
-
 // The room wants one simple peer: one text lane, optional camera/mic.
 export type Peer = {
 	createOffer: () => Promise<SignalDescription>
 	acceptAnswer: (answer: SignalDescription) => Promise<void>
-	authTranscript: () => string | null
 	createAnswer: (offer: SignalDescription) => Promise<SignalDescription>
 	close: () => void
 	send: (text: string) => boolean
@@ -303,19 +300,6 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		await pc.setRemoteDescription(answer)
 	}
 
-	const authTranscript = () => {
-		// Auth binds the room secret proof to this exact negotiated transport.
-		const local = pc.localDescription
-		const remote = pc.remoteDescription
-		if (local == null || remote == null) return null
-
-		const offer = local.type === 'offer' ? local : remote
-		const answer = local.type === 'answer' ? local : remote
-		if (offer.type !== 'offer' || answer.type !== 'answer') return null
-
-		return JSON.stringify([RTC_TRANSCRIPT_TAG, offer.sdp, answer.sdp])
-	}
-
 	const createAnswer = async (offer: SignalDescription) => {
 		// Answerers inherit the offer's media shape, then attach their own tracks.
 		await pc.setRemoteDescription(offer)
@@ -431,7 +415,6 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	return {
 		createOffer,
 		acceptAnswer,
-		authTranscript,
 		createAnswer,
 		close,
 		send,

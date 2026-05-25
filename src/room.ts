@@ -696,16 +696,6 @@ export const createRoom = () => {
 		touchLinks()
 	}
 
-	const linkAuthTranscript = (link: RoomLink, event: string) => {
-		// Bind room-secret proof to this concrete offer/answer exchange.
-		const transcript = link.peer.authTranscript()
-		if (transcript != null) return transcript
-
-		warnRoom(`${event}.missing-transcript`, { link: linkLog(link) })
-		closeLink(link)
-		return null
-	}
-
 	const sendBeaconChallenge = (link: RoomLink) => {
 		// The host makes beacon candidates prove they know the room secret.
 		if (roomKeys == null) {
@@ -731,19 +721,12 @@ export const createRoom = () => {
 			closeLink(link)
 			return
 		}
-		const transcript = linkAuthTranscript(link, 'auth.response')
-		if (transcript == null) return
 
 		const nonce = randomNonce()
 		link.authNonce = nonce
 		let mac: string
 		try {
-			mac = await signRoomAuth(
-				roomKeys.authKey,
-				'guest-to-host',
-				hostNonce,
-				transcript,
-			)
+			mac = await signRoomAuth(roomKeys.authKey, 'guest-to-host', hostNonce)
 		} catch (error) {
 			warnRoom('auth.response.sign.failed', { error, link: linkLog(link) })
 			closeLink(link)
@@ -777,16 +760,12 @@ export const createRoom = () => {
 			return
 		}
 
-		const transcript = linkAuthTranscript(link, 'auth.accept')
-		if (transcript == null) return
-
 		let verified: boolean
 		try {
 			verified = await verifyRoomAuth(
 				roomKeys.authKey,
 				'guest-to-host',
 				link.authNonce,
-				transcript,
 				mac,
 			)
 		} catch (error) {
@@ -808,7 +787,6 @@ export const createRoom = () => {
 				roomKeys.authKey,
 				'host-to-guest',
 				guestNonce,
-				transcript,
 			)
 		} catch (error) {
 			warnRoom('auth.accept.sign.failed', { error, link: linkLog(link) })
@@ -840,16 +818,12 @@ export const createRoom = () => {
 			return
 		}
 
-		const transcript = linkAuthTranscript(link, 'auth.accepted')
-		if (transcript == null) return
-
 		let verified: boolean
 		try {
 			verified = await verifyRoomAuth(
 				roomKeys.authKey,
 				'host-to-guest',
 				link.authNonce,
-				transcript,
 				mac,
 			)
 		} catch (error) {
