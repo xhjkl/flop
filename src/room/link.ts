@@ -6,7 +6,7 @@ import { type ParticipantKey, participantKey } from './participant'
 export type LinkId = string
 
 export type LinkRole = 'guest-rendezvous' | 'host-rendezvous' | 'mesh'
-export type LinkSource = 'manual' | 'tracker'
+export type LinkSource = 'beacon' | 'manual'
 export type LinkAuthState = 'pending' | 'verified'
 
 // A link starts as transport, then becomes a person once we know who is there.
@@ -21,7 +21,7 @@ export type RoomLink = {
 	remoteId: ParticipantId | null
 	role: LinkRole
 	source: LinkSource
-	trackerPeerId: string | null
+	beaconPeerId: string | null
 }
 
 export const isRendezvousLink = (link: RoomLink) => {

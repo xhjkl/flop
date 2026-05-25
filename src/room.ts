@@ -11,6 +11,11 @@ import {
 	participantIdToString,
 } from './protocol'
 import {
+	type BeaconRendezvous,
+	type BeaconStatus,
+	createBeaconRendezvous,
+} from './rendezvous/beacon'
+import {
 	deriveRoomKeys,
 	type RoomKeys,
 	randomNonce,
@@ -18,11 +23,6 @@ import {
 	verifyRoomAuth,
 } from './rendezvous/crypto'
 import { type RoomSecret, randomRoomSecret } from './rendezvous/secret'
-import {
-	createTrackerRendezvous,
-	type TrackerRendezvous,
-	type TrackerStatus,
-} from './rendezvous/tracker'
 import {
 	createIncomingFileTransfer,
 	FILE_BUFFER_LOW_BYTES,
@@ -125,6 +125,7 @@ const linkLog = (link: RoomLink) => {
 			link.remoteId == null ? null : participantIdToString(link.remoteId),
 		role: link.role,
 		source: link.source,
+		beaconPeerId: link.beaconPeerId,
 	}
 }
 
@@ -140,8 +141,8 @@ const errorRoom = (event: string, details: Record<string, unknown> = {}) => {
 	errorLog('room', event, details)
 }
 
-const TRACKER_CANDIDATE_LIMIT = 12
-const TRACKER_CANDIDATE_TTL_MS = 45_000
+const BEACON_CANDIDATE_LIMIT = 12
+const BEACON_CANDIDATE_TTL_MS = 45_000
 
 export const createRoom = () => {
 	// Three ledgers keep the room understandable:
@@ -158,12 +159,12 @@ export const createRoom = () => {
 	let localParticipantId: ParticipantId | null = randomParticipantId()
 	// Guests learn this from welcome. Hosts start as their own host.
 	let hostParticipantId: ParticipantId | null = localParticipantId
-	// The secret backs tracker discovery; manual codes do not need it.
+	// The secret backs beacon discovery; manual codes do not need it.
 	let roomSecret: RoomSecret | null = null
-	// Derived keys prove tracker peers actually know the invite link.
+	// Derived keys prove beacon peers actually know the invite link.
 	let roomKeys: RoomKeys | null = null
-	// Tracker rendezvous is a helper, not the room. It can come and go.
-	let trackerRendezvous: TrackerRendezvous | null = null
+	// Beacon rendezvous is a helper, not the room. It can come and go.
+	let beaconRendezvous: BeaconRendezvous | null = null
 	// Every new signaling attempt invalidates older async work.
 	let signalingVersion = 0
 	// Links need stable ids before they know who is on the other side.
@@ -171,8 +172,8 @@ export const createRoom = () => {
 	// Camera permission can race with teardown; versioning keeps late streams out.
 	let selfMediaVersion = 0
 	let screenTrackEndCleanup: (() => void) | null = null
-	// Tracker answers come back by offer id, before a person is known.
-	const trackerOffers = new Map<string, RoomLink>()
+	// Beacon answers come back by offer id, before a person is known.
+	const beaconOffers = new Map<string, RoomLink>()
 	const hostParticipant = mergeParticipant({ id: localParticipantId })
 	// Links are transport state. Solid sees them through linkRevision.
 	const links = new Map<LinkId, RoomLink>()
@@ -287,8 +288,8 @@ export const createRoom = () => {
 
 		link.live = false
 		links.delete(link.id)
-		for (const [offerId, offerLink] of trackerOffers) {
-			if (offerLink === link) trackerOffers.delete(offerId)
+		for (const [offerId, offerLink] of beaconOffers) {
+			if (offerLink === link) beaconOffers.delete(offerId)
 		}
 		touchLinks()
 	}
@@ -312,7 +313,7 @@ export const createRoom = () => {
 		// Snapshot first; close callbacks may try to mutate the same map.
 		const closingLinks = [...links.values()]
 		links.clear()
-		trackerOffers.clear()
+		beaconOffers.clear()
 		for (const link of closingLinks) link.live = false
 		touchLinks()
 
@@ -323,11 +324,11 @@ export const createRoom = () => {
 		}
 	}
 
-	const stopTrackerRendezvous = () => {
-		// Tracker candidates are meaningless once the tracker loop stops.
-		trackerRendezvous?.close()
-		trackerRendezvous = null
-		trackerOffers.clear()
+	const stopBeaconRendezvous = () => {
+		// Beacon candidates are meaningless once the beacon loop stops.
+		beaconRendezvous?.close()
+		beaconRendezvous = null
+		beaconOffers.clear()
 	}
 
 	const participantLink = (participantId: ParticipantId) => {
@@ -348,8 +349,8 @@ export const createRoom = () => {
 		if (existing != null && existing !== link) closeLink(existing)
 
 		link.remoteId = participantId
-		for (const [offerId, offerLink] of trackerOffers) {
-			if (offerLink === link) trackerOffers.delete(offerId)
+		for (const [offerId, offerLink] of beaconOffers) {
+			if (offerLink === link) beaconOffers.delete(offerId)
 		}
 		touchLinks()
 		return true
@@ -363,10 +364,10 @@ export const createRoom = () => {
 			if (candidate.role !== link.role) continue
 			if (candidate.source !== link.source) continue
 			if (
-				link.source === 'tracker' &&
-				(candidate.trackerPeerId == null ||
-					link.trackerPeerId == null ||
-					candidate.trackerPeerId !== link.trackerPeerId)
+				link.source === 'beacon' &&
+				(candidate.beaconPeerId == null ||
+					link.beaconPeerId == null ||
+					candidate.beaconPeerId !== link.beaconPeerId)
 			) {
 				continue
 			}
@@ -375,65 +376,65 @@ export const createRoom = () => {
 		}
 	}
 
-	const isTrackerCandidate = (link: RoomLink, role?: LinkRole) => {
-		// Tracker flow starts with anonymous WebRTC links; auth and welcome promote one.
+	const isBeaconCandidate = (link: RoomLink, role?: LinkRole) => {
+		// Beacon flow starts with anonymous WebRTC links; auth and welcome promote one.
 		return (
-			link.source === 'tracker' &&
+			link.source === 'beacon' &&
 			link.remoteId == null &&
 			(role == null || link.role === role)
 		)
 	}
 
-	const trackerCandidates = (role: LinkRole) => {
+	const beaconCandidates = (role: LinkRole) => {
 		// Candidate order is insertion order; oldest loses when the budget is full.
-		return [...links.values()].filter((link) => isTrackerCandidate(link, role))
+		return [...links.values()].filter((link) => isBeaconCandidate(link, role))
 	}
 
 	const candidateBudgetAllows = (role: LinkRole) => {
-		return trackerCandidates(role).length < TRACKER_CANDIDATE_LIMIT
+		return beaconCandidates(role).length < BEACON_CANDIDATE_LIMIT
 	}
 
-	const expireTrackerCandidate = (link: RoomLink, reason: string) => {
+	const expireBeaconCandidate = (link: RoomLink, reason: string) => {
 		// Dead candidates should disappear quietly from the portrait projection.
 		if (links.get(link.id) !== link) return
-		if (!isTrackerCandidate(link)) return
+		if (!isBeaconCandidate(link)) return
 
-		infoRoom('tracker.candidate.expired', {
+		infoRoom('beacon.candidate.expired', {
 			link: linkLog(link),
 			reason,
 		})
 		closeLink(link)
 	}
 
-	const pruneTrackerCandidateBudget = (role: LinkRole) => {
+	const pruneBeaconCandidateBudget = (role: LinkRole) => {
 		while (!candidateBudgetAllows(role)) {
-			const oldest = trackerCandidates(role)[0]
+			const oldest = beaconCandidates(role)[0]
 			if (oldest == null) return
 
-			expireTrackerCandidate(oldest, 'budget')
+			expireBeaconCandidate(oldest, 'budget')
 		}
 	}
 
-	const createTrackerCandidate = (
+	const createBeaconCandidate = (
 		role: LinkRole,
-		options: { offerId?: string | null; trackerPeerId?: string | null } = {},
+		options: { offerId?: string | null; beaconPeerId?: string | null } = {},
 	) => {
-		// Public trackers can be noisy. Keep only a small bench of hopeful links.
-		pruneTrackerCandidateBudget(role)
+		// Beacon offers are speculative. Keep only a small bench of hopeful links.
+		pruneBeaconCandidateBudget(role)
 		if (!candidateBudgetAllows(role)) {
-			warnRoom('tracker.candidate.budget-full', { role })
+			warnRoom('beacon.candidate.budget-full', { role })
 			return null
 		}
 
 		const link = createLink(role, {
-			source: 'tracker',
-			trackerPeerId: options.trackerPeerId ?? null,
+			source: 'beacon',
+			beaconPeerId: options.beaconPeerId ?? null,
 		})
-		if (options.offerId != null) trackerOffers.set(options.offerId, link)
+		if (options.offerId != null) beaconOffers.set(options.offerId, link)
 
 		setTimeout(() => {
-			expireTrackerCandidate(link, 'timeout')
-		}, TRACKER_CANDIDATE_TTL_MS)
+			expireBeaconCandidate(link, 'timeout')
+		}, BEACON_CANDIDATE_TTL_MS)
 		return link
 	}
 
@@ -441,9 +442,9 @@ export const createRoom = () => {
 		link: RoomLink,
 		participantId: ParticipantId,
 	) => {
-		// Tracker discovery earns a room seat only after auth proves the secret.
-		if (link.source === 'tracker' && link.auth !== 'verified') {
-			warnRoom('tracker.candidate.promote.before-auth', {
+		// Beacon discovery earns a room seat only after auth proves the secret.
+		if (link.source === 'beacon' && link.auth !== 'verified') {
+			warnRoom('beacon.candidate.promote.before-auth', {
 				link: linkLog(link),
 				participantId: participantIdToString(participantId),
 			})
@@ -457,17 +458,17 @@ export const createRoom = () => {
 		return true
 	}
 
-	const verifiedTrackerLinkByPeer = (
+	const verifiedBeaconLinkByPeer = (
 		role: LinkRole,
-		trackerPeerId: string,
+		beaconPeerId: string,
 		except: RoomLink | null = null,
 	) => {
-		// One verified tracker link per tracker peer is enough.
+		// One verified beacon link per beacon peer is enough.
 		for (const link of links.values()) {
 			if (link === except) continue
 			if (link.role !== role) continue
-			if (link.source !== 'tracker') continue
-			if (link.trackerPeerId !== trackerPeerId) continue
+			if (link.source !== 'beacon') continue
+			if (link.beaconPeerId !== beaconPeerId) continue
 			if (link.auth === 'verified') return link
 		}
 
@@ -528,7 +529,7 @@ export const createRoom = () => {
 
 	const resetAsHost = () => {
 		// Starting fresh as host makes a new room identity and color.
-		stopTrackerRendezvous()
+		stopBeaconRendezvous()
 		pendingLocalBlip = null
 		roomSecret = null
 		roomKeys = null
@@ -545,7 +546,7 @@ export const createRoom = () => {
 
 	const resetBeforeJoining = (options: { keepPendingBlip?: boolean } = {}) => {
 		// Before welcome, a guest has no durable identity in this room.
-		stopTrackerRendezvous()
+		stopBeaconRendezvous()
 		if (!options.keepPendingBlip) pendingLocalBlip = null
 		roomSecret = null
 		roomKeys = null
@@ -695,8 +696,8 @@ export const createRoom = () => {
 		touchLinks()
 	}
 
-	const sendTrackerChallenge = (link: RoomLink) => {
-		// The host makes tracker candidates prove they know the room secret.
+	const sendBeaconChallenge = (link: RoomLink) => {
+		// The host makes beacon candidates prove they know the room secret.
 		if (roomKeys == null) {
 			errorRoom('auth.challenge.missing-room-keys', { link: linkLog(link) })
 			closeLink(link)
@@ -713,7 +714,7 @@ export const createRoom = () => {
 		infoRoom('auth.challenge.sent', { link: linkLog(link) })
 	}
 
-	const answerTrackerChallenge = async (link: RoomLink, nonce: string) => {
+	const answerBeaconChallenge = async (link: RoomLink, nonce: string) => {
 		// The guest signs the nonce; no room identity is revealed yet.
 		if (roomKeys == null) {
 			errorRoom('auth.response.missing-room-keys', { link: linkLog(link) })
@@ -739,8 +740,8 @@ export const createRoom = () => {
 		infoRoom('auth.response.sent', { link: linkLog(link) })
 	}
 
-	const acceptTrackerResponse = async (link: RoomLink, mac: string) => {
-		// A valid MAC tells apart the public tracker noise from a trusted candidate with the link on hands.
+	const acceptBeaconResponse = async (link: RoomLink, mac: string) => {
+		// A valid MAC tells apart the public beacon noise from a trusted candidate with the link on hands.
 		if (roomKeys == null) {
 			errorRoom('auth.accept.missing-room-keys', { link: linkLog(link) })
 			closeLink(link)
@@ -782,15 +783,15 @@ export const createRoom = () => {
 		// Auth packets are consumed before room-role dispatch.
 		switch (message.type) {
 			case 'auth-challenge':
-				if (link.source !== 'tracker' || link.role !== 'guest-rendezvous') {
+				if (link.source !== 'beacon' || link.role !== 'guest-rendezvous') {
 					warnRoom('auth.challenge.unexpected', { link: linkLog(link) })
 					return true
 				}
 
-				void answerTrackerChallenge(link, message.nonce)
+				void answerBeaconChallenge(link, message.nonce)
 				return true
 			case 'auth-accepted':
-				if (link.source !== 'tracker' || link.role !== 'guest-rendezvous') {
+				if (link.source !== 'beacon' || link.role !== 'guest-rendezvous') {
 					warnRoom('auth.accepted.unexpected', { link: linkLog(link) })
 					return true
 				}
@@ -804,12 +805,12 @@ export const createRoom = () => {
 				infoRoom('auth.hello.sent', { link: linkLog(link) })
 				return true
 			case 'auth-response':
-				if (link.source !== 'tracker' || link.role !== 'host-rendezvous') {
+				if (link.source !== 'beacon' || link.role !== 'host-rendezvous') {
 					warnRoom('auth.response.unexpected', { link: linkLog(link) })
 					return true
 				}
 
-				void acceptTrackerResponse(link, message.mac)
+				void acceptBeaconResponse(link, message.mac)
 				return true
 			default:
 				return false
@@ -1003,7 +1004,7 @@ export const createRoom = () => {
 
 	const markRoomClosed = () => {
 		// Closed is visible state plus real transport teardown.
-		stopTrackerRendezvous()
+		stopBeaconRendezvous()
 		closeAllLinks()
 		clearPeerParticipants()
 		setState('connection', closedConnection())
@@ -1051,7 +1052,7 @@ export const createRoom = () => {
 			auth?: LinkAuthState
 			remoteId?: ParticipantId | null
 			source?: LinkSource
-			trackerPeerId?: string | null
+			beaconPeerId?: string | null
 		} = {},
 	) => {
 		// Create the transport first; the room role decides what it becomes.
@@ -1069,9 +1070,9 @@ export const createRoom = () => {
 				touchLinks()
 			},
 			onState: (state) => {
-				// Tracker links are the hard part; log their RTC state while they settle.
+				// Beacon links are the hard part; log their RTC state while they settle.
 				const link = links.get(id)
-				if (link == null || link.source !== 'tracker') return
+				if (link == null || link.source !== 'beacon') return
 
 				infoRoom('rtc.state', { link: linkLog(link), ...state })
 			},
@@ -1079,7 +1080,7 @@ export const createRoom = () => {
 		})
 
 		const link: RoomLink = {
-			auth: options.auth ?? (source === 'tracker' ? 'pending' : 'verified'),
+			auth: options.auth ?? (source === 'beacon' ? 'pending' : 'verified'),
 			authNonce: null,
 			id,
 			live: false,
@@ -1089,7 +1090,7 @@ export const createRoom = () => {
 			remoteId: options.remoteId ?? null,
 			role,
 			source,
-			trackerPeerId: options.trackerPeerId ?? null,
+			beaconPeerId: options.beaconPeerId ?? null,
 		}
 		links.set(id, link)
 		touchLinks()
@@ -1099,7 +1100,7 @@ export const createRoom = () => {
 	}
 
 	const handleLinkOpen = (linkId: LinkId) => {
-		// Open transport is not always room membership; tracker auth may still be pending.
+		// Open transport is not always room membership; beacon auth may still be pending.
 		const link = links.get(linkId)
 		if (link == null) return
 
@@ -1107,10 +1108,10 @@ export const createRoom = () => {
 		touchLinks()
 		infoRoom('link.open', { link: linkLog(link) })
 
-		if (link.source === 'tracker' && link.auth !== 'verified') {
-			if (link.role === 'host-rendezvous') sendTrackerChallenge(link)
+		if (link.source === 'beacon' && link.auth !== 'verified') {
+			if (link.role === 'host-rendezvous') sendBeaconChallenge(link)
 			else if (link.role !== 'guest-rendezvous') {
-				errorRoom('auth.unexpected-tracker-link-role', { link: linkLog(link) })
+				errorRoom('auth.unexpected-beacon-link-role', { link: linkLog(link) })
 				closeLink(link)
 			}
 			return
@@ -1150,7 +1151,7 @@ export const createRoom = () => {
 			void startInviteAsHost({ resetPeers: false })
 		} else if (
 			link.role === 'guest-rendezvous' &&
-			link.source === 'tracker' &&
+			link.source === 'beacon' &&
 			localParticipantId == null
 		) {
 			return
@@ -1171,8 +1172,8 @@ export const createRoom = () => {
 			return
 		}
 		if (handleAuthPacket(link, message)) return
-		if (link.source === 'tracker' && link.auth !== 'verified') {
-			// Tracker-discovered transports are only candidates until they prove the room secret.
+		if (link.source === 'beacon' && link.auth !== 'verified') {
+			// Beacon-discovered transports are only candidates until they prove the room secret.
 			warnRoom('packet.before-auth', {
 				link: linkLog(link),
 				type: message.type,
@@ -1416,7 +1417,7 @@ export const createRoom = () => {
 				// Welcome is the handoff from paste-code UX into actual room membership.
 				localParticipantId = message.selfId
 				hostParticipantId = message.hostId
-				stopTrackerRendezvous()
+				stopBeaconRendezvous()
 				setState('themeSeed', participantIdToString(message.hostId))
 				setLocalKey(participantKey(message.selfId))
 				replaceParticipants(message.roster)
@@ -1594,8 +1595,8 @@ export const createRoom = () => {
 		}
 	}
 
-	const setHostAutoStatus = (status: TrackerStatus) => {
-		// Tracker status is only visible on the host invite link pane.
+	const setHostAutoStatus = (status: BeaconStatus) => {
+		// Beacon status is only visible on the host invite link pane.
 		if (state.connection.side !== 'host') return
 
 		setState('connection', {
@@ -1604,32 +1605,35 @@ export const createRoom = () => {
 		})
 	}
 
-	const trackerRendezvousRole = (): LinkRole | null => {
-		// The tracker path mirrors the manual host/guest doorway.
+	const beaconRendezvousRole = (): LinkRole | null => {
+		// The beacon path mirrors the manual host/guest doorway.
 		if (isSelfHost()) return 'host-rendezvous'
 		if (usesGuestRendezvous()) return 'guest-rendezvous'
 
 		return null
 	}
 
-	const createTrackerOffer = async (offerId: string) => {
-		// Tracker offers are speculative; they may never become room members.
-		const role = trackerRendezvousRole()
+	const createBeaconOffer = async (
+		offerId: string,
+		beaconPeerId: string | null,
+	) => {
+		// Beacon offers are speculative; they may never become room members.
+		const role = beaconRendezvousRole()
 		if (role == null) return null
 
-		const link = createTrackerCandidate(role, { offerId })
+		const link = createBeaconCandidate(role, { beaconPeerId, offerId })
 		if (link == null) return null
 
 		try {
 			const offer = await link.peer.createOffer()
-			if (trackerOffers.get(offerId) !== link) {
+			if (beaconOffers.get(offerId) !== link) {
 				closeLink(link)
 				return null
 			}
 
 			return offer
 		} catch (error) {
-			warnRoom('tracker.offer.create.failed', {
+			warnRoom('beacon.offer.create.failed', {
 				error,
 				link: linkLog(link),
 				offerId,
@@ -1639,21 +1643,21 @@ export const createRoom = () => {
 		}
 	}
 
-	const acceptTrackerAnswer = (
+	const acceptBeaconAnswer = (
 		offerId: string,
-		trackerPeerId: string,
+		beaconPeerId: string,
 		answer: SignalDescription,
 	) => {
-		// An answer names the tracker peer that responded to our speculative offer.
-		const link = trackerOffers.get(offerId)
+		// An answer names the beacon peer that responded to our speculative offer.
+		const link = beaconOffers.get(offerId)
 		if (link == null) {
-			warnRoom('tracker.answer.missing-offer', { offerId })
+			warnRoom('beacon.answer.missing-offer', { offerId })
 			return
 		}
 
-		const existing = verifiedTrackerLinkByPeer(link.role, trackerPeerId, link)
+		const existing = verifiedBeaconLinkByPeer(link.role, beaconPeerId, link)
 		if (existing != null) {
-			infoRoom('tracker.answer.ignored.verified-peer', {
+			infoRoom('beacon.answer.ignored.verified-peer', {
 				existing: linkLog(existing),
 				link: linkLog(link),
 			})
@@ -1661,18 +1665,18 @@ export const createRoom = () => {
 			return
 		}
 
-		link.trackerPeerId = trackerPeerId
+		link.beaconPeerId = beaconPeerId
 		touchLinks()
-		infoRoom('tracker.answer.accept.start', { link: linkLog(link) })
+		infoRoom('beacon.answer.accept.start', { link: linkLog(link) })
 		void link.peer
 			.acceptAnswer(answer)
 			.then(() => {
 				if (links.get(link.id) !== link) return
 
-				infoRoom('tracker.answer.accept.done', { link: linkLog(link) })
+				infoRoom('beacon.answer.accept.done', { link: linkLog(link) })
 			})
 			.catch((error) => {
-				warnRoom('tracker.answer.accept.failed', {
+				warnRoom('beacon.answer.accept.failed', {
 					error,
 					link: linkLog(link),
 					offerId,
@@ -1681,30 +1685,30 @@ export const createRoom = () => {
 			})
 	}
 
-	const answerTrackerOffer = (
+	const answerBeaconOffer = (
 		offer: SignalDescription,
-		trackerPeerId: string,
+		beaconPeerId: string,
 		reply: (answer: SignalDescription) => void,
 	) => {
-		// A tracker offer is worth answering only while we know this room secret.
-		const role = trackerRendezvousRole()
+		// A beacon offer is worth answering only while we know this room secret.
+		const role = beaconRendezvousRole()
 		if (roomKeys == null || role == null) {
-			warnRoom('tracker.offer.unexpected', {
+			warnRoom('beacon.offer.unexpected', {
 				hasRoomKeys: roomKeys != null,
 				role,
 			})
 			return
 		}
-		const existing = verifiedTrackerLinkByPeer(role, trackerPeerId)
+		const existing = verifiedBeaconLinkByPeer(role, beaconPeerId)
 		if (existing != null) {
-			infoRoom('tracker.offer.ignored.verified-peer', {
+			infoRoom('beacon.offer.ignored.verified-peer', {
 				existing: linkLog(existing),
 				role,
 			})
 			return
 		}
 
-		const link = createTrackerCandidate(role, { trackerPeerId })
+		const link = createBeaconCandidate(role, { beaconPeerId })
 		if (link == null) return
 
 		void link.peer
@@ -1712,11 +1716,11 @@ export const createRoom = () => {
 			.then((answer) => {
 				if (links.get(link.id) !== link) return
 
-				infoRoom('tracker.offer.answer.sent', { link: linkLog(link) })
+				infoRoom('beacon.offer.answer.sent', { link: linkLog(link) })
 				reply(answer)
 			})
 			.catch((error) => {
-				warnRoom('tracker.offer.answer.failed', {
+				warnRoom('beacon.offer.answer.failed', {
 					error,
 					link: linkLog(link),
 				})
@@ -1729,29 +1733,29 @@ export const createRoom = () => {
 		return localParticipantId == null || isSelfGuest()
 	}
 
-	const startTrackerRendezvous = async (
+	const startBeaconRendezvous = async (
 		secret: RoomSecret,
 		role: 'guest' | 'host',
 		version: number,
 	) => {
-		// The invite link becomes discovery plus auth; trackers never see room contents.
+		// The invite link becomes discovery plus auth; beacons never see room contents.
 		try {
 			const keys = await deriveRoomKeys(secret)
 			if (version !== signalingVersion || roomSecret !== secret) return
 
 			roomKeys = keys
-			trackerRendezvous?.close()
+			beaconRendezvous?.close()
 			if (role === 'host') {
-				for (const link of new Set(trackerOffers.values())) closeLink(link)
-				trackerOffers.clear()
+				for (const link of new Set(beaconOffers.values())) closeLink(link)
+				beaconOffers.clear()
 			}
-			trackerRendezvous = createTrackerRendezvous({
-				createOffer: createTrackerOffer,
-				infoHash: keys.infoHash,
-				onAnswer: acceptTrackerAnswer,
-				onOffer: answerTrackerOffer,
+			beaconRendezvous = createBeaconRendezvous({
+				createOffer: createBeaconOffer,
+				discoveryId: keys.discoveryId,
+				onAnswer: acceptBeaconAnswer,
+				onOffer: answerBeaconOffer,
 				onStatus: (status) => {
-					// Ignore old tracker loops after a new invite/reply attempt starts.
+					// Ignore old beacon loops after a new invite/reply attempt starts.
 					if (version !== signalingVersion || roomSecret !== secret) return
 
 					if (role === 'host') {
@@ -1771,7 +1775,7 @@ export const createRoom = () => {
 				role,
 			})
 		} catch (error) {
-			warnRoom('tracker.start.failed', { error, role })
+			warnRoom('beacon.start.failed', { error, role })
 			if (role === 'host') setHostAutoStatus('failed')
 			else if (state.connection.side === 'guest') {
 				setState('connection', {
@@ -1793,14 +1797,14 @@ export const createRoom = () => {
 			status: 'finding-link',
 			inviteText: inviteLinkFromSecret(secret),
 		})
-		void startTrackerRendezvous(secret, 'guest', version)
+		void startBeaconRendezvous(secret, 'guest', version)
 	}
 
 	const startInviteAsHost = async (
 		options: { resetPeers: boolean } = { resetPeers: true },
 	) => {
 		// Invite flow: every host room prepares the link path and the code path.
-		// The link path uses tracker discovery; the code path is one manual offer.
+		// The link path uses beacon discovery; the code path is one manual offer.
 		const version = ++signalingVersion
 		let nextLink: RoomLink | null = null
 
@@ -1824,7 +1828,7 @@ export const createRoom = () => {
 				inviteLink,
 				inviteLinkStatus: 'finding',
 			})
-			void startTrackerRendezvous(secret, 'host', version)
+			void startBeaconRendezvous(secret, 'host', version)
 
 			nextLink = createLink('host-rendezvous', { source: 'manual' })
 			// The invite code is a one-shot offer waiting for one guest reply.
@@ -2252,7 +2256,7 @@ export const createRoom = () => {
 
 	onCleanup(() => {
 		// Tear down browser resources in the opposite order people see them.
-		stopTrackerRendezvous()
+		stopBeaconRendezvous()
 		closeAllLinks()
 		disposeFileUrls()
 		disposeSelfMedia()

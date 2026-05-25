@@ -110,7 +110,7 @@ const currentUrlWithHash = (hash: string) => {
 }
 
 export const inviteLinkFromSecret = (secret: RoomSecret) => {
-	// The link hides only a room secret; tracker auth comes from derived keys.
+	// The link hides only a room secret; beacon auth comes from derived keys.
 	return currentUrlWithHash(secret)
 }
 

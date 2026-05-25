@@ -243,7 +243,7 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'host-link-finding',
 		'Host link finding',
-		'The host has an invite code, but the tracker invite link is still preparing.',
+		'The host has an invite code, but the beacon invite link is still preparing.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			connection: hostConnection({ inviteLinkStatus: 'finding' }),

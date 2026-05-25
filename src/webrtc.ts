@@ -296,7 +296,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	const acceptAnswer = async (answer: SignalDescription) => {
-		// This completes the offerer's half of a copy-paste or tracker handshake.
+		// This completes the offerer's half of a copy-paste or beacon handshake.
 		await pc.setRemoteDescription(answer)
 	}
 
