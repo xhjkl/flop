@@ -5,25 +5,29 @@ import {
 } from '../protocol'
 import type { PortraitActivityState } from '../state'
 
-// Solid store paths want strings; the protocol keeps bigint at the edge.
+/** Solid store path key for a protocol participant id. */
 export type ParticipantKey = string
 
+/** Roster identity plus the activity this browser has observed for that person. */
 export type RoomParticipant = {
 	activity: PortraitActivityState
 	id: ParticipantKey
 	participantId: ParticipantId
 }
 
+/** New participant activity before any social packets arrive. */
 export const emptyParticipantActivity = (): PortraitActivityState => {
 	// New people arrive quiet; the portrait grows as packets land.
 	return { blip: null, files: [] }
 }
 
+/** Store-safe participant key. */
 export const participantKey = (id: ParticipantId): ParticipantKey => {
 	// BigInt is good protocol state, but store paths need plain strings.
 	return participantIdToString(id)
 }
 
+/** Roster refresh merge that preserves locally observed activity. */
 export const mergeParticipant = (
 	participant: Participant,
 	existing?: RoomParticipant,
@@ -37,6 +41,7 @@ export const mergeParticipant = (
 	}
 }
 
+/** Protocol roster entry stripped of local activity. */
 export const rosterParticipant = (
 	participant: RoomParticipant,
 ): Participant => {
@@ -46,6 +51,7 @@ export const rosterParticipant = (
 	}
 }
 
+/** Temporary room participant id. */
 export const randomParticipantId = (): ParticipantId => {
 	// Eight random bytes is plenty for a room-sized temporary identity.
 	const bytes = new Uint8Array(8)

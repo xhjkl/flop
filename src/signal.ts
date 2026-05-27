@@ -7,9 +7,23 @@ import {
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
+/** SDP shape shared by manual codes, beacon offers, and room mesh packets. */
 export type SignalDescription = {
 	sdp: string
 	type: 'answer' | 'offer'
+}
+
+/** Runtime guard for SDP passed through rendezvous and room packets. */
+export const isSignalDescription = (
+	value: unknown,
+): value is SignalDescription => {
+	if (typeof value !== 'object' || value == null) return false
+
+	const signal = value as SignalDescription
+	return (
+		(signal.type === 'offer' || signal.type === 'answer') &&
+		typeof signal.sdp === 'string'
+	)
 }
 
 const encodeSignalText = (description: SignalDescription) => {
@@ -50,6 +64,7 @@ const decompressSignalText = async (value: string) => {
 	return decoder.decode(decompressed)
 }
 
+/** Encode SDP for copy-paste links and reply codes. */
 export const encodeSignal = async (
 	description: SignalDescription,
 ): Promise<string> => {
@@ -63,6 +78,7 @@ export const encodeSignal = async (
 	return bytesToBase64Url(encoder.encode(signalText))
 }
 
+/** Decode SDP from raw text, compressed URL text, or base64url fallback. */
 export const decodeSignal = async (
 	value: string,
 ): Promise<SignalDescription> => {

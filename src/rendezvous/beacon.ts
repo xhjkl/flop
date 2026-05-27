@@ -1,8 +1,14 @@
 import { bytesToBase64Url } from '../binary'
 import { infoLog, warnLog } from '../log'
-import type { SignalDescription } from '../signal'
+import { isSignalDescription, type SignalDescription } from '../signal'
 
 export type BeaconStatus = 'failed' | 'finding' | 'idle' | 'ready'
+
+export type BeaconPresence = {
+	guests: number
+	hosts: number
+	peers: number
+}
 
 export type BeaconRendezvous = {
 	close: () => void
@@ -24,6 +30,7 @@ type BeaconOptions = {
 		beaconPeerId: string,
 		reply: (answer: SignalDescription) => void,
 	) => void
+	onPresence?: (presence: BeaconPresence) => void
 	onStatus?: (status: BeaconStatus) => void
 	role: 'guest' | 'host'
 }
@@ -51,16 +58,6 @@ const randomId = (length: number) => {
 	return bytesToBase64Url(bytes)
 }
 
-const isSignalDescription = (value: unknown): value is SignalDescription => {
-	if (typeof value !== 'object' || value == null) return false
-
-	const signal = value as SignalDescription
-	return (
-		(signal.type === 'offer' || signal.type === 'answer') &&
-		typeof signal.sdp === 'string'
-	)
-}
-
 const decodeBeaconMessage = (data: unknown) => {
 	if (typeof data !== 'string') return null
 
@@ -70,6 +67,22 @@ const decodeBeaconMessage = (data: unknown) => {
 	} catch {
 		return null
 	}
+}
+
+const beaconCount = (value: unknown) => {
+	return typeof value === 'number' && Number.isInteger(value) && value >= 0
+		? value
+		: null
+}
+
+const beaconPresence = (message: BeaconMessage): BeaconPresence | null => {
+	const guests = beaconCount(message.guests)
+	const hosts = beaconCount(message.hosts)
+	const peers = beaconCount(message.peers)
+
+	return guests == null || hosts == null || peers == null
+		? null
+		: { guests, hosts, peers }
 }
 
 const beaconUrl = (discoveryId: Uint8Array) => {
@@ -99,6 +112,10 @@ export const createBeaconRendezvous = (
 
 		currentStatus = status
 		options.onStatus?.(status)
+	}
+
+	const setPresence = (presence: BeaconPresence) => {
+		options.onPresence?.(presence)
 	}
 
 	const send = (message: BeaconMessage) => {
@@ -191,10 +208,19 @@ export const createBeaconRendezvous = (
 		}
 
 		if (message.type === 'ready' && typeof message.beaconPeerId === 'string') {
-			infoBeacon('ready', { url })
+			const presence = beaconPresence(message)
+			infoBeacon('ready', {
+				guests: presence?.guests ?? null,
+				hosts: presence?.hosts ?? null,
+				role: options.role,
+				url,
+			})
+			if (presence != null) setPresence(presence)
 			setStatus('ready')
-			sendOffer(null)
-			scheduleRefreshOffer()
+			if (options.role === 'host') {
+				sendOffer(null)
+				scheduleRefreshOffer()
+			}
 			return
 		}
 
@@ -204,8 +230,34 @@ export const createBeaconRendezvous = (
 		) {
 			if (message.beaconPeerId === peerId) return
 
-			infoBeacon('peer.joined', { url })
-			sendOffer(message.beaconPeerId)
+			const presence = beaconPresence(message)
+			infoBeacon('peer.joined', {
+				guests: presence?.guests ?? null,
+				hosts: presence?.hosts ?? null,
+				role: options.role,
+				url,
+			})
+			if (presence != null) setPresence(presence)
+			if (options.role === 'host') {
+				sendOffer(message.beaconPeerId)
+			}
+			return
+		}
+
+		if (message.type === 'presence') {
+			const presence = beaconPresence(message)
+			if (presence == null) {
+				warnBeacon('presence.invalid', { url })
+				return
+			}
+
+			infoBeacon('presence', {
+				guests: presence.guests,
+				hosts: presence.hosts,
+				role: options.role,
+				url,
+			})
+			setPresence(presence)
 			return
 		}
 
@@ -243,6 +295,7 @@ export const createBeaconRendezvous = (
 
 		if (message.type === 'error' && typeof message.reason === 'string') {
 			warnBeacon('message.error', { reason: message.reason, url })
+			setStatus('failed')
 			return
 		}
 

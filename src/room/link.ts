@@ -3,13 +3,17 @@ import type { PeerMediaState } from '../state'
 import type { Peer } from '../webrtc'
 import { type ParticipantKey, participantKey } from './participant'
 
+/** Stable transport id minted before a remote participant is known. */
 export type LinkId = string
 
+/** Room role a WebRTC transport currently serves. */
 export type LinkRole = 'guest-rendezvous' | 'host-rendezvous' | 'mesh'
+/** Discovery path that created the transport. */
 export type LinkSource = 'beacon' | 'manual'
+/** Beacon secret proof state; manual links are trusted by copy-paste possession. */
 export type LinkAuthState = 'pending' | 'verified'
 
-// A link starts as transport, then becomes a person once we know who is there.
+/** Transport that may later become a participant once the room knows who is there. */
 export type RoomLink = {
 	auth: LinkAuthState
 	authNonce: string | null
@@ -24,11 +28,12 @@ export type RoomLink = {
 	beaconPeerId: string | null
 }
 
+/** Rendezvous lanes are setup doors, not long-term mesh links. */
 export const isRendezvousLink = (link: RoomLink) => {
 	return link.role === 'host-rendezvous' || link.role === 'guest-rendezvous'
 }
 
-// The open invite/reply lane has no person yet. That is the one the UI is waiting on.
+/** Open invite/reply lane with no admitted participant yet. */
 export const findRendezvousLink = (
 	links: Iterable<RoomLink>,
 	role?: LinkRole,
@@ -44,6 +49,7 @@ export const findRendezvousLink = (
 	return null
 }
 
+/** Participant link lookup across rendezvous-promoted and mesh links. */
 export const findParticipantLink = (
 	links: Iterable<RoomLink>,
 	key: ParticipantKey,
@@ -58,6 +64,7 @@ export const findParticipantLink = (
 	return null
 }
 
+/** Live links that crossed the hello/welcome identity boundary. */
 export const liveIdentifiedLinks = (links: Iterable<RoomLink>) => {
 	// Broadcasts only go to links that made it past the hello/welcome line.
 	return [...links].filter((link) => link.live && link.remoteId != null)

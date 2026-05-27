@@ -1,3 +1,4 @@
+/** Permission/device outcome rendered by the self media card. */
 export type SelfMediaStatus =
 	| 'ready'
 	| 'requesting'
@@ -7,7 +8,7 @@ export type SelfMediaStatus =
 	| 'unsupported'
 	| 'error'
 
-// These are card states, not just device states. Each one has to explain itself to a person.
+/** Self portrait media state; each branch has to explain itself to a person. */
 export type SelfMedia = {
 	status: SelfMediaStatus
 	issue: string | null

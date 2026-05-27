@@ -2,6 +2,7 @@ import type { JSX } from 'solid-js'
 import { ConnectionCard } from '../connection-card'
 import { Room } from '../portraits'
 import type { RoomPeer, RoomState } from '../room'
+import { blipIssueCopy, statusCopy } from '../room/status-copy'
 import { RoomView, type RoomViewProps } from '../room-view'
 import type { SelfMedia } from '../self-media'
 import type {
@@ -37,10 +38,12 @@ const fixtureActions: RoomViewProps['room']['actions'] = {
 	acceptReply: noopTextMaybe,
 	becomeGuest: noop,
 	becomeHost: noop,
+	claimInviteLinkAsHost: noop,
 	copyInviteLink: noop,
 	copyInviteCode: noop,
 	copyReplyCode: noop,
 	createReply: noopTextMaybe,
+	dismissBlipIssue: noop,
 	enableSelfMedia: noop,
 	sendBlip: noop,
 	sendFiles: noopFiles,
@@ -106,6 +109,7 @@ const guestConnection = (
 		side: 'guest',
 		status: 'needs-invite',
 		inviteText: '',
+		inviteLinkPresence: null,
 		replyCode: '',
 		issue: null,
 		...overrides,
@@ -150,10 +154,12 @@ const connectionCardFixture = (
 			<Room themeSeed={HOST_ID}>
 				<ConnectionCard
 					connection={connection}
+					canClaimFindingInviteLink={false}
 					canJoinExistingRoom
 					onAcceptReply={noopTextMaybe}
 					onBecomeGuest={noop}
 					onBecomeHost={noop}
+					onClaimInviteLinkAsHost={noop}
 					onCopyInviteLink={noop}
 					onCopyInviteCode={noop}
 					onCopyReplyCode={noop}
@@ -174,12 +180,14 @@ const room = (
 		peers?: RoomPeer[]
 		selfActivity?: PortraitActivityState
 		selfMedia?: SelfMedia
+		canClaimFindingInviteLink?: boolean
 	} & Partial<Pick<RoomState, 'blipComposer'>>,
 ): RoomViewProps => {
 	return {
 		hostInviteMode: props.hostInviteMode,
 		room: {
 			actions: fixtureActions,
+			canClaimFindingInviteLink: () => props.canClaimFindingInviteLink ?? false,
 			peers: () => props.peers ?? [],
 			selfActivity: () => props.selfActivity ?? emptyActivity,
 			state: {
@@ -329,7 +337,122 @@ export const uiFixtures: UiFixture[] = [
 			connection: guestConnection({
 				status: 'finding-link',
 				inviteText: SAMPLE_INVITE_LINK,
+				inviteLinkPresence: { guests: 1, hosts: 1, peers: 1 },
 			}),
+		}),
+	),
+	fixture(
+		'guest-link-unhosted',
+		'Guest link unhosted',
+		'The guest has the secret invite link, but no host is currently present.',
+		room({
+			themeSeed: SAMPLE_INVITE_LINK,
+			canClaimFindingInviteLink: true,
+			connection: guestConnection({
+				status: 'finding-link',
+				inviteText: SAMPLE_INVITE_LINK,
+				inviteLinkPresence: { guests: 0, hosts: 0, peers: 0 },
+			}),
+		}),
+	),
+	fixture(
+		'guest-link-host-present-service-failed',
+		'Guest link service failed with host present',
+		'The guest saw a host before the invite-link service became unreachable.',
+		room({
+			themeSeed: SAMPLE_INVITE_LINK,
+			connection: guestConnection({
+				status: 'finding-link',
+				inviteText: SAMPLE_INVITE_LINK,
+				inviteLinkPresence: { guests: 1, hosts: 1, peers: 2 },
+				issue: statusCopy.inviteLinkUnreachable,
+			}),
+		}),
+	),
+	fixture(
+		'blip-issue-no-peers',
+		'Blip issue no peers',
+		'File-drop feedback lives in the self portrait when nobody can receive files.',
+		room({
+			themeSeed: 'blip-issue-no-peers',
+			blipComposer: {
+				issue: blipIssueCopy.fileNoPeers,
+				text: '',
+			},
+			connection: hostConnection(),
+		}),
+	),
+	fixture(
+		'blip-issue-partial-file',
+		'Blip issue partial file',
+		'Partial file delivery keeps a visible issue while the local file chip is ready.',
+		room({
+			themeSeed: SAMPLE_INVITE_LINK,
+			selfActivity: {
+				blip: 'shared the screenshots',
+				files: [
+					{
+						id: 'partial-file',
+						name: 'screenshots.zip',
+						receivedBytes: 100,
+						size: 100,
+						state: 'ready',
+						url: null,
+					},
+				],
+			},
+			selfMedia: liveSelfMedia(),
+			blipComposer: {
+				issue: blipIssueCopy.filePartialDelivery,
+				text: 'shared the screenshots',
+			},
+			peers: [
+				{
+					activity: emptyActivity,
+					id: OLEG_ID,
+					connectionState: 'live',
+				},
+				{
+					activity: emptyActivity,
+					id: NADIA_ID,
+					connectionState: 'waiting',
+				},
+			],
+			connection: hostConnection(),
+		}),
+	),
+	fixture(
+		'blip-issue-file-stopped',
+		'Blip issue file stopped',
+		'Failed file delivery marks the chip as errored and explains what happened.',
+		room({
+			themeSeed: SAMPLE_INVITE_LINK,
+			selfActivity: {
+				blip: null,
+				files: [
+					{
+						id: 'stopped-file',
+						name: 'camera-roll.zip',
+						receivedBytes: 42,
+						size: 100,
+						state: 'error',
+						url: null,
+					},
+				],
+			},
+			selfMedia: liveSelfMedia({ cameraEnabled: true }),
+			blipComposer: {
+				issue: blipIssueCopy.fileStopped,
+				text: '',
+			},
+			peers: [
+				{
+					activity: emptyActivity,
+					id: OLEG_ID,
+					connectionState: 'waiting',
+				},
+			],
+			connection: hostConnection(),
 		}),
 	),
 	fixture(

@@ -624,8 +624,7 @@ textarea {
 	color: var(--warn);
 }
 
-.portrait-blip,
-.blip-issue {
+.portrait-blip {
 	margin: 0;
 	font-size: var(--text-small);
 	line-height: var(--leading-copy);
@@ -657,13 +656,82 @@ textarea {
 	color: var(--muted-inverse);
 }
 
-.blip-issue {
-	color: var(--warn);
-}
-
 .blip-composer {
 	display: grid;
 	gap: var(--space-touch);
+}
+
+.blip-issue {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--space-touch);
+	inline-size: 100%;
+	min-block-size: var(--control-pill-block);
+	border: 1px solid color-mix(in oklch, var(--chalk) 38%, var(--room-loud));
+	border-radius: var(--radius-control);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, white 12%, transparent),
+			transparent 62%
+		),
+		color-mix(in oklch, var(--surface-glass-strong) 88%, black);
+	padding: var(--space-touch) var(--space-field);
+	color: var(--fg-inverse);
+	text-align: start;
+	font-size: var(--text-small);
+	line-height: var(--leading-copy);
+	backdrop-filter: var(--glass-blur);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 16%, transparent),
+		inset 0 -1px 0 color-mix(in oklch, black 30%, transparent),
+		0 2px 0 color-mix(in oklch, var(--ink) 42%, transparent);
+}
+
+.blip-issue:hover,
+.blip-issue:focus-visible {
+	border-color: color-mix(in oklch, var(--chalk) 62%, var(--room-loud));
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, white 16%, transparent),
+			transparent 58%
+		),
+		var(--surface-glass-strong);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 22%, transparent),
+		inset 0 -1px 0 color-mix(in oklch, black 34%, transparent),
+		0 3px 0 color-mix(in oklch, var(--ink) 46%, transparent);
+}
+
+.blip-issue-mark,
+.blip-issue-dismiss {
+	display: inline-grid;
+	place-items: center;
+	flex: none;
+	inline-size: 1.25rem;
+	block-size: 1.25rem;
+	border-radius: 50%;
+}
+
+.blip-issue-mark {
+	border: 1px solid color-mix(in oklch, var(--chalk) 34%, transparent);
+	color: var(--chalk);
+	font-size: var(--text-caption);
+	font-style: italic;
+}
+
+.blip-issue-text {
+	min-inline-size: 0;
+	overflow-wrap: anywhere;
+}
+
+.blip-issue-dismiss {
+	background: color-mix(in oklch, var(--chalk) 16%, transparent);
+	color: var(--chalk);
+	font-size: var(--text-small);
+	line-height: 1;
 }
 
 .blip-composer textarea {

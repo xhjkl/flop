@@ -20,6 +20,7 @@ export const SelfPortraitCard = (props: {
 	activity: PortraitActivityState
 	blipComposer: BlipComposerState
 	media: SelfMedia
+	onDismissBlipIssue: () => void
 	onSendBlip: () => void
 	onEnableSelfMedia: () => void
 	onSetBlipText: (text: string) => void
@@ -43,6 +44,7 @@ export const SelfPortraitCard = (props: {
 						</button>
 					}
 					onSendBlip={props.onSendBlip}
+					onDismissBlipIssue={props.onDismissBlipIssue}
 					onSetBlipText={props.onSetBlipText}
 					onToggleScreen={props.onToggleScreen}
 				>
@@ -70,6 +72,7 @@ export const SelfPortraitCard = (props: {
 						</button>
 					}
 					onSendBlip={props.onSendBlip}
+					onDismissBlipIssue={props.onDismissBlipIssue}
 					onSetBlipText={props.onSetBlipText}
 					onToggleScreen={props.onToggleScreen}
 				>
@@ -94,6 +97,7 @@ export const SelfPortraitCard = (props: {
 						</button>
 					}
 					onSendBlip={props.onSendBlip}
+					onDismissBlipIssue={props.onDismissBlipIssue}
 					onSetBlipText={props.onSetBlipText}
 					onToggleScreen={props.onToggleScreen}
 				>
@@ -110,6 +114,7 @@ export const SelfPortraitCard = (props: {
 					blipComposer={props.blipComposer}
 					media={props.media}
 					onSendBlip={props.onSendBlip}
+					onDismissBlipIssue={props.onDismissBlipIssue}
 					onSetBlipText={props.onSetBlipText}
 					onToggleCamera={props.onToggleCamera}
 					onToggleMicrophone={props.onToggleMicrophone}

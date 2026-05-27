@@ -1,15 +1,14 @@
+import { isSignalDescription, type SignalDescription } from './signal'
+
+/** Ephemeral room identity carried as fixed-width hex at the JSON edge. */
 export type ParticipantId = bigint
 
+/** Roster entry owned by the host and intentionally free of activity state. */
 export type Participant = {
 	id: ParticipantId
 }
 
-export type SignalDescription = {
-	sdp: string
-	type: 'answer' | 'offer'
-}
-
-// Tiny room protocol: the host introduces people, then peers carry their own words and bytes.
+/** Tiny room protocol: the host introduces people, then peers carry their own words and bytes. */
 export type Packet =
 	| { type: 'hello' }
 	| { nonce: string; type: 'auth-challenge' }
@@ -58,6 +57,7 @@ export type Packet =
 
 const PARTICIPANT_ID_KEYS = new Set(['from', 'hostId', 'id', 'selfId', 'to'])
 
+/** Fixed-width hex participant id used by logs, store keys, and JSON packets. */
 export const participantIdToString = (id: ParticipantId) => {
 	// BigInt is nicer inside the app; fixed hex is nicer at the JSON edge.
 	return id.toString(16).padStart(16, '0')
@@ -98,20 +98,12 @@ const isFileSize = (value: unknown): value is number => {
 	return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
-const isSignalDescription = (value: unknown): value is SignalDescription => {
-	if (typeof value !== 'object' || value == null) return false
-
-	const signal = value as SignalDescription
-	return (
-		(signal.type === 'offer' || signal.type === 'answer') &&
-		typeof signal.sdp === 'string'
-	)
-}
-
+/** Packet encoder for the room data-channel protocol. */
 export const encodePacket = (message: Packet) => {
 	return JSON.stringify(message, encodeRoomValue)
 }
 
+/** Packet decoder that rejects malformed or unknown room messages. */
 export const decodePacket = (text: string): Packet | null => {
 	let value: unknown
 

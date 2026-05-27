@@ -17,6 +17,7 @@ export const RoomView = (props: RoomViewProps) => {
 				blipComposer={props.room.state.blipComposer}
 				media={props.room.state.selfMedia}
 				onSendBlip={props.room.actions.sendBlip}
+				onDismissBlipIssue={props.room.actions.dismissBlipIssue}
 				onEnableSelfMedia={props.room.actions.enableSelfMedia}
 				onSetBlipText={props.room.actions.setBlipText}
 				onToggleCamera={props.room.actions.toggleCamera}
@@ -42,6 +43,7 @@ export const RoomView = (props: RoomViewProps) => {
 			>
 				<ConnectionCard
 					connection={props.room.state.connection}
+					canClaimFindingInviteLink={props.room.canClaimFindingInviteLink()}
 					canJoinExistingRoom={
 						props.room.state.connection.side !== 'host' ||
 						props.room.peers().length === 0
@@ -50,6 +52,7 @@ export const RoomView = (props: RoomViewProps) => {
 					onAcceptReply={props.room.actions.acceptReply}
 					onBecomeGuest={props.room.actions.becomeGuest}
 					onBecomeHost={props.room.actions.becomeHost}
+					onClaimInviteLinkAsHost={props.room.actions.claimInviteLinkAsHost}
 					onCopyInviteLink={props.room.actions.copyInviteLink}
 					onCopyInviteCode={props.room.actions.copyInviteCode}
 					onCopyReplyCode={props.room.actions.copyReplyCode}

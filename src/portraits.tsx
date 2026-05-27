@@ -198,6 +198,7 @@ const BlipComposer = (props: {
 	canSend: boolean
 	composer: BlipComposerState
 	onSend: () => void
+	onDismissIssue: () => void
 	onSetText: (text: string) => void
 	showWhenIdle?: boolean
 }) => {
@@ -253,7 +254,22 @@ const BlipComposer = (props: {
 		<Show when={visible()}>
 			<form class="blip-composer" onSubmit={submit}>
 				<Show when={props.composer.issue}>
-					{(issue) => <p class="blip-issue">{issue()}</p>}
+					{(issue) => (
+						<button
+							type="button"
+							class="blip-issue"
+							aria-label={`Dismiss notice: ${issue()}`}
+							onClick={props.onDismissIssue}
+						>
+							<span class="blip-issue-mark" aria-hidden="true">
+								i
+							</span>
+							<span class="blip-issue-text">{issue()}</span>
+							<span class="blip-issue-dismiss" aria-hidden="true">
+								×
+							</span>
+						</button>
+					)}
 				</Show>
 				<Show
 					when={
@@ -332,6 +348,7 @@ export const SelfMediaCard = (props: {
 	children?: JSX.Element
 	actions?: JSX.Element
 	onSendBlip: () => void
+	onDismissBlipIssue: () => void
 	onSetBlipText: (text: string) => void
 	onToggleCamera?: () => void
 	onToggleMicrophone?: () => void
@@ -378,6 +395,7 @@ export const SelfMediaCard = (props: {
 							canSend={props.canBlip}
 							composer={props.blipComposer}
 							onSend={props.onSendBlip}
+							onDismissIssue={props.onDismissBlipIssue}
 							onSetText={props.onSetBlipText}
 						/>
 						<Show when={props.actions != null}>
@@ -402,6 +420,7 @@ export const SelfMediaCard = (props: {
 						canSend={props.canBlip}
 						composer={props.blipComposer}
 						onSend={props.onSendBlip}
+						onDismissIssue={props.onDismissBlipIssue}
 						onSetText={props.onSetBlipText}
 						showWhenIdle
 					/>

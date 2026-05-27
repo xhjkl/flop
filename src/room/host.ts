@@ -1,0 +1,326 @@
+import {
+	type Packet,
+	type ParticipantId,
+	participantIdToString,
+} from '../protocol'
+import { randomRoomSecret } from '../rendezvous/secret'
+import { decodeSignal, encodeSignal } from '../signal'
+import type { BeaconFlow } from './beacon-flow'
+import { emptyBlipComposer, emptyHostConnection } from './initial-state'
+import { inviteCodeFromSignal, inviteLinkFromSecret } from './invite'
+import type { RoomLifecycle } from './lifecycle'
+import type { RoomLink } from './link'
+import { errorRoom, infoRoom, linkLog, warnRoom } from './log'
+import { MANUAL_ADMISSION_TIMEOUT_MS } from './manual'
+import { mergeParticipant } from './participant'
+import type { RoomRuntime } from './runtime'
+import { statusCopy } from './status-copy'
+import type { StartHostOptions } from './types'
+
+/** Host-side invite, admission, and manual reply transitions. */
+export type HostFlow = {
+	acceptReply: (replyText?: string) => Promise<void>
+	handleHostPacket: (participantId: ParticipantId, message: Packet) => void
+	handleHostRendezvousMessage: (link: RoomLink, message: Packet) => void
+	startInviteAsHost: (options?: StartHostOptions) => Promise<void>
+}
+
+export const createHostFlow = (
+	room: RoomRuntime,
+	lifecycle: RoomLifecycle,
+	beacon: BeaconFlow,
+): HostFlow => {
+	const sendHostWelcome = (participantId: ParticipantId) => {
+		// Welcome gives the guest its id, host id, and first full roster.
+		if (room.localParticipantId == null) {
+			errorRoom('welcome.missing-local-host-id', {
+				participantId: participantIdToString(participantId),
+			})
+			return
+		}
+		const sent = room.sendToParticipant(participantId, {
+			hostId: room.localParticipantId,
+			roster: room.roomRoster(),
+			selfId: participantId,
+			type: 'welcome',
+		})
+		if (!sent) {
+			warnRoom('welcome.send.failed', {
+				participantId: participantIdToString(participantId),
+			})
+			const link = room.participantLink(participantId)
+			if (link != null) room.closeLink(link)
+			return
+		}
+		const link = room.participantLink(participantId)
+		if (link != null) {
+			room.blips.sendLocalToPeer(link.peer)
+			room.sendLocalMediaStateToPeer(link.peer)
+		}
+	}
+
+	const handleHostPacket = (participantId: ParticipantId, message: Packet) => {
+		// Hosts accept room activity and broker mesh setup.
+		if (room.handleCommonMessage(participantId, message)) return
+		switch (message.type) {
+			case 'hello':
+				sendHostWelcome(participantId)
+				room.broadcastMembershipChange()
+				break
+			case 'peer-offer':
+			case 'peer-answer':
+				// The host introduces guests; it should not become the long-term transport.
+				if (message.to === room.localParticipantId) {
+					warnRoom('mesh.signal.addressed-to-host', {
+						from: participantIdToString(participantId),
+						type: message.type,
+					})
+					return
+				}
+				if (
+					!room.sendToParticipant(message.to, {
+						...message,
+						from: participantId,
+					})
+				) {
+					warnRoom('mesh.signal.forward.failed', {
+						from: participantIdToString(participantId),
+						to: participantIdToString(message.to),
+						type: message.type,
+					})
+				}
+				break
+			case 'peer-left':
+			case 'file-chunk':
+			case 'file-end':
+			case 'file-start':
+			case 'roster':
+			case 'blip':
+			case 'media-state':
+			case 'welcome':
+				break
+		}
+	}
+
+	const admitHostRendezvous = (link: RoomLink) => {
+		// The first hello on a host rendezvous claims a participant slot.
+		const existingId = link.remoteId
+		if (existingId != null) {
+			return { fresh: false, participantId: existingId }
+		}
+
+		const participant = room.assignGuestParticipant()
+		const person = mergeParticipant(participant)
+		room.setParticipants(person.id, person)
+		room.setParticipantKeys((keys) =>
+			keys.includes(person.id) ? keys : [...keys, person.id],
+		)
+		if (!beacon.promoteRendezvousLink(link, participant.id)) {
+			errorRoom('host.admit.adopt-link.failed', {
+				link: linkLog(link),
+				participantId: participantIdToString(participant.id),
+			})
+			room.deleteParticipant(participant.id)
+			return null
+		}
+
+		if (room.state.connection.side === 'host') {
+			room.setState('connection', {
+				...room.state.connection,
+				issue: null,
+				replyText: '',
+			})
+		}
+		infoRoom('host.admit', {
+			link: linkLog(link),
+			participantId: participantIdToString(participant.id),
+		})
+		return { fresh: true, participantId: participant.id }
+	}
+
+	const startInviteAsHost = async (
+		options: StartHostOptions = { resetPeers: true },
+	) => {
+		// Invite flow: every host room prepares the link path and the code path.
+		const version = ++room.signalingVersion
+		const resetPeers = options.resetPeers ?? true
+		let nextLink: RoomLink | null = null
+
+		try {
+			if (resetPeers) {
+				// A full host restart means a new room, not a new invite for old peers.
+				lifecycle.resetAsHost({ secret: options.secret ?? null })
+				room.setState('blipComposer', emptyBlipComposer())
+			} else if (
+				room.localParticipantId == null ||
+				room.hostParticipantId == null
+			) {
+				lifecycle.resetAsHost({ secret: options.secret ?? null })
+			} else {
+				room.closeRendezvousLink('host-rendezvous', 'manual')
+			}
+
+			if (options.claimed && room.localParticipantId != null) {
+				infoRoom('invite.link.claimed', {
+					hostId: participantIdToString(room.localParticipantId),
+				})
+			}
+			if (room.roomSecret == null) {
+				room.roomSecret = options.secret ?? randomRoomSecret()
+			}
+			// One secret powers all invite link attempts for this host room.
+			const secret = room.roomSecret
+			const inviteLink = inviteLinkFromSecret(secret)
+			room.setState('connection', {
+				...emptyHostConnection(),
+				inviteLink,
+				inviteLinkStatus: 'finding',
+			})
+			void beacon.startBeaconRendezvous(secret, 'host', version)
+
+			nextLink = room.createLink('host-rendezvous', { source: 'manual' })
+			// The invite code is a one-shot offer waiting for one guest reply.
+			const offer = await nextLink.peer.createOffer()
+			const inviteSignal = await encodeSignal(offer)
+			if (
+				version !== room.signalingVersion ||
+				room.currentRendezvousLink('host-rendezvous', 'manual') !== nextLink
+			) {
+				room.closeLink(nextLink)
+				return
+			}
+
+			const inviteCode = inviteCodeFromSignal(inviteSignal)
+			room.setState('connection', {
+				...emptyHostConnection(),
+				inviteCode,
+				inviteLink,
+				inviteLinkStatus:
+					room.state.connection.side === 'host'
+						? room.state.connection.inviteLinkStatus
+						: 'finding',
+				status: 'invite-ready',
+			})
+		} catch (error) {
+			warnRoom('invite.create.failed', { error })
+			if (nextLink != null) room.closeLink(nextLink)
+			if (version !== room.signalingVersion) return
+			room.setState('connection', {
+				...(room.state.connection.side === 'host'
+					? room.state.connection
+					: emptyHostConnection()),
+				issue: 'Could not create an invite link or invite code.',
+			})
+		}
+	}
+
+	const watchManualAdmission = (link: RoomLink, version: number) => {
+		setTimeout(() => {
+			if (version !== room.signalingVersion) return
+			if (room.links.get(link.id) !== link) return
+			if (link.remoteId != null) return
+
+			warnRoom('manual.admission.timeout', {
+				link: linkLog(link),
+				nextStep: 'fresh-signaling-or-network-change',
+			})
+			room.closeLink(link)
+			if (room.state.connection.side === 'host') {
+				room.setState('connection', {
+					...room.state.connection,
+					issue: statusCopy.hostReplyFailed,
+					status: 'invite-ready',
+				})
+			}
+			void startInviteAsHost({ resetPeers: false }).then(() => {
+				if (room.state.connection.side !== 'host') return
+
+				room.setState('connection', {
+					...room.state.connection,
+					issue: statusCopy.hostReplyFailed,
+				})
+			})
+		}, MANUAL_ADMISSION_TIMEOUT_MS)
+	}
+
+	const handleHostRendezvousMessage = (link: RoomLink, message: Packet) => {
+		// Host rendezvous packets may be pre-admission or normal guest packets.
+		let participantId = link.remoteId
+		let fresh = false
+		if (participantId == null && message.type === 'hello') {
+			const admission = admitHostRendezvous(link)
+			if (admission == null) return
+
+			participantId = admission.participantId
+			fresh = admission.fresh
+		}
+
+		if (participantId == null) {
+			warnRoom('host.rendezvous.message-before-hello', {
+				link: linkLog(link),
+				type: message.type,
+			})
+			return
+		}
+
+		handleHostPacket(participantId, message)
+		if (fresh) {
+			// Keep the host ready for the next person only after this peer joined the room protocol.
+			void startInviteAsHost({ resetPeers: false })
+		}
+	}
+
+	const acceptReply = async (replyText?: string) => {
+		// The host finishes the manual handshake by accepting the guest answer.
+		const replyCode = (
+			replyText ??
+			(room.state.connection.side === 'host'
+				? room.state.connection.replyText
+				: '')
+		).trim()
+		const answeringLink = room.currentRendezvousLink(
+			'host-rendezvous',
+			'manual',
+		)
+		if (replyCode === '' || answeringLink == null) return
+
+		const version = room.signalingVersion
+
+		try {
+			if (room.state.connection.side === 'host') {
+				room.setState('connection', {
+					...room.state.connection,
+					issue: null,
+					replyText: replyCode,
+					status: 'accepting-reply',
+				})
+			}
+
+			const answer = await decodeSignal(replyCode)
+			await answeringLink.peer.acceptAnswer(answer)
+			if (version !== room.signalingVersion) return
+
+			watchManualAdmission(answeringLink, version)
+		} catch (error) {
+			warnRoom('manual.reply.direct-connection.failed', {
+				error,
+				nextStep: 'fresh-reply-or-network-change',
+			})
+			if (version !== room.signalingVersion) return
+			if (room.state.connection.side === 'host') {
+				room.setState('connection', {
+					...room.state.connection,
+					issue: statusCopy.hostReplyFailed,
+					status: 'invite-ready',
+				})
+			}
+		}
+	}
+
+	return {
+		acceptReply,
+		handleHostPacket,
+		handleHostRendezvousMessage,
+		startInviteAsHost,
+	}
+}
