@@ -341,6 +341,7 @@ export const ConnectionCard = (props: {
 	const hasClaimableFindingLink = () => {
 		const connection = guestConnection()
 		return (
+			props.canClaimFindingInviteLink &&
 			connection?.status === 'finding-link' &&
 			connection.issue == null &&
 			connection.inviteLinkPresence?.hosts === 0
