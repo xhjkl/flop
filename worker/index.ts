@@ -2,13 +2,15 @@ import { DurableObject } from 'cloudflare:workers'
 
 /** Same-origin rendezvous prefix reserved for the Worker route. */
 const MEET_PREFIX = '/-/'
-const DISCOVERY_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
-const PEER_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
-const OFFER_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
+const BEACON_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
 const MAX_MESSAGE_LENGTH = 256 * 1024
+
+type BeaconRole = 'guest' | 'host'
 
 type BeaconAttachment = {
 	beaconPeerId: string | null
+	joinedAt: number
+	role: BeaconRole | null
 }
 
 type BeaconSocket = WebSocket & {
@@ -33,7 +35,7 @@ type SignalDescription = {
 
 type JoinMessage = {
 	beaconPeerId: string
-	role: 'guest' | 'host'
+	role: BeaconRole
 	type: 'join'
 }
 
@@ -71,7 +73,7 @@ const roomNameFromRequest = (request: Request) => {
 	if (!pathname.startsWith(MEET_PREFIX)) return null
 
 	const discoveryId = pathname.slice(MEET_PREFIX.length)
-	return DISCOVERY_ID_PATTERN.test(discoveryId) ? discoveryId : null
+	return BEACON_ID_PATTERN.test(discoveryId) ? discoveryId : null
 }
 
 const isRendezvousRequest = (request: Request) => {
@@ -105,11 +107,11 @@ const isSignalDescription = (value: unknown): value is SignalDescription => {
 }
 
 const isPeerId = (value: unknown): value is string => {
-	return typeof value === 'string' && PEER_ID_PATTERN.test(value)
+	return typeof value === 'string' && BEACON_ID_PATTERN.test(value)
 }
 
 const isOfferId = (value: unknown): value is string => {
-	return typeof value === 'string' && OFFER_ID_PATTERN.test(value)
+	return typeof value === 'string' && BEACON_ID_PATTERN.test(value)
 }
 
 const isJoinMessage = (message: JsonBody): message is JoinMessage => {
@@ -143,6 +145,14 @@ const socketPeerId = (socket: BeaconSocket) => {
 	return isPeerId(attachment?.beaconPeerId) ? attachment.beaconPeerId : null
 }
 
+const socketRole = (socket: BeaconSocket) => {
+	const attachment =
+		socket.deserializeAttachment() as Partial<BeaconAttachment> | null
+	return attachment?.role === 'guest' || attachment?.role === 'host'
+		? attachment.role
+		: null
+}
+
 const sendSocket = (socket: BeaconSocket, message: JsonBody) => {
 	try {
 		socket.send(JSON.stringify(message))
@@ -169,7 +179,11 @@ export class FlopRoom extends DurableObject {
 		const server = pair[1] as BeaconSocket
 
 		this.ctx.acceptWebSocket(server)
-		server.serializeAttachment({ beaconPeerId: null })
+		server.serializeAttachment({
+			beaconPeerId: null,
+			joinedAt: Date.now(),
+			role: null,
+		})
 
 		return new Response(null, { status: 101, webSocket: client })
 	}
@@ -188,12 +202,28 @@ export class FlopRoom extends DurableObject {
 		}
 
 		if (isOfferMessage(message)) {
+			if (socketRole(socket) !== 'host') {
+				sendSocket(socket, {
+					reason: 'only hosts may offer',
+					type: 'error',
+				})
+				return
+			}
+
 			this.forwardOffer(socket, beaconPeerId, message)
 			return
 		}
 
 		if (isAnswerMessage(message)) {
-			this.forwardAnswer(beaconPeerId, message)
+			if (socketRole(socket) !== 'guest') {
+				sendSocket(socket, {
+					reason: 'only guests may answer',
+					type: 'error',
+				})
+				return
+			}
+
+			this.forwardAnswer(socket, beaconPeerId, message)
 			return
 		}
 
@@ -210,19 +240,38 @@ export class FlopRoom extends DurableObject {
 		}
 
 		const beaconPeerId = message.beaconPeerId
-		socket.serializeAttachment({ beaconPeerId })
+		socket.serializeAttachment({
+			beaconPeerId,
+			joinedAt: Date.now(),
+			role: message.role,
+		})
 
-		const peers = this.peers(socket)
 		sendSocket(socket, {
 			beaconPeerId,
-			peers: peers.length,
+			...this.presence(socket),
 			type: 'ready',
 		})
 
-		for (const peer of peers) {
+		for (const peer of this.peers(socket)) {
 			sendSocket(peer, {
 				beaconPeerId,
+				...this.presence(peer),
+				role: message.role,
 				type: 'peer-joined',
+			})
+		}
+	}
+
+	webSocketClose(socket: BeaconSocket) {
+		const leftPeerId = socketPeerId(socket)
+		const leftRole = socketRole(socket)
+
+		for (const peer of this.peers(socket)) {
+			sendSocket(peer, {
+				...this.presence(peer, socket),
+				leftPeerId,
+				leftRole,
+				type: 'presence',
 			})
 		}
 	}
@@ -241,18 +290,32 @@ export class FlopRoom extends DurableObject {
 
 		if (isPeerId(message.beaconPeerId)) {
 			const target = this.peerById(message.beaconPeerId)
-			if (target != null && target !== sender) sendSocket(target, payload)
+			if (
+				target != null &&
+				target !== sender &&
+				socketRole(target) === 'guest'
+			) {
+				sendSocket(target, payload)
+			}
 			return
 		}
 
 		for (const peer of this.peers(sender)) {
+			if (socketRole(peer) !== 'guest') continue
+
 			sendSocket(peer, payload)
 		}
 	}
 
-	forwardAnswer(beaconPeerId: string, message: AnswerMessage) {
+	forwardAnswer(
+		sender: BeaconSocket,
+		beaconPeerId: string,
+		message: AnswerMessage,
+	) {
 		const target = this.peerById(message.beaconPeerId)
 		if (target == null) return
+		if (target === sender) return
+		if (socketRole(target) !== 'host') return
 
 		sendSocket(target, {
 			answer: message.answer,
@@ -266,6 +329,19 @@ export class FlopRoom extends DurableObject {
 		return (this.ctx.getWebSockets() as BeaconSocket[]).filter(
 			(socket) => socket !== except && socketPeerId(socket) != null,
 		)
+	}
+
+	presence(...except: BeaconSocket[]) {
+		const excluded = new Set(except)
+		const peers = (this.ctx.getWebSockets() as BeaconSocket[]).filter(
+			(socket) => !excluded.has(socket) && socketPeerId(socket) != null,
+		)
+
+		return {
+			guests: peers.filter((socket) => socketRole(socket) === 'guest').length,
+			hosts: peers.filter((socket) => socketRole(socket) === 'host').length,
+			peers: peers.length,
+		}
 	}
 
 	peerById(beaconPeerId: string) {
