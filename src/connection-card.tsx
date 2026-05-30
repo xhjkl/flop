@@ -140,8 +140,8 @@ const HostInvitePane = (props: {
 							}
 						>
 							<p>
-								Send this invite link to another device. Flop will try to find
-								the other browser automatically.
+								Send this invite link to another device. If it works, they will
+								appear here automatically.
 							</p>
 						</Show>
 						<Show when={props.connection.inviteLinkStatus === 'failed'}>
@@ -171,8 +171,8 @@ const HostInvitePane = (props: {
 					{/* Manual host flow: send one invite out, paste one reply code back, admit one guest. */}
 					<div class="connection-copy">
 						<p>
-							Use this invite code if the link does not connect. Send it, then
-							paste their reply code here to let them in.
+							Use this invite code if the link does not bring them in. Send it,
+							then paste their reply code here.
 						</p>
 						<Show when={props.connection.issue}>
 							{(issue) => <p class="connection-issue">{issue()}</p>}
@@ -426,8 +426,8 @@ export const ConnectionCard = (props: {
 							}
 						>
 							<p>
-								Paste an invite link or invite code from another device. Then
-								send back a reply code.
+								Paste an invite link or invite code from another device. Links
+								can connect automatically; codes create a reply to send back.
 							</p>
 						</Match>
 						<Match
@@ -445,8 +445,8 @@ export const ConnectionCard = (props: {
 							}
 						>
 							<p>
-								Send this reply code to the host and keep this tab open.
-								Refreshing loses this reply.
+								Send this reply code to the host. Keep this tab open until you
+								appear in the room.
 							</p>
 						</Match>
 						<Match
@@ -457,7 +457,7 @@ export const ConnectionCard = (props: {
 							}
 						>
 							<p>
-								No host is here yet. Wait if they are opening the link, or host
+								No host is here yet. Wait for them to open the link, or host
 								this link yourself.
 							</p>
 						</Match>
@@ -468,7 +468,7 @@ export const ConnectionCard = (props: {
 								hasReachableFindingLinkHost()
 							}
 						>
-							<p>Found the host. Opening a direct browser connection.</p>
+							<p>Found the host. Keep this tab open to join the room.</p>
 						</Match>
 						<Match
 							when={
@@ -477,8 +477,8 @@ export const ConnectionCard = (props: {
 							}
 						>
 							<p>
-								Finding the host from this invite link. If the invite-link
-								service cannot be reached, ask for an invite code.
+								Finding the host from this invite link. If the wait feels too
+								long, ask for an invite code.
 							</p>
 						</Match>
 					</Switch>

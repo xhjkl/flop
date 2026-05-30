@@ -1,17 +1,17 @@
 /** Connection-card copy for people trying to get one browser call connected. */
 export const statusCopy = {
 	directConnectionFailed:
-		'This browser connection did not complete. The host may not have accepted the reply, or the network blocked WebRTC. Ask for a fresh invite and try again.',
+		'The invite was understood, but the direct browser connection did not open. Try another network or device, or ask for a fresh invite.',
 	hostInviteLinkFailed:
-		'Invite-link discovery is offline here. The invite code still works; switch to code.',
+		'This browser cannot reach invite-link discovery. The invite code may still work; try switching to code.',
 	hostReplyFailed:
-		'That reply code could not form a direct browser connection. Ask for a fresh reply code. If it keeps failing, try another network or device.',
+		'The reply code was understood, but the direct browser connection did not open. Try a fresh reply first; if it keeps failing, switch networks or devices.',
 	inviteFailed:
-		'That invite did not work. Ask for a fresh invite link or code and try again.',
+		'That invite could not be read or used. Ask for a fresh invite link or code.',
 	inviteLinkUnreachable:
-		'The invite-link service cannot be reached. It may reconnect automatically. For the fastest path, ask for an invite code.',
+		'This browser cannot reach invite-link discovery. Ask for an invite code, or leave this tab open in case it reconnects.',
 	replyStillWaiting:
-		'Still waiting for the host to let this browser in. Send the reply code again, or ask for a fresh invite.',
+		'Still waiting for the host to paste your reply code. Send it again, or ask for a fresh invite if they started over.',
 } as const
 
 /** Blip-composer issue copy for file transfer feedback. */
