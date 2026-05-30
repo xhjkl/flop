@@ -1,3 +1,4 @@
+import { log } from '../log'
 import { type ParticipantId, participantIdToString } from '../protocol'
 import {
 	type BeaconPresence,
@@ -8,7 +9,6 @@ import { deriveRoomKeys } from '../rendezvous/crypto'
 import type { RoomSecret } from '../rendezvous/secret'
 import type { SignalDescription } from '../signal'
 import type { LinkRole, RoomLink } from './link'
-import { infoRoom, linkLog, warnRoom } from './log'
 import type { RoomRuntime } from './runtime'
 import { statusCopy } from './status-copy'
 
@@ -54,8 +54,8 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 		if (room.links.get(link.id) !== link) return
 		if (!isBeaconCandidate(link)) return
 
-		infoRoom('beacon.candidate.expired', {
-			link: linkLog(link),
+		log('info', 'room', 'beacon.candidate.expired', {
+			link,
 			reason,
 		})
 		room.closeLink(link)
@@ -77,7 +77,7 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 		// Beacon offers are speculative. Keep only a small bench of hopeful links.
 		pruneBeaconCandidateBudget(role)
 		if (!candidateBudgetAllows(role)) {
-			warnRoom('beacon.candidate.budget-full', { role })
+			log('warn', 'room', 'beacon.candidate.budget-full', { role })
 			return null
 		}
 
@@ -99,8 +99,8 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 	) => {
 		// Beacon discovery earns a room seat only after auth proves the secret.
 		if (link.source === 'beacon' && link.auth !== 'verified') {
-			warnRoom('beacon.candidate.promote.before-auth', {
-				link: linkLog(link),
+			log('warn', 'room', 'beacon.candidate.promote.before-auth', {
+				link,
 				participantId: participantIdToString(participantId),
 			})
 			room.closeLink(link)
@@ -202,9 +202,9 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 
 			return offer
 		} catch (error) {
-			warnRoom('beacon.offer.create.failed', {
+			log('warn', 'room', 'beacon.offer.create.failed', {
 				error,
-				link: linkLog(link),
+				link,
 				offerId,
 			})
 			room.closeLink(link)
@@ -220,15 +220,15 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 		// An answer names the beacon peer that responded to our speculative offer.
 		const link = room.beaconOffers.get(offerId)
 		if (link == null) {
-			warnRoom('beacon.answer.missing-offer', { offerId })
+			log('warn', 'room', 'beacon.answer.missing-offer', { offerId })
 			return
 		}
 
 		const existing = verifiedBeaconLinkByPeer(link.role, beaconPeerId, link)
 		if (existing != null) {
-			infoRoom('beacon.answer.ignored.verified-peer', {
-				existing: linkLog(existing),
-				link: linkLog(link),
+			log('info', 'room', 'beacon.answer.ignored.verified-peer', {
+				existing,
+				link,
 			})
 			room.closeLink(link)
 			return
@@ -236,18 +236,18 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 
 		link.beaconPeerId = beaconPeerId
 		room.touchLinks()
-		infoRoom('beacon.answer.accept.start', { link: linkLog(link) })
+		log('info', 'room', 'beacon.answer.accept.start', { link })
 		void link.peer
 			.acceptAnswer(answer)
 			.then(() => {
 				if (room.links.get(link.id) !== link) return
 
-				infoRoom('beacon.answer.accept.done', { link: linkLog(link) })
+				log('info', 'room', 'beacon.answer.accept.done', { link })
 			})
 			.catch((error) => {
-				warnRoom('beacon.answer.accept.failed', {
+				log('warn', 'room', 'beacon.answer.accept.failed', {
 					error,
-					link: linkLog(link),
+					link,
 					offerId,
 				})
 				room.closeLink(link)
@@ -262,7 +262,7 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 		// A beacon offer is worth answering only while we know this room secret.
 		const role = beaconRendezvousRole()
 		if (room.roomKeys == null || role == null) {
-			warnRoom('beacon.offer.unexpected', {
+			log('warn', 'room', 'beacon.offer.unexpected', {
 				hasRoomKeys: room.roomKeys != null,
 				role,
 			})
@@ -270,8 +270,8 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 		}
 		const existing = verifiedBeaconLinkByPeer(role, beaconPeerId)
 		if (existing != null) {
-			infoRoom('beacon.offer.ignored.verified-peer', {
-				existing: linkLog(existing),
+			log('info', 'room', 'beacon.offer.ignored.verified-peer', {
+				existing,
 				role,
 			})
 			return
@@ -285,13 +285,13 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 			.then((answer) => {
 				if (room.links.get(link.id) !== link) return
 
-				infoRoom('beacon.offer.answer.sent', { link: linkLog(link) })
+				log('info', 'room', 'beacon.offer.answer.sent', { link })
 				reply(answer)
 			})
 			.catch((error) => {
-				warnRoom('beacon.offer.answer.failed', {
+				log('warn', 'room', 'beacon.offer.answer.failed', {
 					error,
-					link: linkLog(link),
+					link,
 				})
 				room.closeLink(link)
 			})
@@ -327,7 +327,7 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 						return
 					}
 
-					infoRoom('invite.link.ready', {
+					log('info', 'room', 'invite.link.ready', {
 						guests: presence.guests,
 						hosts: presence.hosts,
 						nextStep: inviteLinkNextStep(role, presence),
@@ -344,7 +344,7 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 					if (role === 'host') {
 						setHostAutoStatus(status === 'idle' ? 'finding' : status)
 						if (status === 'failed') {
-							warnRoom('invite.link.unreachable', {
+							log('warn', 'room', 'invite.link.unreachable', {
 								nextStep: 'switch-to-code',
 								role,
 							})
@@ -354,7 +354,7 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 						room.state.connection.side === 'guest' &&
 						room.state.connection.status === 'finding-link'
 					) {
-						warnRoom('invite.link.unreachable', {
+						log('warn', 'room', 'invite.link.unreachable', {
 							nextStep: 'ask-for-code-or-wait',
 							role,
 						})
@@ -367,8 +367,8 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 				role,
 			})
 		} catch (error) {
-			warnRoom('beacon.start.failed', { error, role })
-			warnRoom('invite.link.unreachable', {
+			log('warn', 'room', 'beacon.start.failed', { error, role })
+			log('warn', 'room', 'invite.link.unreachable', {
 				nextStep: role === 'host' ? 'switch-to-code' : 'ask-for-code-or-wait',
 				role,
 			})

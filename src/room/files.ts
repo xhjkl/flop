@@ -1,4 +1,5 @@
 import { base64ToBytes, bytesToBase64 } from '../binary'
+import { log } from '../log'
 import {
 	type Packet,
 	type ParticipantId,
@@ -13,7 +14,6 @@ import {
 	randomTransferId,
 } from './activity'
 import type { RoomLink } from './link'
-import { warnRoom } from './log'
 import { blipIssueCopy } from './status-copy'
 
 /** File transfers bridge packet chunks and the portrait activity chips people see. */
@@ -86,13 +86,13 @@ export const createRoomFileTransfers = (options: {
 		try {
 			bytes = base64ToBytes(message.data)
 		} catch (error) {
-			warnRoom('file.chunk.decode.failed', { error, id: message.id })
+			log('warn', 'room', 'file.chunk.decode.failed', { error, id: message.id })
 			markIncomingError(message.id, transfer)
 			return
 		}
 
 		if (transfer.receivedBytes + bytes.byteLength > transfer.size) {
-			warnRoom('file.chunk.too-large', {
+			log('warn', 'room', 'file.chunk.too-large', {
 				chunkBytes: bytes.byteLength,
 				id: message.id,
 				receivedBytes: transfer.receivedBytes,
@@ -125,7 +125,7 @@ export const createRoomFileTransfers = (options: {
 			type: transfer.mime || 'application/octet-stream',
 		})
 		if (blob.size !== transfer.size) {
-			warnRoom('file.end.size-mismatch', {
+			log('warn', 'room', 'file.end.size-mismatch', {
 				actual: blob.size,
 				expected: transfer.size,
 				id: message.id,
@@ -171,7 +171,7 @@ export const createRoomFileTransfers = (options: {
 			const sent = options.sendToLinks(peers, packet)
 			if (sent !== peers.length) {
 				partiallyDelivered = true
-				warnRoom(event, {
+				log('warn', 'room', event, {
 					id,
 					sent,
 					targets: peers.length,
@@ -247,7 +247,7 @@ export const createRoomFileTransfers = (options: {
 				await sendFileToPeers(file, peers)
 			}
 		} catch (error) {
-			warnRoom('file.send.failed', { error })
+			log('warn', 'room', 'file.send.failed', { error })
 			options.markLocalSendingFilesError()
 			options.setBlipIssue(blipIssueCopy.fileStopped)
 		}
@@ -257,7 +257,7 @@ export const createRoomFileTransfers = (options: {
 		for (const [id, transfer] of incomingFiles) {
 			if (transfer.from !== participantId) continue
 
-			warnRoom('file.receive.aborted', {
+			log('warn', 'room', 'file.receive.aborted', {
 				id,
 				participantId: participantIdToString(participantId),
 				reason: 'peer-left',

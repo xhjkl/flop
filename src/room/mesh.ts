@@ -1,10 +1,10 @@
+import { log } from '../log'
 import {
 	type Packet,
 	type ParticipantId,
 	participantIdToString,
 } from '../protocol'
 import type { RoomLink } from './link'
-import { warnRoom } from './log'
 import type { ParticipantKey, RoomParticipant } from './participant'
 
 type MeshOfferPacket = Extract<Packet, { type: 'peer-offer' }>
@@ -61,13 +61,13 @@ export const createRoomMesh = (options: {
 					signal,
 				})
 			) {
-				warnRoom('mesh.offer.send.failed', {
+				log('warn', 'room', 'mesh.offer.send.failed', {
 					participantId: participantIdToString(participantId),
 				})
 				options.closeLink(link)
 			}
 		} catch (error) {
-			warnRoom('mesh.offer.failed', {
+			log('warn', 'room', 'mesh.offer.failed', {
 				error,
 				participantId: participantIdToString(participantId),
 			})
@@ -111,7 +111,7 @@ export const createRoomMesh = (options: {
 			return
 		}
 		if (message.to !== localParticipantId) {
-			warnRoom('mesh.offer.wrong-target', {
+			log('warn', 'room', 'mesh.offer.wrong-target', {
 				from: participantIdToString(message.from),
 				to: participantIdToString(message.to),
 			})
@@ -139,13 +139,13 @@ export const createRoomMesh = (options: {
 					signal,
 				})
 			) {
-				warnRoom('mesh.answer.send.failed', {
+				log('warn', 'room', 'mesh.answer.send.failed', {
 					participantId: participantIdToString(message.from),
 				})
 				options.closeLink(link)
 			}
 		} catch (error) {
-			warnRoom('mesh.answer.failed', {
+			log('warn', 'room', 'mesh.answer.failed', {
 				error,
 				participantId: participantIdToString(message.from),
 			})
@@ -158,7 +158,7 @@ export const createRoomMesh = (options: {
 		const localParticipantId = options.localParticipantId()
 		if (localParticipantId == null) return
 		if (message.to !== localParticipantId) {
-			warnRoom('mesh.answer.wrong-target', {
+			log('warn', 'room', 'mesh.answer.wrong-target', {
 				from: participantIdToString(message.from),
 				to: participantIdToString(message.to),
 			})
@@ -167,7 +167,7 @@ export const createRoomMesh = (options: {
 
 		const link = options.participantLink(message.from)
 		if (link == null) {
-			warnRoom('mesh.answer.missing-link', {
+			log('warn', 'room', 'mesh.answer.missing-link', {
 				from: participantIdToString(message.from),
 			})
 			return
@@ -176,7 +176,7 @@ export const createRoomMesh = (options: {
 		try {
 			await link.peer.acceptAnswer(message.signal)
 		} catch (error) {
-			warnRoom('mesh.answer.accept.failed', {
+			log('warn', 'room', 'mesh.answer.accept.failed', {
 				error,
 				from: participantIdToString(message.from),
 			})

@@ -1,4 +1,4 @@
-import { warnLog } from '../log'
+import { log } from '../log'
 
 export type DataChannelHandlers = {
 	onOpen?: () => void
@@ -21,7 +21,7 @@ export const bindChannel = (
 	}
 	channel.onerror = (event) => {
 		// Errors rarely explain themselves, but the room should stop trusting the lane.
-		warnLog('rtc', 'datachannel.error', {
+		log('warn', 'rtc', 'datachannel.error', {
 			channel: channel.label,
 			type: event.type,
 		})

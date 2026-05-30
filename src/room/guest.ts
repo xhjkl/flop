@@ -1,3 +1,4 @@
+import { log } from '../log'
 import {
 	type Packet,
 	type Participant,
@@ -12,7 +13,6 @@ import { emptyBlipComposer, emptyGuestConnection } from './initial-state'
 import { inviteFromInput, inviteLinkFromSecret } from './invite'
 import type { RoomLifecycle } from './lifecycle'
 import type { RoomLink } from './link'
-import { errorRoom, linkLog, warnRoom } from './log'
 import { MANUAL_ADMISSION_TIMEOUT_MS } from './manual'
 import { participantKey } from './participant'
 import type { RoomRuntime } from './runtime'
@@ -40,7 +40,7 @@ export const createGuestFlow = (
 			room.hostParticipantId != null &&
 			!roster.some((p) => p.id === room.hostParticipantId)
 		) {
-			warnRoom('roster.missing-host', {
+			log('warn', 'room', 'roster.missing-host', {
 				hostId: participantIdToString(room.hostParticipantId),
 			})
 			lifecycle.markRoomClosed()
@@ -78,9 +78,9 @@ export const createGuestFlow = (
 				room.replaceParticipants(message.roster)
 				room.blips.applyPending()
 				if (!beacon.promoteRendezvousLink(link, message.hostId)) {
-					errorRoom('guest.welcome.adopt-link.failed', {
+					log('error', 'room', 'guest.welcome.adopt-link.failed', {
 						hostId: participantIdToString(message.hostId),
-						link: linkLog(link),
+						link,
 					})
 					lifecycle.markRoomClosed()
 					return
@@ -175,8 +175,8 @@ export const createGuestFlow = (
 				return
 			}
 
-			warnRoom('manual.admission.waiting', {
-				link: linkLog(link),
+			log('warn', 'room', 'manual.admission.waiting', {
+				link,
 				nextStep: 'resend-reply-or-fresh-invite',
 			})
 			room.setState('connection', {
@@ -233,7 +233,7 @@ export const createGuestFlow = (
 			})
 			watchReplyAdmission(nextLink, version)
 		} catch (error) {
-			warnRoom('reply.create.failed', { error })
+			log('warn', 'room', 'reply.create.failed', { error })
 			if (nextLink != null) room.closeLink(nextLink)
 			if (version !== room.signalingVersion) return
 			room.closeAllLinks()

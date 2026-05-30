@@ -1,3 +1,4 @@
+import { log } from '../log'
 import {
 	type Packet,
 	type ParticipantId,
@@ -10,7 +11,6 @@ import { emptyBlipComposer, emptyHostConnection } from './initial-state'
 import { inviteCodeFromSignal, inviteLinkFromSecret } from './invite'
 import type { RoomLifecycle } from './lifecycle'
 import type { RoomLink } from './link'
-import { errorRoom, infoRoom, linkLog, warnRoom } from './log'
 import { MANUAL_ADMISSION_TIMEOUT_MS } from './manual'
 import { mergeParticipant } from './participant'
 import type { RoomRuntime } from './runtime'
@@ -33,7 +33,7 @@ export const createHostFlow = (
 	const sendHostWelcome = (participantId: ParticipantId) => {
 		// Welcome gives the guest its id, host id, and first full roster.
 		if (room.localParticipantId == null) {
-			errorRoom('welcome.missing-local-host-id', {
+			log('error', 'room', 'welcome.missing-local-host-id', {
 				participantId: participantIdToString(participantId),
 			})
 			return
@@ -45,7 +45,7 @@ export const createHostFlow = (
 			type: 'welcome',
 		})
 		if (!sent) {
-			warnRoom('welcome.send.failed', {
+			log('warn', 'room', 'welcome.send.failed', {
 				participantId: participantIdToString(participantId),
 			})
 			const link = room.participantLink(participantId)
@@ -71,7 +71,7 @@ export const createHostFlow = (
 			case 'peer-answer':
 				// The host introduces guests; it should not become the long-term transport.
 				if (message.to === room.localParticipantId) {
-					warnRoom('mesh.signal.addressed-to-host', {
+					log('warn', 'room', 'mesh.signal.addressed-to-host', {
 						from: participantIdToString(participantId),
 						type: message.type,
 					})
@@ -83,7 +83,7 @@ export const createHostFlow = (
 						from: participantId,
 					})
 				) {
-					warnRoom('mesh.signal.forward.failed', {
+					log('warn', 'room', 'mesh.signal.forward.failed', {
 						from: participantIdToString(participantId),
 						to: participantIdToString(message.to),
 						type: message.type,
@@ -116,8 +116,8 @@ export const createHostFlow = (
 			keys.includes(person.id) ? keys : [...keys, person.id],
 		)
 		if (!beacon.promoteRendezvousLink(link, participant.id)) {
-			errorRoom('host.admit.adopt-link.failed', {
-				link: linkLog(link),
+			log('error', 'room', 'host.admit.adopt-link.failed', {
+				link,
 				participantId: participantIdToString(participant.id),
 			})
 			room.deleteParticipant(participant.id)
@@ -131,8 +131,8 @@ export const createHostFlow = (
 				replyText: '',
 			})
 		}
-		infoRoom('host.admit', {
-			link: linkLog(link),
+		log('info', 'room', 'host.admit', {
+			link,
 			participantId: participantIdToString(participant.id),
 		})
 		return { fresh: true, participantId: participant.id }
@@ -161,7 +161,7 @@ export const createHostFlow = (
 			}
 
 			if (options.claimed && room.localParticipantId != null) {
-				infoRoom('invite.link.claimed', {
+				log('info', 'room', 'invite.link.claimed', {
 					hostId: participantIdToString(room.localParticipantId),
 				})
 			}
@@ -202,7 +202,7 @@ export const createHostFlow = (
 				status: 'invite-ready',
 			})
 		} catch (error) {
-			warnRoom('invite.create.failed', { error })
+			log('warn', 'room', 'invite.create.failed', { error })
 			if (nextLink != null) room.closeLink(nextLink)
 			if (version !== room.signalingVersion) return
 			room.setState('connection', {
@@ -220,8 +220,8 @@ export const createHostFlow = (
 			if (room.links.get(link.id) !== link) return
 			if (link.remoteId != null) return
 
-			warnRoom('manual.admission.timeout', {
-				link: linkLog(link),
+			log('warn', 'room', 'manual.admission.timeout', {
+				link,
 				nextStep: 'fresh-signaling-or-network-change',
 			})
 			room.closeLink(link)
@@ -256,8 +256,8 @@ export const createHostFlow = (
 		}
 
 		if (participantId == null) {
-			warnRoom('host.rendezvous.message-before-hello', {
-				link: linkLog(link),
+			log('warn', 'room', 'host.rendezvous.message-before-hello', {
+				link,
 				type: message.type,
 			})
 			return
@@ -302,7 +302,7 @@ export const createHostFlow = (
 
 			watchManualAdmission(answeringLink, version)
 		} catch (error) {
-			warnRoom('manual.reply.direct-connection.failed', {
+			log('warn', 'room', 'manual.reply.direct-connection.failed', {
 				error,
 				nextStep: 'fresh-reply-or-network-change',
 			})

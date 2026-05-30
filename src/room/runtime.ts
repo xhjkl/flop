@@ -5,7 +5,9 @@ import {
 	type SetStoreFunction,
 	type Store,
 } from 'solid-js/store'
+import { log } from '../log'
 import {
+	encodePacket,
 	type Packet,
 	type Participant,
 	type ParticipantId,
@@ -34,7 +36,6 @@ import {
 	liveIdentifiedLinks,
 	type RoomLink,
 } from './link'
-import { infoRoom, linkLog, sendPacket, warnRoom } from './log'
 import {
 	createRoomMediaController,
 	type RoomMediaController,
@@ -428,7 +429,7 @@ export const createRoomRuntime = (runtimeOptions: {
 		const link = room.participantLink(participantId)
 		if (link == null || !link.live) return false
 
-		return sendPacket(link.peer, packet)
+		return link.peer.send(encodePacket(packet))
 	}
 
 	room.sendToLinks = (targetLinks, packet) => {
@@ -436,7 +437,7 @@ export const createRoomRuntime = (runtimeOptions: {
 		let sent = 0
 
 		for (const link of targetLinks) {
-			if (link.live && sendPacket(link.peer, packet)) sent++
+			if (link.live && link.peer.send(encodePacket(packet))) sent++
 		}
 
 		return sent
@@ -450,7 +451,7 @@ export const createRoomRuntime = (runtimeOptions: {
 			const link = room.linkByParticipantKey(key)
 			if (key === exceptKey || link == null || !link.live) continue
 
-			sendPacket(link.peer, packet)
+			link.peer.send(encodePacket(packet))
 		}
 	}
 
@@ -484,7 +485,7 @@ export const createRoomRuntime = (runtimeOptions: {
 		peer,
 		mediaState = selfMediaState(state.selfMedia),
 	) => {
-		return sendPacket(peer, { ...mediaState, type: 'media-state' })
+		return peer.send(encodePacket({ ...mediaState, type: 'media-state' }))
 	}
 
 	room.verifyLink = (link) => {
@@ -561,7 +562,7 @@ export const createRoomRuntime = (runtimeOptions: {
 				if (link == null) return
 				if (link.source !== 'beacon' && link.role === 'mesh') return
 
-				infoRoom('rtc.state', { link: linkLog(link), ...state })
+				log('info', 'room', 'rtc.state', { link, ...state })
 			},
 			onClose: () => runtimeOptions.linkEvents.onClose(id),
 		})
@@ -644,7 +645,7 @@ export const createRoomRuntime = (runtimeOptions: {
 		const link = room.createLink('mesh', { remoteId: participantId })
 
 		if (room.participantById(participantId) == null) {
-			warnRoom('mesh.link.unknown-participant', {
+			log('warn', 'room', 'mesh.link.unknown-participant', {
 				participantId: participantIdToString(participantId),
 			})
 			room.closeLink(link)

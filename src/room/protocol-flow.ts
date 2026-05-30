@@ -1,11 +1,11 @@
-import { decodePacket, type ParticipantId } from '../protocol'
+import { log } from '../log'
+import { decodePacket, encodePacket, type ParticipantId } from '../protocol'
 import type { Peer } from '../webrtc'
 import type { GuestFlow } from './guest'
 import type { HostFlow } from './host'
 import { emptyGuestConnection } from './initial-state'
 import type { RoomLifecycle } from './lifecycle'
 import type { LinkId, RoomLink } from './link'
-import { errorRoom, infoRoom, linkLog, sendPacket, warnRoom } from './log'
 import { participantKey } from './participant'
 import type { RoomRuntime } from './runtime'
 import { statusCopy } from './status-copy'
@@ -68,12 +68,12 @@ export const createProtocolFlow = (
 
 		link.live = true
 		room.touchLinks()
-		infoRoom('link.open', { link: linkLog(link) })
+		log('info', 'room', 'link.open', { link })
 
 		if (link.source === 'beacon' && link.auth !== 'verified') {
 			if (link.role === 'host-rendezvous') room.beaconAuth.sendChallenge(link)
 			else if (link.role !== 'guest-rendezvous') {
-				errorRoom('auth.unexpected-beacon-link-role', { link: linkLog(link) })
+				log('error', 'room', 'auth.unexpected-beacon-link-role', { link })
 				room.closeLink(link)
 			}
 			return
@@ -81,7 +81,7 @@ export const createProtocolFlow = (
 
 		if (link.role === 'guest-rendezvous') {
 			// Guests say hello first; hosts answer with welcome and identity.
-			sendPacket(link.peer, { type: 'hello' })
+			link.peer.send(encodePacket({ type: 'hello' }))
 			return
 		}
 
@@ -95,14 +95,17 @@ export const createProtocolFlow = (
 	const handlePeerMessage = (link: RoomLink, text: string) => {
 		const message = decodePacket(text)
 		if (message == null) {
-			warnRoom('packet.decode.failed', { length: text.length, linkId: link.id })
+			log('warn', 'room', 'packet.decode.failed', {
+				length: text.length,
+				linkId: link.id,
+			})
 			return
 		}
 		if (room.beaconAuth.handleAuthPacket(link, message)) return
 		if (link.source === 'beacon' && link.auth !== 'verified') {
 			// Beacon-discovered transports are only candidates until they prove the room secret.
-			warnRoom('packet.before-auth', {
-				link: linkLog(link),
+			log('warn', 'room', 'packet.before-auth', {
+				link,
 				type: message.type,
 			})
 			return
@@ -118,8 +121,8 @@ export const createProtocolFlow = (
 			case 'mesh':
 				// Mesh packets are only meaningful after the link is tied to a participant.
 				if (link.remoteId == null) {
-					warnRoom('mesh.message.missing-remote', {
-						link: linkLog(link),
+					log('warn', 'room', 'mesh.message.missing-remote', {
+						link,
 						type: message.type,
 					})
 					return
@@ -143,7 +146,7 @@ export const createProtocolFlow = (
 		const link = room.links.get(linkId)
 		if (link == null) return
 
-		infoRoom('link.close', { link: linkLog(link) })
+		log('info', 'room', 'link.close', { link })
 		if (link.remoteId != null) {
 			removeParticipantLink(link.remoteId, { peer: link.peer })
 			return
@@ -172,11 +175,11 @@ export const createProtocolFlow = (
 				room.state.connection.side === 'guest'
 					? room.state.connection.inviteText
 					: ''
-			warnRoom('webrtc.direct.failed', {
-				link: linkLog(link),
+			log('warn', 'room', 'webrtc.direct.failed', {
+				link,
 				nextStep: 'fresh-signaling-or-network-change',
 			})
-			warnRoom('manual.reply.direct-connection.failed', {
+			log('warn', 'room', 'manual.reply.direct-connection.failed', {
 				nextStep: 'fresh-reply-or-network-change',
 			})
 			room.closeAllLinks()

@@ -1,4 +1,4 @@
-import { warnLog } from './log'
+import { log } from './log'
 import type { SignalDescription } from './signal'
 import { bindChannel } from './webrtc/channel'
 import {
@@ -90,7 +90,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 
 		clearTimeout(disconnectTimeout)
 		disconnectTimeout = null
-		if (recovered) warnLog('rtc', 'disconnect.grace.recovered')
+		if (recovered) log('warn', 'rtc', 'disconnect.grace.recovered')
 	}
 
 	const closeTransport = () => {
@@ -115,7 +115,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		if (disconnectTimeout != null) return
 
 		// "Disconnected" is a warning, not a verdict, especially on phones.
-		warnLog('rtc', 'disconnect.grace.start', {
+		log('warn', 'rtc', 'disconnect.grace.start', {
 			connectionState: pc.connectionState,
 			iceConnectionState: pc.iceConnectionState,
 			timeoutMs: DISCONNECT_GRACE_MS,
@@ -129,7 +129,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 				iceState === 'disconnected' ||
 				iceState === 'failed'
 			) {
-				warnLog('rtc', 'disconnect.grace.expired', {
+				log('warn', 'rtc', 'disconnect.grace.expired', {
 					connectionState,
 					iceConnectionState: iceState,
 				})
@@ -356,7 +356,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 				await sender.replaceTrack(track)
 			})
 			.catch((error: unknown) => {
-				warnLog('rtc', 'replaceTrack.failed', {
+				log('warn', 'rtc', 'replaceTrack.failed', {
 					error,
 					kind,
 				})

@@ -1,5 +1,5 @@
 import { bytesToBase64Url } from '../binary'
-import { infoLog, warnLog } from '../log'
+import { log } from '../log'
 import { isSignalDescription, type SignalDescription } from '../signal'
 
 export type BeaconStatus = 'failed' | 'finding' | 'idle' | 'ready'
@@ -43,14 +43,6 @@ const RECONNECT_MAXIMUM_MS = 60_000
 const RECONNECT_MINIMUM_MS = 10_000
 const RECONNECT_VARIANCE_MS = 5_000
 const REFRESH_OFFER_INTERVAL_MS = 30_000
-
-const warnBeacon = (event: string, details: Record<string, unknown> = {}) => {
-	warnLog('beacon', event, details)
-}
-
-const infoBeacon = (event: string, details: Record<string, unknown> = {}) => {
-	infoLog('beacon', event, details)
-}
 
 const randomId = (length: number) => {
 	const bytes = new Uint8Array(length)
@@ -125,7 +117,7 @@ export const createBeaconRendezvous = (
 			socket.send(JSON.stringify(message))
 			return true
 		} catch (error) {
-			warnBeacon('socket.send.failed', { error, url })
+			log('warn', 'beacon', 'socket.send.failed', { error, url })
 			socket.close()
 			return false
 		}
@@ -160,7 +152,7 @@ export const createBeaconRendezvous = (
 			.then((offer) => {
 				if (closed || offer == null) return
 
-				infoBeacon('offer.sent', {
+				log('info', 'beacon', 'offer.sent', {
 					beaconPeerId,
 					role: options.role,
 					url,
@@ -172,7 +164,7 @@ export const createBeaconRendezvous = (
 					type: 'offer',
 				})
 			})
-			.catch((error) => warnBeacon('offer.create.failed', { error }))
+			.catch((error) => log('warn', 'beacon', 'offer.create.failed', { error }))
 	}
 
 	const scheduleReconnect = () => {
@@ -184,7 +176,7 @@ export const createBeaconRendezvous = (
 				2 ** reconnectAttempt * RECONNECT_MINIMUM_MS,
 				RECONNECT_MAXIMUM_MS,
 			) + Math.floor(Math.random() * RECONNECT_VARIANCE_MS)
-		infoBeacon('socket.reconnect.scheduled', { delay, url })
+		log('info', 'beacon', 'socket.reconnect.scheduled', { delay, url })
 		const timer = setTimeout(() => {
 			timers.delete(timer)
 			reconnectTimer = null
@@ -200,7 +192,7 @@ export const createBeaconRendezvous = (
 	const handleMessage = (data: unknown) => {
 		const message = decodeBeaconMessage(data)
 		if (message == null) {
-			warnBeacon('message.decode.failed', {
+			log('warn', 'beacon', 'message.decode.failed', {
 				length: typeof data === 'string' ? data.length : null,
 				url,
 			})
@@ -209,7 +201,7 @@ export const createBeaconRendezvous = (
 
 		if (message.type === 'ready' && typeof message.beaconPeerId === 'string') {
 			const presence = beaconPresence(message)
-			infoBeacon('ready', {
+			log('info', 'beacon', 'ready', {
 				guests: presence?.guests ?? null,
 				hosts: presence?.hosts ?? null,
 				role: options.role,
@@ -231,7 +223,7 @@ export const createBeaconRendezvous = (
 			if (message.beaconPeerId === peerId) return
 
 			const presence = beaconPresence(message)
-			infoBeacon('peer.joined', {
+			log('info', 'beacon', 'peer.joined', {
 				guests: presence?.guests ?? null,
 				hosts: presence?.hosts ?? null,
 				role: options.role,
@@ -247,11 +239,11 @@ export const createBeaconRendezvous = (
 		if (message.type === 'presence') {
 			const presence = beaconPresence(message)
 			if (presence == null) {
-				warnBeacon('presence.invalid', { url })
+				log('warn', 'beacon', 'presence.invalid', { url })
 				return
 			}
 
-			infoBeacon('presence', {
+			log('info', 'beacon', 'presence', {
 				guests: presence.guests,
 				hosts: presence.hosts,
 				role: options.role,
@@ -267,7 +259,7 @@ export const createBeaconRendezvous = (
 			typeof message.beaconPeerId === 'string' &&
 			isSignalDescription(message.answer)
 		) {
-			infoBeacon('answer.received', { url })
+			log('info', 'beacon', 'answer.received', { url })
 			options.onAnswer?.(message.offerId, message.beaconPeerId, message.answer)
 			return
 		}
@@ -280,9 +272,9 @@ export const createBeaconRendezvous = (
 		) {
 			if (message.beaconPeerId === peerId) return
 
-			infoBeacon('offer.received', { url })
+			log('info', 'beacon', 'offer.received', { url })
 			options.onOffer?.(message.offer, message.beaconPeerId, (answer) => {
-				infoBeacon('answer.sent', { url })
+				log('info', 'beacon', 'answer.sent', { url })
 				send({
 					answer,
 					beaconPeerId: message.beaconPeerId,
@@ -294,12 +286,12 @@ export const createBeaconRendezvous = (
 		}
 
 		if (message.type === 'error' && typeof message.reason === 'string') {
-			warnBeacon('message.error', { reason: message.reason, url })
+			log('warn', 'beacon', 'message.error', { reason: message.reason, url })
 			setStatus('failed')
 			return
 		}
 
-		warnBeacon('message.invalid', { type: message.type, url })
+		log('warn', 'beacon', 'message.invalid', { type: message.type, url })
 	}
 
 	const openSocket = () => {
@@ -310,7 +302,7 @@ export const createBeaconRendezvous = (
 		try {
 			nextSocket = new WebSocket(url)
 		} catch (error) {
-			warnBeacon('socket.create.failed', { error, url })
+			log('warn', 'beacon', 'socket.create.failed', { error, url })
 			setStatus('failed')
 			scheduleReconnect()
 			return
@@ -320,7 +312,7 @@ export const createBeaconRendezvous = (
 		nextSocket.onopen = () => {
 			if (socket !== nextSocket) return
 
-			infoBeacon('socket.open', { url })
+			log('info', 'beacon', 'socket.open', { url })
 			reconnectAttempt = 0
 			send({
 				beaconPeerId: peerId,
@@ -342,7 +334,7 @@ export const createBeaconRendezvous = (
 			scheduleReconnect()
 		}
 		nextSocket.onerror = (event) => {
-			warnBeacon('socket.error', { type: event.type, url })
+			log('warn', 'beacon', 'socket.error', { type: event.type, url })
 			setStatus('failed')
 			nextSocket.close()
 		}

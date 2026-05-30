@@ -1,7 +1,6 @@
-import type { Packet, ParticipantId } from '../protocol'
+import { encodePacket, type Packet, type ParticipantId } from '../protocol'
 import type { Peer } from '../webrtc'
 import type { RoomLink } from './link'
-import { sendPacket } from './log'
 import type { RoomParticipant } from './participant'
 
 /** Local blip state that can exist before the guest has a room identity. */
@@ -55,7 +54,7 @@ export const createRoomBlips = (options: {
 		const blip = localBlip()
 		if (blip == null) return false
 
-		return sendPacket(peer, { type: 'blip', text: blip })
+		return peer.send(encodePacket({ type: 'blip', text: blip }))
 	}
 
 	const publishLocal = () => {
