@@ -24,6 +24,12 @@ export type InviteLinkPresence = {
 	peers: number
 }
 
+/** Shared TURN usage remaining for a relayed room; bytes format at the UI edge. */
+export type RelayMetering = {
+	bytesLeft: number
+	secondsLeft: number
+}
+
 /** Guest connection card steps from paste through admission. */
 export type GuestConnectionStatus =
 	| 'connected'
@@ -49,6 +55,8 @@ export type GuestConnectionState = {
 	status: GuestConnectionStatus
 	inviteText: string
 	inviteLinkPresence: InviteLinkPresence | null
+	/** Direct-first relay affordance: null hides it, 0 offers the relay. */
+	relayFallbackSecondsLeft: number | null
 	replyCode: string
 	issue: string | null
 }

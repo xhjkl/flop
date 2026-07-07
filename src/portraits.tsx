@@ -53,6 +53,15 @@ const hasActiveSelfPreview = (media: SelfMedia) => {
 	)
 }
 
+const hasSelfMediaWarning = (status: SelfMediaStatus) => {
+	return (
+		status === 'denied' ||
+		status === 'missing' ||
+		status === 'unsupported' ||
+		status === 'error'
+	)
+}
+
 const VideoStream = (props: {
 	active?: boolean
 	class: string
@@ -81,18 +90,18 @@ const VideoStream = (props: {
 		video.srcObject = null
 	})
 
+	const hidden = () => (props.stream ?? null) == null || props.active === false
+
 	return (
 		<video
 			ref={(element) => {
 				video = element
 			}}
-			class={props.class}
-			data-active={
-				(props.stream ?? null) != null && props.active !== false
-					? 'true'
-					: 'false'
-			}
-			data-mirrored={props.mirrored === true ? 'true' : 'false'}
+			class={`media-video ${props.class}`}
+			classList={{
+				'is-hidden': hidden(),
+				'is-mirrored': props.mirrored === true,
+			}}
 			autoplay
 			muted={props.muted}
 			playsinline
@@ -156,14 +165,17 @@ const FileChip = (props: { file: PortraitFileState }) => {
 		<Show
 			when={props.file.url != null}
 			fallback={
-				<span class="file-chip" data-file-state={props.file.state}>
+				<span
+					class="file-chip"
+					classList={{ 'is-error': props.file.state === 'error' }}
+				>
 					{body()}
 				</span>
 			}
 		>
 			<a
 				class="file-chip"
-				data-file-state={props.file.state}
+				classList={{ 'is-error': props.file.state === 'error' }}
 				href={props.file.url ?? ''}
 				download={props.file.name}
 			>
@@ -284,8 +296,11 @@ const BlipComposer = (props: {
 						enterkeyhint="done"
 						placeholder="tap to edit blip"
 						rows={1}
-						data-editing={editing() ? 'true' : 'false'}
-						data-committed={committed() ? 'true' : 'false'}
+						class="blip-composer-input"
+						classList={{
+							'is-editing': editing(),
+							'is-committed': committed(),
+						}}
 						onFocus={() => setEditing(true)}
 						onInput={(event) => {
 							setDirty(true)
@@ -319,11 +334,14 @@ export const PersonCard = (props: {
 	return (
 		<article
 			class="portrait-card person-card"
-			data-state={props.connectionState}
+			classList={{ 'is-live': props.connectionState === 'live' }}
 		>
 			<div
 				class="portrait-face person-face"
-				data-has-video={videoActive() ? 'true' : 'false'}
+				classList={{
+					'has-video': videoActive(),
+					'is-empty': !videoActive(),
+				}}
 				style={{ '--card-h': `${hueFromSeed(props.colorSeed)}` }}
 			>
 				<VideoStream
@@ -357,8 +375,12 @@ export const SelfMediaCard = (props: {
 	return (
 		<article
 			class="portrait-card self-card"
-			data-media-state={props.media.status}
-			data-has-preview={hasLiveSelfPreview(props.media) ? 'true' : 'false'}
+			classList={{
+				'is-live': props.media.status === 'live',
+				'has-preview': hasLiveSelfPreview(props.media),
+				'is-setup': props.media.status !== 'live',
+				'is-warning': hasSelfMediaWarning(props.media.status),
+			}}
 		>
 			<Show when={hasLiveSelfPreview(props.media)}>
 				<div class="portrait-face self-portrait-face">
@@ -462,7 +484,6 @@ const ToggleButton = (props: {
 		<button
 			type="button"
 			class="self-toggle"
-			data-enabled={props.enabled ? 'true' : 'false'}
 			onClick={props.onPress}
 			disabled={props.disabled ?? false}
 			aria-pressed={props.enabled}

@@ -5,12 +5,15 @@ import type {
 	ConnectionState,
 	GuestConnectionState,
 	HostConnectionState,
+	RelayMetering,
 } from '../state'
 
 /** Solid room store: visible card state, not persisted room data. */
 export type RoomState = {
 	blipComposer: BlipComposerState
 	connection: ConnectionState
+	/** Shared TURN usage shown while a room is relayed. */
+	relayMetering: RelayMetering | null
 	selfMedia: SelfMedia
 	themeSeed: string
 }
@@ -34,6 +37,7 @@ export const emptyGuestConnection = (): GuestConnectionState => ({
 	status: 'needs-invite',
 	inviteText: '',
 	inviteLinkPresence: null,
+	relayFallbackSecondsLeft: null,
 	replyCode: '',
 	issue: null,
 })
@@ -58,6 +62,7 @@ export const emptyRoomState = (themeSeed: string): RoomState => {
 	return {
 		blipComposer: emptyBlipComposer(),
 		connection: emptyHostConnection(),
+		relayMetering: null,
 		selfMedia: emptySelfMedia(),
 		themeSeed,
 	}

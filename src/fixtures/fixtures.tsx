@@ -10,6 +10,7 @@ import type {
 	GuestConnectionState,
 	HostConnectionState,
 	PortraitActivityState,
+	RelayMetering,
 } from '../state'
 
 export type UiFixture = {
@@ -110,6 +111,7 @@ const guestConnection = (
 		status: 'needs-invite',
 		inviteText: '',
 		inviteLinkPresence: null,
+		relayFallbackSecondsLeft: null,
 		replyCode: '',
 		issue: null,
 		...overrides,
@@ -178,6 +180,7 @@ const room = (
 		themeSeed: string
 		hostInviteMode?: RoomViewProps['hostInviteMode']
 		peers?: RoomPeer[]
+		relayMetering?: RelayMetering | null
 		selfActivity?: PortraitActivityState
 		selfMedia?: SelfMedia
 		canClaimFindingInviteLink?: boolean
@@ -193,6 +196,7 @@ const room = (
 			state: {
 				blipComposer: props.blipComposer ?? emptyComposer,
 				connection: props.connection,
+				relayMetering: props.relayMetering ?? null,
 				selfMedia: props.selfMedia ?? selfMedia(),
 				themeSeed: props.themeSeed,
 			},
@@ -338,6 +342,28 @@ export const uiFixtures: UiFixture[] = [
 				status: 'finding-link',
 				inviteText: SAMPLE_INVITE_LINK,
 				inviteLinkPresence: { guests: 1, hosts: 1, peers: 1 },
+				relayFallbackSecondsLeft: 18,
+			}),
+		}),
+	),
+	fixture(
+		'guest-link-relay-offered',
+		'Guest link relay offered',
+		'The direct attempt waited long enough, so the guest can explicitly spend shared relay budget.',
+		room({
+			themeSeed: SAMPLE_INVITE_LINK,
+			peers: [
+				{
+					activity: emptyActivity,
+					id: HOST_ID,
+					connectionState: 'waiting',
+				},
+			],
+			connection: guestConnection({
+				status: 'finding-link',
+				inviteText: SAMPLE_INVITE_LINK,
+				inviteLinkPresence: { guests: 1, hosts: 1, peers: 2 },
+				relayFallbackSecondsLeft: 0,
 			}),
 		}),
 	),
@@ -548,6 +574,33 @@ export const uiFixtures: UiFixture[] = [
 		'The connected guest strip is people-first, so the connection card disappears.',
 		room({
 			themeSeed: HOST_ID,
+			selfMedia: liveSelfMedia({ cameraEnabled: true }),
+			peers: [
+				{
+					activity: emptyActivity,
+					id: HOST_ID,
+					mediaState: {
+						cameraEnabled: true,
+						microphoneEnabled: true,
+						screenEnabled: false,
+					},
+					connectionState: 'live',
+				},
+			],
+			connection: guestConnection({
+				status: 'connected',
+				inviteText: SAMPLE_OFFER,
+				replyCode: SAMPLE_REPLY,
+			}),
+		}),
+	),
+	fixture(
+		'guest-connected-relay',
+		'Guest connected relay',
+		'The connected guest is using the shared relay, so the cost notice appears.',
+		room({
+			themeSeed: HOST_ID,
+			relayMetering: { bytesLeft: 1_600_000_000, secondsLeft: 48 * 60 },
 			selfMedia: liveSelfMedia({ cameraEnabled: true }),
 			peers: [
 				{

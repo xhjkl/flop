@@ -1,4 +1,5 @@
 import { createSignal, Match, onCleanup, Show, Switch } from 'solid-js'
+import { Daisy } from './daisy'
 import { canShareText, shareText } from './room/invite'
 import { statusCopy } from './room/status-copy'
 import type {
@@ -8,6 +9,8 @@ import type {
 } from './state'
 
 export type HostInviteMode = 'code' | 'link'
+
+const DAISY_MAX_SECONDS = 30
 
 const ShareTextBlock = (props: {
 	label: string
@@ -45,20 +48,23 @@ const ShareTextBlock = (props: {
 	})
 
 	return (
-		<div class="connection-copy-block" data-empty={empty() ? 'true' : 'false'}>
+		<div class="connection-copy-block" classList={{ 'is-empty': empty() }}>
 			<div class="connection-copy-head">
 				<span>{props.label}</span>
 				<button
 					type="button"
+					class="connection-copy-button"
 					onClick={press}
 					disabled={empty() || (props.disabled ?? false)}
-					data-copied={copied() ? 'true' : 'false'}
+					classList={{ 'is-copied': copied() }}
 				>
 					{actionLabel()}
 				</button>
 			</div>
 			{/* Codes are text memos. Show the whole thing; do not make users decode our UI. */}
-			<pre>{empty() ? props.placeholder : props.value}</pre>
+			<pre class="connection-copy-value">
+				{empty() ? props.placeholder : props.value}
+			</pre>
 		</div>
 	)
 }
@@ -123,7 +129,10 @@ const HostInvitePane = (props: {
 	const inviteLinkReady = () => props.connection.inviteLinkStatus === 'ready'
 
 	return (
-		<div class="connection-mode-frame" data-mode={props.mode}>
+		<div
+			class="connection-mode-frame connection-body"
+			classList={{ 'is-code': props.mode === 'code' }}
+		>
 			<div class="connection-mode-rail">
 				<div
 					class="connection-mode-pane"
@@ -198,7 +207,7 @@ const HostInvitePane = (props: {
 						/>
 					</div>
 					<Show when={props.canJoinExistingRoom}>
-						<div class="connection-side-switch">
+						<div class="connection-side-switch connection-action">
 							<button type="button" onClick={props.onBecomeGuest}>
 								join someone else instead
 							</button>
@@ -218,9 +227,10 @@ const GuestInvitePane = (props: {
 	onCopyReplyCode: () => void
 	onCreateReply: (inviteText?: string) => void
 	onSetInviteText: (inviteText: string) => void
+	onTryRelay?: () => void
 }) => {
 	const creating = () => props.connection.status === 'creating-reply'
-	const canShowCreate = () => props.connection.status !== 'finding-link'
+	const hasInviteField = () => props.connection.status !== 'finding-link'
 	const canCreate = () =>
 		creating() || props.connection.inviteText.trim() !== ''
 	const canClaimFindingLink = () =>
@@ -240,7 +250,12 @@ const GuestInvitePane = (props: {
 						props.connection.status === 'finding-link'
 					}
 				>
-					<div class="connection-main">
+					<div
+						class="connection-main connection-body"
+						classList={{
+							'is-field': hasInviteField(),
+						}}
+					>
 						<Show
 							when={props.connection.status !== 'finding-link'}
 							fallback={
@@ -263,8 +278,8 @@ const GuestInvitePane = (props: {
 							/>
 						</Show>
 					</div>
-					<Show when={canShowCreate()}>
-						<div class="card-actions">
+					<Show when={hasInviteField()}>
+						<div class="card-actions connection-action">
 							<button
 								type="button"
 								onClick={() => props.onCreateReply()}
@@ -275,7 +290,7 @@ const GuestInvitePane = (props: {
 						</div>
 					</Show>
 					<Show when={canClaimFindingLink()}>
-						<div class="card-actions">
+						<div class="card-actions connection-action">
 							<button type="button" onClick={props.onClaimInviteLinkAsHost}>
 								host this link
 							</button>
@@ -283,7 +298,7 @@ const GuestInvitePane = (props: {
 					</Show>
 				</Match>
 				<Match when={props.connection.status === 'reply-ready'}>
-					<div class="connection-main">
+					<div class="connection-main connection-body">
 						<ShareTextBlock
 							label="reply code"
 							value={props.connection.replyCode}
@@ -301,13 +316,45 @@ const GuestInvitePane = (props: {
 					props.connection.status !== 'finding-link'
 				}
 			>
-				<div class="connection-side-switch">
+				<div class="connection-side-switch connection-action">
 					<button type="button" onClick={props.onBecomeHost}>
 						start a room instead
 					</button>
 				</div>
 			</Show>
 		</>
+	)
+}
+
+const relayWaitSeconds = (seconds: number) => {
+	return Math.max(0, Math.min(DAISY_MAX_SECONDS, Math.round(seconds)))
+}
+
+const FindingRelayControl = (props: {
+	secondsLeft: number
+	onTryRelay?: () => void
+}) => {
+	const secondsLeft = () => relayWaitSeconds(props.secondsLeft)
+
+	return (
+		<Show
+			when={secondsLeft() <= 0}
+			fallback={
+				<Daisy
+					max={DAISY_MAX_SECONDS}
+					text={`${secondsLeft()}`}
+					value={secondsLeft()}
+				/>
+			}
+		>
+			<button
+				type="button"
+				class="connection-relay-button"
+				onClick={props.onTryRelay}
+			>
+				try relay
+			</button>
+		</Show>
 	)
 }
 
@@ -326,6 +373,7 @@ export const ConnectionCard = (props: {
 	onCreateReply: (inviteText?: string) => void
 	onSetInviteText: (inviteText: string) => void
 	onSetReplyText: (replyText: string) => void
+	onTryRelay?: () => void
 }) => {
 	const hostConnection = () =>
 		props.connection.side === 'host' ? props.connection : null
@@ -351,6 +399,23 @@ export const ConnectionCard = (props: {
 		const connection = guestConnection()
 		return connection?.issue == null && hasFindingLinkHost()
 	}
+	const findingRelaySecondsLeft = () => {
+		const connection = guestConnection()
+		if (connection?.status !== 'finding-link') return null
+		if (!hasReachableFindingLinkHost()) return null
+
+		return connection.relayFallbackSecondsLeft
+	}
+	const hasFindingRelayControl = () => findingRelaySecondsLeft() != null
+	const hasConnectionCopy = () =>
+		props.connection.side !== 'host' && !hasFindingRelayControl()
+	const hasConnectionEntryLayout = () => {
+		const connection = guestConnection()
+		return (
+			connection?.status === 'needs-invite' ||
+			connection?.status === 'creating-reply'
+		)
+	}
 	const [hostInviteMode, setHostInviteMode] = createSignal<HostInviteMode>(
 		props.initialHostInviteMode ?? 'link',
 	)
@@ -358,58 +423,43 @@ export const ConnectionCard = (props: {
 	return (
 		<article
 			class="portrait-card utility-card connection-card"
-			data-side={props.connection.side}
+			classList={{ 'is-entry': hasConnectionEntryLayout() }}
 		>
-			<header class="utility-header">
-				<Switch fallback={<strong>reply code</strong>}>
-					<Match when={props.connection.side === 'host'}>
-						<div class="connection-mode-heading">
-							<strong>invite:</strong>
-							<button
-								type="button"
-								data-active={hostInviteMode() === 'link' ? 'true' : 'false'}
-								onClick={() => setHostInviteMode('link')}
-							>
-								with link
-							</button>
-							<span>|</span>
-							<button
-								type="button"
-								data-active={hostInviteMode() === 'code' ? 'true' : 'false'}
-								onClick={() => setHostInviteMode('code')}
-							>
-								with code
-							</button>
-						</div>
-					</Match>
-					<Match when={props.connection.side === 'closed'}>
-						<strong>room closed</strong>
-					</Match>
-					<Match
-						when={
-							props.connection.side === 'guest' &&
-							props.connection.status === 'connected'
-						}
-					>
-						<strong>connected</strong>
-					</Match>
-				</Switch>
-			</header>
-			<Show when={props.connection.side !== 'host'}>
-				<div class="connection-copy">
-					<Switch
-						fallback={
-							<p>
-								Send this reply code back to the person who invited you. They
-								will paste it to let you in.
-							</p>
-						}
-					>
+			<div class="connection-top">
+				<header class="utility-header">
+					<Switch fallback={<strong>reply code</strong>}>
+						<Match when={hasFindingRelayControl()}>
+							<div class="connection-finding-header">
+								<strong>reply code</strong>
+								<p>Found the host. Keep this tab open to join the room.</p>
+								<FindingRelayControl
+									secondsLeft={findingRelaySecondsLeft() ?? 0}
+									onTryRelay={props.onTryRelay}
+								/>
+							</div>
+						</Match>
+						<Match when={props.connection.side === 'host'}>
+							<div class="connection-mode-heading">
+								<strong>invite:</strong>
+								<button
+									type="button"
+									aria-pressed={hostInviteMode() === 'link' ? 'true' : 'false'}
+									onClick={() => setHostInviteMode('link')}
+								>
+									with link
+								</button>
+								<span>|</span>
+								<button
+									type="button"
+									aria-pressed={hostInviteMode() === 'code' ? 'true' : 'false'}
+									onClick={() => setHostInviteMode('code')}
+								>
+									with code
+								</button>
+							</div>
+						</Match>
 						<Match when={props.connection.side === 'closed'}>
-							<p>
-								This room is no longer live. Start a new room or join someone
-								else.
-							</p>
+							<strong>room closed</strong>
 						</Match>
 						<Match
 							when={
@@ -417,81 +467,110 @@ export const ConnectionCard = (props: {
 								props.connection.status === 'connected'
 							}
 						>
-							<p>Connected directly.</p>
-						</Match>
-						<Match
-							when={
-								props.connection.side === 'guest' &&
-								props.connection.status === 'needs-invite'
-							}
-						>
-							<p>
-								Paste an invite link or invite code from another device. Links
-								can connect automatically; codes create a reply to send back.
-							</p>
-						</Match>
-						<Match
-							when={
-								props.connection.side === 'guest' &&
-								props.connection.status === 'creating-reply'
-							}
-						>
-							<p>Creating a reply code. Keep this tab open.</p>
-						</Match>
-						<Match
-							when={
-								props.connection.side === 'guest' &&
-								props.connection.status === 'reply-ready'
-							}
-						>
-							<p>
-								Send this reply code to the host. Keep this tab open until you
-								appear in the room.
-							</p>
-						</Match>
-						<Match
-							when={
-								props.connection.side === 'guest' &&
-								props.connection.status === 'finding-link' &&
-								hasClaimableFindingLink()
-							}
-						>
-							<p>
-								No host is here yet. Wait for them to open the link, or host
-								this link yourself.
-							</p>
-						</Match>
-						<Match
-							when={
-								props.connection.side === 'guest' &&
-								props.connection.status === 'finding-link' &&
-								hasReachableFindingLinkHost()
-							}
-						>
-							<p>Found the host. Keep this tab open to join the room.</p>
-						</Match>
-						<Match
-							when={
-								props.connection.side === 'guest' &&
-								props.connection.status === 'finding-link'
-							}
-						>
-							<p>
-								Finding the host from this invite link. If the wait feels too
-								long, ask for an invite code.
-							</p>
+							<strong>connected</strong>
 						</Match>
 					</Switch>
-					<Show
-						when={props.connection.side !== 'closed' && props.connection.issue}
-					>
-						{(issue) => <p class="connection-issue">{issue()}</p>}
-					</Show>
-				</div>
-			</Show>
+				</header>
+				<Show when={hasConnectionCopy()}>
+					<div class="connection-copy">
+						<Switch
+							fallback={
+								<p>
+									Send this reply code back to the person who invited you. They
+									will paste it to let you in.
+								</p>
+							}
+						>
+							<Match when={props.connection.side === 'closed'}>
+								<p>
+									This room is no longer live. Start a new room or join someone
+									else.
+								</p>
+							</Match>
+							<Match
+								when={
+									props.connection.side === 'guest' &&
+									props.connection.status === 'connected'
+								}
+							>
+								<p>Connected directly.</p>
+							</Match>
+							<Match
+								when={
+									props.connection.side === 'guest' &&
+									props.connection.status === 'needs-invite'
+								}
+							>
+								<p>
+									Paste an invite link or invite code from another device. Links
+									can connect automatically; codes create a reply to send back.
+								</p>
+							</Match>
+							<Match
+								when={
+									props.connection.side === 'guest' &&
+									props.connection.status === 'creating-reply'
+								}
+							>
+								<p>Creating a reply code. Keep this tab open.</p>
+							</Match>
+							<Match
+								when={
+									props.connection.side === 'guest' &&
+									props.connection.status === 'reply-ready'
+								}
+							>
+								<p>
+									Send this reply code to the host. Keep this tab open until you
+									appear in the room.
+								</p>
+							</Match>
+							<Match
+								when={
+									props.connection.side === 'guest' &&
+									props.connection.status === 'finding-link' &&
+									hasClaimableFindingLink()
+								}
+							>
+								<p>
+									No host is here yet. Wait for them to open the link, or host
+									this link yourself.
+								</p>
+							</Match>
+							<Match
+								when={
+									props.connection.side === 'guest' &&
+									props.connection.status === 'finding-link' &&
+									hasReachableFindingLinkHost()
+								}
+							>
+								<p>Found the host. Keep this tab open to join the room.</p>
+							</Match>
+							<Match
+								when={
+									props.connection.side === 'guest' &&
+									props.connection.status === 'finding-link'
+								}
+							>
+								<p>
+									Finding the host from this invite link. If the wait feels too
+									long, ask for an invite code.
+								</p>
+							</Match>
+						</Switch>
+						<Show
+							when={
+								props.connection.side !== 'closed' && props.connection.issue
+							}
+						>
+							{(issue) => <p class="connection-issue">{issue()}</p>}
+						</Show>
+					</div>
+				</Show>
+			</div>
 			<Switch>
 				<Match when={props.connection.side === 'closed'}>
-					<div class="card-actions">
+					<div class="card-actions connection-action">
 						<button type="button" onClick={props.onBecomeHost}>
 							start a new room
 						</button>
@@ -526,6 +605,7 @@ export const ConnectionCard = (props: {
 							onCopyReplyCode={props.onCopyReplyCode}
 							onCreateReply={props.onCreateReply}
 							onSetInviteText={props.onSetInviteText}
+							onTryRelay={props.onTryRelay}
 						/>
 					)}
 				</Match>
