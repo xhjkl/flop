@@ -1,6 +1,4 @@
 import type { JSX } from 'solid-js'
-import { ConnectionCard } from '../connection-card'
-import { Room } from '../portraits'
 import type { RoomPeer, RoomState } from '../room'
 import { blipIssueCopy, statusCopy } from '../room/status-copy'
 import { RoomView, type RoomViewProps } from '../room-view'
@@ -16,7 +14,6 @@ import type {
 export type UiFixture = {
 	id: string
 	title: string
-	description: string
 	render: () => JSX.Element
 }
 
@@ -128,49 +125,11 @@ const closedConnection = (
 	}
 }
 
-const fixture = (
-	id: string,
-	title: string,
-	description: string,
-	view: RoomViewProps,
-): UiFixture => {
+const fixture = (id: string, title: string, view: RoomViewProps): UiFixture => {
 	return {
 		id,
 		title,
-		description,
 		render: () => <RoomView {...view} />,
-	}
-}
-
-const connectionCardFixture = (
-	id: string,
-	title: string,
-	description: string,
-	connection: RoomState['connection'],
-): UiFixture => {
-	return {
-		id,
-		title,
-		description,
-		render: () => (
-			<Room themeSeed={HOST_ID}>
-				<ConnectionCard
-					connection={connection}
-					canClaimFindingInviteLink={false}
-					canJoinExistingRoom
-					onAcceptReply={noopTextMaybe}
-					onBecomeGuest={noop}
-					onBecomeHost={noop}
-					onClaimInviteLinkAsHost={noop}
-					onCopyInviteLink={noop}
-					onCopyInviteCode={noop}
-					onCopyReplyCode={noop}
-					onCreateReply={noopTextMaybe}
-					onSetInviteText={noopText}
-					onSetReplyText={noopText}
-				/>
-			</Room>
-		),
 	}
 }
 
@@ -208,7 +167,6 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'welcome-host',
 		'Welcome host',
-		'The first host screen: welcome copy, media enable action, and a ready invite link.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			connection: hostConnection(),
@@ -217,17 +175,20 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'media-requesting',
 		'Media requesting',
-		'Browser permission prompt is open and the local portrait is waiting.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			selfMedia: selfMedia({ status: 'requesting' }),
-			connection: hostConnection(),
+			connection: hostConnection({
+				status: 'creating-invite',
+				inviteLink: '',
+				inviteLinkStatus: 'idle',
+				inviteCode: '',
+			}),
 		}),
 	),
 	fixture(
 		'media-denied',
 		'Media denied',
-		'The shared self portrait renders the media failure branch and retry action.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			selfMedia: selfMedia({
@@ -239,32 +200,8 @@ export const uiFixtures: UiFixture[] = [
 		}),
 	),
 	fixture(
-		'host-invite-creating',
-		'Host invite creating',
-		'The host room exists before either invite surface is ready.',
-		room({
-			themeSeed: HOST_ID,
-			connection: hostConnection({
-				status: 'creating-invite',
-				inviteLink: '',
-				inviteLinkStatus: 'idle',
-				inviteCode: '',
-			}),
-		}),
-	),
-	fixture(
-		'host-link-finding',
-		'Host link finding',
-		'The host has an invite code, but the beacon invite link is still preparing.',
-		room({
-			themeSeed: SAMPLE_INVITE_LINK,
-			connection: hostConnection({ inviteLinkStatus: 'finding' }),
-		}),
-	),
-	fixture(
 		'host-code-fallback',
 		'Host code fallback',
-		'Connection card opened to the invite code and reply code paste pane.',
 		room({
 			themeSeed: SAMPLE_INVITE_CODE,
 			hostInviteMode: 'code',
@@ -272,43 +209,16 @@ export const uiFixtures: UiFixture[] = [
 		}),
 	),
 	fixture(
-		'host-accepting-reply',
-		'Host accepting reply',
-		'The host has pasted a reply code and the connection card is temporarily busy.',
-		room({
-			themeSeed: SAMPLE_INVITE_CODE,
-			hostInviteMode: 'code',
-			connection: hostConnection({
-				status: 'accepting-reply',
-				replyText: SAMPLE_REPLY,
-			}),
-		}),
-	),
-	fixture(
 		'guest-needs-invite',
 		'Guest needs invite',
-		'The guest has not received an invite yet and can still start a room instead.',
 		room({
 			themeSeed: 'guest-needs-invite',
 			connection: guestConnection(),
 		}),
 	),
 	fixture(
-		'guest-creating-reply',
-		'Guest creating reply code',
-		'Guest accepted an invite and is building the reply code.',
-		room({
-			themeSeed: SAMPLE_OFFER,
-			connection: guestConnection({
-				status: 'creating-reply',
-				inviteText: SAMPLE_OFFER,
-			}),
-		}),
-	),
-	fixture(
 		'reply-ready',
 		'Reply ready',
-		'You opened an invite and now need to send one reply code back.',
 		room({
 			themeSeed: SAMPLE_REPLY,
 			peers: [
@@ -328,7 +238,6 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'guest-link-finding',
 		'Guest link finding',
-		'The guest opened an invite link and should wait, not create a reply code.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			peers: [
@@ -349,7 +258,6 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'guest-link-relay-offered',
 		'Guest link relay offered',
-		'The direct attempt waited long enough, so the guest can explicitly spend shared relay budget.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			peers: [
@@ -370,7 +278,6 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'guest-link-unhosted',
 		'Guest link unhosted',
-		'The guest has the secret invite link, but no host is currently present.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			canClaimFindingInviteLink: true,
@@ -384,7 +291,6 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'guest-link-host-present-service-failed',
 		'Guest link service failed with host present',
-		'The guest saw a host before the invite-link service became unreachable.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			connection: guestConnection({
@@ -396,61 +302,8 @@ export const uiFixtures: UiFixture[] = [
 		}),
 	),
 	fixture(
-		'blip-issue-no-peers',
-		'Blip issue no peers',
-		'File-drop feedback lives in the self portrait when nobody can receive files.',
-		room({
-			themeSeed: 'blip-issue-no-peers',
-			blipComposer: {
-				issue: blipIssueCopy.fileNoPeers,
-				text: '',
-			},
-			connection: hostConnection(),
-		}),
-	),
-	fixture(
-		'blip-issue-partial-file',
-		'Blip issue partial file',
-		'Partial file delivery keeps a visible issue while the local file chip is ready.',
-		room({
-			themeSeed: SAMPLE_INVITE_LINK,
-			selfActivity: {
-				blip: 'shared the screenshots',
-				files: [
-					{
-						id: 'partial-file',
-						name: 'screenshots.zip',
-						receivedBytes: 100,
-						size: 100,
-						state: 'ready',
-						url: null,
-					},
-				],
-			},
-			selfMedia: liveSelfMedia(),
-			blipComposer: {
-				issue: blipIssueCopy.filePartialDelivery,
-				text: 'shared the screenshots',
-			},
-			peers: [
-				{
-					activity: emptyActivity,
-					id: OLEG_ID,
-					connectionState: 'live',
-				},
-				{
-					activity: emptyActivity,
-					id: NADIA_ID,
-					connectionState: 'waiting',
-				},
-			],
-			connection: hostConnection(),
-		}),
-	),
-	fixture(
 		'blip-issue-file-stopped',
 		'Blip issue file stopped',
-		'Failed file delivery marks the chip as errored and explains what happened.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			selfActivity: {
@@ -484,7 +337,6 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'connected-strip',
 		'Connected strip',
-		'Several live portraits, transfer activity, and the host invite affordance at the end.',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			selfActivity: {
@@ -508,7 +360,7 @@ export const uiFixtures: UiFixture[] = [
 					},
 				],
 			},
-			selfMedia: liveSelfMedia(),
+			selfMedia: liveSelfMedia({ screenAvailable: false }),
 			blipComposer: {
 				issue: null,
 				text: 'dragged a few screenshots over',
@@ -541,63 +393,8 @@ export const uiFixtures: UiFixture[] = [
 		}),
 	),
 	fixture(
-		'connected-no-screen-share',
-		'No screen share support',
-		'Live self controls with screen sharing unavailable, so scr renders disabled.',
-		room({
-			themeSeed: SAMPLE_INVITE_LINK,
-			selfActivity: {
-				blip: 'dragged a few screenshots over',
-				files: [],
-			},
-			selfMedia: liveSelfMedia({
-				cameraEnabled: true,
-				screenAvailable: false,
-			}),
-			blipComposer: {
-				issue: null,
-				text: 'dragged a few screenshots over',
-			},
-			peers: [
-				{
-					activity: emptyActivity,
-					id: OLEG_ID,
-					connectionState: 'live',
-				},
-			],
-			connection: hostConnection(),
-		}),
-	),
-	fixture(
-		'guest-connected',
-		'Guest connected',
-		'The connected guest strip is people-first, so the connection card disappears.',
-		room({
-			themeSeed: HOST_ID,
-			selfMedia: liveSelfMedia({ cameraEnabled: true }),
-			peers: [
-				{
-					activity: emptyActivity,
-					id: HOST_ID,
-					mediaState: {
-						cameraEnabled: true,
-						microphoneEnabled: true,
-						screenEnabled: false,
-					},
-					connectionState: 'live',
-				},
-			],
-			connection: guestConnection({
-				status: 'connected',
-				inviteText: SAMPLE_OFFER,
-				replyCode: SAMPLE_REPLY,
-			}),
-		}),
-	),
-	fixture(
 		'guest-connected-relay',
 		'Guest connected relay',
-		'The connected guest is using the shared relay, so the cost notice appears.',
 		room({
 			themeSeed: HOST_ID,
 			relayMetering: { bytesLeft: 1_600_000_000, secondsLeft: 48 * 60 },
@@ -621,20 +418,9 @@ export const uiFixtures: UiFixture[] = [
 			}),
 		}),
 	),
-	connectionCardFixture(
-		'connected-card',
-		'Connected card',
-		'Component fixture for the connected connection-card branch hidden by the app strip.',
-		guestConnection({
-			status: 'connected',
-			inviteText: SAMPLE_OFFER,
-			replyCode: SAMPLE_REPLY,
-		}),
-	),
 	fixture(
 		'closed-room',
 		'Closed room',
-		'The room is dead, peer cards are gone, and recovery lives inside the connection card.',
 		room({
 			themeSeed: 'closed-room',
 			connection: closedConnection(),
@@ -643,7 +429,6 @@ export const uiFixtures: UiFixture[] = [
 	fixture(
 		'error-screen',
 		'Error screen',
-		'The strip still holds the error instead of switching paradigms.',
 		room({
 			themeSeed: 'error-screen',
 			connection: hostConnection({

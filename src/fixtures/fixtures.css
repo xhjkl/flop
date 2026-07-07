@@ -14,34 +14,27 @@
 	position: sticky;
 	top: 0;
 	z-index: 1;
-	display: grid;
-	gap: var(--space-field);
-	padding: var(--space-card) var(--space-page) 0;
+	padding: var(--space-touch) var(--space-page);
 	border-bottom: 1px solid var(--line-inverse);
 	background: var(--pit);
 	color: var(--fg-inverse);
 	box-shadow: 0 1px 0 color-mix(in oklch, white 10%, transparent);
 }
 
-.fixture-banner {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-touch) var(--space-card);
-	align-items: baseline;
-}
-
-.fixture-banner span,
-.fixture-meta small {
-	color: var(--muted-inverse);
-}
-
 .fixture-actions {
 	display: flex;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	gap: var(--space-touch);
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+.fixture-actions::-webkit-scrollbar {
+	display: none;
 }
 
 .fixture-actions button {
+	flex: 0 0 auto;
 	border-color: var(--line-inverse);
 	background:
 		linear-gradient(
@@ -62,10 +55,4 @@
 			transparent 58%
 		),
 		color-mix(in oklch, var(--room-loud) 34%, transparent);
-}
-
-.fixture-meta {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-label) var(--space-page);
 }

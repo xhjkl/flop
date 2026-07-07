@@ -27,10 +27,6 @@ const FixturesApp = () => {
 	return (
 		<div class="fixture-shell">
 			<section class="fixtures">
-				<div class="fixture-banner">
-					<strong>fixtures</strong>
-					<span>one button per room state, exact same renderer as the app</span>
-				</div>
 				<div class="fixture-actions">
 					<For each={uiFixtures}>
 						{(fixture) => (
@@ -50,15 +46,6 @@ const FixturesApp = () => {
 					>
 						clear
 					</button>
-				</div>
-				<div class="fixture-meta">
-					<small>active: {fixtureId() ?? 'none'}</small>
-					<small>
-						ids: {uiFixtures.map((fixture) => fixture.id).join(', ')}
-					</small>
-					<Show keyed when={activeFixture()?.description}>
-						{(description) => <small>{description}</small>}
-					</Show>
 				</div>
 			</section>
 			<Show
