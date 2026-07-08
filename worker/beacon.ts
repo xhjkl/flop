@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
+import { isSignalDescription, type SignalDescription } from '../spec/signal'
 import { type JsonBody, json } from './common'
 
 /** Same-origin rendezvous prefix reserved for room discovery sockets. */
@@ -17,11 +18,6 @@ type BeaconAttachment = {
 type BeaconSocket = WebSocket & {
 	deserializeAttachment(): Partial<BeaconAttachment> | null
 	serializeAttachment(attachment: BeaconAttachment): void
-}
-
-type SignalDescription = {
-	sdp: string
-	type: 'answer' | 'offer'
 }
 
 type JoinMessage = {
@@ -75,17 +71,6 @@ const parseMessage = (message: unknown) => {
 	} catch {
 		return null
 	}
-}
-
-const isSignalDescription = (value: unknown): value is SignalDescription => {
-	return (
-		typeof value === 'object' &&
-		value != null &&
-		'type' in value &&
-		(value.type === 'offer' || value.type === 'answer') &&
-		'sdp' in value &&
-		typeof value.sdp === 'string'
-	)
 }
 
 const isPeerId = (value: unknown): value is string => {
