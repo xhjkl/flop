@@ -48,7 +48,13 @@ const clientIp = (request: Request) => {
 	if (connectingIp != null && connectingIp !== '') return connectingIp
 
 	const { hostname } = new URL(request.url)
-	if (hostname !== 'localhost' && hostname !== '127.0.0.1') return null
+	if (
+		hostname !== 'localhost' &&
+		hostname !== '127.0.0.1' &&
+		hostname !== '[::1]'
+	) {
+		return null
+	}
 
 	return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null
 }
