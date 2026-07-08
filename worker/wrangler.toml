@@ -1,13 +1,25 @@
 name = "flop-beacon"
 main = "index.ts"
-compatibility_date = "2026-05-25"
+compatibility_date = "2026-07-07"
 workers_dev = false
 preview_urls = false
+routes = [{ pattern = "flop.xhjkl.xyz/-*", zone_name = "xhjkl.xyz" }]
+
+[vars]
+RELAY_ENABLED = "true"
 
 [[durable_objects.bindings]]
 name = "ROOMS"
 class_name = "FlopRoom"
 
+[[durable_objects.bindings]]
+name = "RELAY_GATE"
+class_name = "RelayGate"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["FlopRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RelayGate"]

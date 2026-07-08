@@ -17,6 +17,18 @@ interface DurableObjectNamespace {
 interface DurableObjectState {
 	acceptWebSocket(socket: WebSocket): void
 	getWebSockets(): WebSocket[]
+	storage: DurableObjectStorage
+}
+
+interface DurableObjectStorage {
+	transaction<T>(
+		closure: (transaction: DurableObjectTransaction) => Promise<T>,
+	): Promise<T>
+}
+
+interface DurableObjectTransaction {
+	get<T = unknown>(key: string): Promise<T | undefined>
+	put(entries: Record<string, unknown>): Promise<void>
 }
 
 interface DurableObjectStub {
