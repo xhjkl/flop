@@ -1,14 +1,10 @@
 import { bytesToBase64Url } from '../binary'
 import { log } from '../log'
+import { randomBase64Url } from '../random'
 import { isSignalDescription, type SignalDescription } from '../signal'
+import type { BeaconPresence, BeaconStatus } from './types'
 
-export type BeaconStatus = 'failed' | 'finding' | 'idle' | 'ready'
-
-export type BeaconPresence = {
-	guests: number
-	hosts: number
-	peers: number
-}
+export type { BeaconPresence, BeaconStatus } from './types'
 
 export type BeaconRendezvous = {
 	close: () => void
@@ -43,12 +39,6 @@ const RECONNECT_MAXIMUM_MS = 60_000
 const RECONNECT_MINIMUM_MS = 10_000
 const RECONNECT_VARIANCE_MS = 5_000
 const REFRESH_OFFER_INTERVAL_MS = 30_000
-
-const randomId = (length: number) => {
-	const bytes = new Uint8Array(length)
-	crypto.getRandomValues(bytes)
-	return bytesToBase64Url(bytes)
-}
 
 const decodeBeaconMessage = (data: unknown) => {
 	if (typeof data !== 'string') return null
@@ -90,7 +80,7 @@ export const createBeaconRendezvous = (
 	options: BeaconOptions,
 ): BeaconRendezvous => {
 	const url = beaconUrl(options.discoveryId)
-	const peerId = randomId(PEER_ID_BYTES)
+	const peerId = randomBase64Url(PEER_ID_BYTES)
 	const timers = new Set<ReturnType<typeof setTimeout>>()
 	let closed = false
 	let currentStatus: BeaconStatus | null = null
@@ -146,7 +136,7 @@ export const createBeaconRendezvous = (
 	const sendOffer = (beaconPeerId: string | null) => {
 		if (options.createOffer == null) return
 
-		const offerId = randomId(OFFER_ID_BYTES)
+		const offerId = randomBase64Url(OFFER_ID_BYTES)
 		void options
 			.createOffer(offerId, beaconPeerId)
 			.then((offer) => {

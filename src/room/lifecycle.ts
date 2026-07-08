@@ -7,7 +7,7 @@ import type { RoomRuntime } from './runtime'
 /** Room-level resets and teardown, separated from invite and packet decisions. */
 export type RoomLifecycle = {
 	disposeRoom: () => void
-	markRoomClosed: () => void
+	markRoomClosed: (options?: { keepRelayMetering?: boolean }) => void
 	resetAsHost: (options?: { secret?: RoomSecret | null }) => void
 	resetBeforeJoining: (options?: { keepPendingBlip?: boolean }) => void
 }
@@ -25,6 +25,7 @@ export const createRoomLifecycle = (room: RoomRuntime): RoomLifecycle => {
 
 	const resetAsHost = (options: { secret?: RoomSecret | null } = {}) => {
 		// Starting fresh as host makes a new room identity and color.
+		room.relay.clear()
 		room.stopBeaconRendezvous()
 		room.blips.clearPending()
 		room.roomSecret = options.secret ?? null
@@ -42,6 +43,7 @@ export const createRoomLifecycle = (room: RoomRuntime): RoomLifecycle => {
 
 	const resetBeforeJoining = (options: { keepPendingBlip?: boolean } = {}) => {
 		// Before welcome, a guest has no durable identity in this room.
+		room.relay.clear()
 		room.stopBeaconRendezvous()
 		if (!options.keepPendingBlip) room.blips.clearPending()
 		room.roomSecret = null
@@ -54,8 +56,9 @@ export const createRoomLifecycle = (room: RoomRuntime): RoomLifecycle => {
 		room.setLocalKey(null)
 	}
 
-	const markRoomClosed = () => {
+	const markRoomClosed = (options: { keepRelayMetering?: boolean } = {}) => {
 		// Closed is visible state plus real transport teardown.
+		room.relay.clear({ keepMetering: options.keepRelayMetering })
 		room.stopBeaconRendezvous()
 		room.closeAllLinks()
 		clearPeerParticipants()
@@ -64,6 +67,7 @@ export const createRoomLifecycle = (room: RoomRuntime): RoomLifecycle => {
 
 	const disposeRoom = () => {
 		// Tear down browser resources in the opposite order people see them.
+		room.relay.clear()
 		room.stopBeaconRendezvous()
 		room.closeAllLinks()
 		room.fileTransfers.disposeFileUrls()

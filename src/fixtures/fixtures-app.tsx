@@ -27,7 +27,7 @@ const FixturesApp = () => {
 	return (
 		<div class="fixture-shell">
 			<section class="fixtures">
-				<div class="fixture-actions">
+				<div class="fixture-actions scrollbarless">
 					<For each={uiFixtures}>
 						{(fixture) => (
 							<button

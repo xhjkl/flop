@@ -28,9 +28,75 @@ export type RoomLink = {
 	beaconPeerId: string | null
 }
 
+type ParticipantRoomLink = RoomLink & {
+	remoteId: ParticipantId
+}
+
 /** Rendezvous lanes are setup doors, not long-term mesh links. */
-export const isRendezvousLink = (link: RoomLink) => {
+const isRendezvousLink = (link: RoomLink) => {
 	return link.role === 'host-rendezvous' || link.role === 'guest-rendezvous'
+}
+
+/** Link that has crossed the room identity boundary. */
+export const isParticipantLink = (
+	link: RoomLink,
+): link is ParticipantRoomLink => {
+	return link.remoteId != null
+}
+
+/** Rendezvous link still waiting for a room participant identity. */
+const isUnadmittedRendezvousLink = (link: RoomLink) => {
+	return isRendezvousLink(link) && !isParticipantLink(link)
+}
+
+/** Invite-link candidate created through beacon discovery. */
+export const isBeaconLink = (link: RoomLink) => {
+	return link.source === 'beacon'
+}
+
+/** Copy-paste candidate created from manual invite/reply codes. */
+const isManualLink = (link: RoomLink) => {
+	return link.source === 'manual'
+}
+
+/** Link that passed either manual possession or beacon secret proof. */
+export const isVerifiedLink = (link: RoomLink) => {
+	return link.auth === 'verified'
+}
+
+/** Host-side rendezvous doorway, before or after admission. */
+export const isHostRendezvousLink = (link: RoomLink) => {
+	return link.role === 'host-rendezvous'
+}
+
+/** Guest-side rendezvous doorway, before or after admission. */
+export const isGuestRendezvousLink = (link: RoomLink) => {
+	return link.role === 'guest-rendezvous'
+}
+
+/** Anonymous beacon transport still competing to become a participant link. */
+export const isBeaconCandidate = (link: RoomLink, role?: LinkRole) => {
+	return (
+		isBeaconLink(link) &&
+		!isParticipantLink(link) &&
+		(role == null || link.role === role)
+	)
+}
+
+/** Manual host offer waiting for the guest's admitted hello. */
+export const isManualHostInviteLink = (link: RoomLink) => {
+	return (
+		isManualLink(link) && isHostRendezvousLink(link) && !isParticipantLink(link)
+	)
+}
+
+/** Manual guest answer waiting for host admission. */
+export const isManualGuestReplyLink = (link: RoomLink) => {
+	return (
+		isManualLink(link) &&
+		isGuestRendezvousLink(link) &&
+		!isParticipantLink(link)
+	)
 }
 
 /** Open invite/reply lane with no admitted participant yet. */
@@ -40,10 +106,10 @@ export const findRendezvousLink = (
 	source?: LinkSource,
 ) => {
 	for (const link of links) {
-		if (!isRendezvousLink(link)) continue
+		if (!isUnadmittedRendezvousLink(link)) continue
 		if (role != null && link.role !== role) continue
 		if (source != null && link.source !== source) continue
-		if (link.remoteId == null) return link
+		return link
 	}
 
 	return null
@@ -56,7 +122,7 @@ export const findParticipantLink = (
 ) => {
 	// Participant ids are protocol values; keys are how Solid stores them.
 	for (const link of links) {
-		if (link.remoteId != null && participantKey(link.remoteId) === key) {
+		if (isParticipantLink(link) && participantKey(link.remoteId) === key) {
 			return link
 		}
 	}
@@ -67,5 +133,5 @@ export const findParticipantLink = (
 /** Live links that crossed the hello/welcome identity boundary. */
 export const liveIdentifiedLinks = (links: Iterable<RoomLink>) => {
 	// Broadcasts only go to links that made it past the hello/welcome line.
-	return [...links].filter((link) => link.live && link.remoteId != null)
+	return [...links].filter((link) => link.live && isParticipantLink(link))
 }

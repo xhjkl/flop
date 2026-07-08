@@ -1,3 +1,5 @@
+import { randomBytes } from '../random'
+
 export type RoomSecret = string & { readonly RoomSecret: unique symbol }
 
 const Z_BASE_32_ALPHABET = 'ybndrfg8ejkmcpqxot1uwisza345h769'
@@ -66,9 +68,7 @@ export const parseRoomSecret = (value: string): RoomSecret | null => {
 }
 
 export const randomRoomSecret = (): RoomSecret => {
-	const bytes = new Uint8Array(ROOM_SECRET_BYTES)
-	crypto.getRandomValues(bytes)
-	return encodeZBase32(bytes) as RoomSecret
+	return encodeZBase32(randomBytes(ROOM_SECRET_BYTES)) as RoomSecret
 }
 
 export const roomSecretBytes = (secret: RoomSecret) => {

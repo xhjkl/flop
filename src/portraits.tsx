@@ -17,6 +17,7 @@ import type {
 	PortraitActivityState,
 	PortraitFileState,
 } from './state'
+import { createPulse } from './ui/pulse'
 
 const SelfMediaStatusLabel = (props: { status: SelfMediaStatus }) => {
 	return (
@@ -119,7 +120,7 @@ export const Room = (props: {
 			class="portrait-app"
 			style={{ '--h': `${themeHueFromSeed(props.themeSeed ?? null)}` }}
 		>
-			<section class="portrait-strip" aria-label="room cards">
+			<section class="portrait-strip scrollbarless" aria-label="room cards">
 				{props.children}
 			</section>
 		</main>
@@ -166,7 +167,7 @@ const FileChip = (props: { file: PortraitFileState }) => {
 			when={props.file.url != null}
 			fallback={
 				<span
-					class="file-chip"
+					class="file-chip glass-pill"
 					classList={{ 'is-error': props.file.state === 'error' }}
 				>
 					{body()}
@@ -174,7 +175,7 @@ const FileChip = (props: { file: PortraitFileState }) => {
 			}
 		>
 			<a
-				class="file-chip"
+				class="file-chip glass-pill"
 				classList={{ 'is-error': props.file.state === 'error' }}
 				href={props.file.url ?? ''}
 				download={props.file.name}
@@ -199,7 +200,7 @@ const PortraitActivity = (props: {
 					{(file) => <FileChip file={file} />}
 				</For>
 				<Show when={blip()}>
-					{(text) => <p class="portrait-blip">{text()}</p>}
+					{(text) => <p class="portrait-blip glass-pill">{text()}</p>}
 				</Show>
 			</div>
 		</Show>
@@ -214,17 +215,14 @@ const BlipComposer = (props: {
 	onSetText: (text: string) => void
 	showWhenIdle?: boolean
 }) => {
-	let committedTimeout: ReturnType<typeof setTimeout> | null = null
 	const [dirty, setDirty] = createSignal(false)
 	const [editing, setEditing] = createSignal(false)
-	const [committed, setCommitted] = createSignal(false)
+	const committed = createPulse(520)
 
 	const markCommitted = () => {
 		setDirty(false)
 		setEditing(false)
-		setCommitted(true)
-		if (committedTimeout != null) clearTimeout(committedTimeout)
-		committedTimeout = setTimeout(() => setCommitted(false), 520)
+		committed.trigger()
 	}
 
 	const send = () => {
@@ -248,10 +246,6 @@ const BlipComposer = (props: {
 		event.preventDefault()
 		send()
 	}
-
-	onCleanup(() => {
-		if (committedTimeout != null) clearTimeout(committedTimeout)
-	})
 
 	const visible = () => {
 		return (
@@ -296,16 +290,16 @@ const BlipComposer = (props: {
 						enterkeyhint="done"
 						placeholder="tap to edit blip"
 						rows={1}
-						class="blip-composer-input"
+						class="blip-composer-input glass-pill"
 						classList={{
 							'is-editing': editing(),
-							'is-committed': committed(),
+							'is-committed': committed.active(),
 						}}
 						onFocus={() => setEditing(true)}
 						onInput={(event) => {
 							setDirty(true)
 							setEditing(true)
-							setCommitted(false)
+							committed.clear()
 							props.onSetText(event.currentTarget.value)
 						}}
 						onKeyDown={submitEnter}

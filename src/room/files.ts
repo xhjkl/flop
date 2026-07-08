@@ -12,7 +12,7 @@ import {
 	FILE_CHUNK_BYTES,
 	type IncomingFileTransfer,
 	randomTransferId,
-} from './activity'
+} from './file-transfer'
 import type { RoomLink } from './link'
 import { blipIssueCopy } from './status-copy'
 

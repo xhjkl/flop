@@ -26,11 +26,6 @@
 	flex-wrap: nowrap;
 	gap: var(--space-touch);
 	overflow-x: auto;
-	scrollbar-width: none;
-}
-
-.fixture-actions::-webkit-scrollbar {
-	display: none;
 }
 
 .fixture-actions button {

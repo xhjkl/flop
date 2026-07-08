@@ -16,7 +16,7 @@ const mediaFailureTitle = (status: SelfMediaStatus) => {
 	}
 }
 
-export const SelfPortraitCard = (props: {
+type SelfPortraitCardProps = {
 	activity: PortraitActivityState
 	blipComposer: BlipComposerState
 	media: SelfMedia
@@ -27,26 +27,32 @@ export const SelfPortraitCard = (props: {
 	onToggleCamera: () => void
 	onToggleMicrophone: () => void
 	onToggleScreen: () => void
-}) => {
+}
+
+export const SelfPortraitCard = (props: SelfPortraitCardProps) => {
+	const noticeCardProps = () => ({
+		activity: props.activity,
+		blipComposer: props.blipComposer,
+		canBlip: true,
+		media: props.media,
+		onDismissBlipIssue: props.onDismissBlipIssue,
+		onSendBlip: props.onSendBlip,
+		onSetBlipText: props.onSetBlipText,
+		onToggleScreen: props.onToggleScreen,
+	})
+
 	return (
 		// Welcome and permission are one portrait so the first step never feels like a modal.
 		<Switch
 			fallback={
 				<SelfMediaCard
-					activity={props.activity}
-					blipComposer={props.blipComposer}
-					canBlip
-					media={props.media}
+					{...noticeCardProps()}
 					title={mediaFailureTitle(props.media.status)}
 					actions={
 						<button type="button" onClick={props.onEnableSelfMedia}>
 							try again
 						</button>
 					}
-					onSendBlip={props.onSendBlip}
-					onDismissBlipIssue={props.onDismissBlipIssue}
-					onSetBlipText={props.onSetBlipText}
-					onToggleScreen={props.onToggleScreen}
 				>
 					<p>
 						{props.media.issue ??
@@ -61,20 +67,13 @@ export const SelfPortraitCard = (props: {
 		>
 			<Match when={props.media.status === 'ready'}>
 				<SelfMediaCard
-					activity={props.activity}
-					canBlip
-					blipComposer={props.blipComposer}
-					media={props.media}
+					{...noticeCardProps()}
 					title="welcome to flop"
 					actions={
 						<button type="button" onClick={props.onEnableSelfMedia}>
 							enable cam and mic
 						</button>
 					}
-					onSendBlip={props.onSendBlip}
-					onDismissBlipIssue={props.onDismissBlipIssue}
-					onSetBlipText={props.onSetBlipText}
-					onToggleScreen={props.onToggleScreen}
 				>
 					<p>
 						Send an invite to another device. Once connected, drop files here to
@@ -86,20 +85,13 @@ export const SelfPortraitCard = (props: {
 			</Match>
 			<Match when={props.media.status === 'requesting'}>
 				<SelfMediaCard
-					activity={props.activity}
-					canBlip
-					blipComposer={props.blipComposer}
-					media={props.media}
+					{...noticeCardProps()}
 					title="Allow cam and mic"
 					actions={
 						<button type="button" disabled>
 							waiting for permission
 						</button>
 					}
-					onSendBlip={props.onSendBlip}
-					onDismissBlipIssue={props.onDismissBlipIssue}
-					onSetBlipText={props.onSetBlipText}
-					onToggleScreen={props.onToggleScreen}
 				>
 					<p>
 						Your browser should be asking for permission now. Once allowed, this

@@ -1,4 +1,5 @@
 import { bytesToBase64Url } from '../binary'
+import { randomBase64Url } from '../random'
 import { type RoomSecret, roomSecretBytes } from './secret'
 
 export type RoomKeys = {
@@ -12,12 +13,6 @@ const encoder = new TextEncoder()
 const DISCOVERY_ID_DOMAIN = encoder.encode('flop:where')
 const AUTH_KEY_DOMAIN = encoder.encode('flop:hey')
 const ROOM_AUTH_TAG = 'flop:knock'
-
-const randomBytes = (length: number) => {
-	const bytes = new Uint8Array(length)
-	crypto.getRandomValues(bytes)
-	return bytes
-}
 
 const concatBytes = (...parts: Uint8Array[]) => {
 	const length = parts.reduce((sum, part) => sum + part.byteLength, 0)
@@ -38,7 +33,7 @@ const sha256 = async (...parts: Uint8Array[]) => {
 }
 
 export const randomNonce = () => {
-	return bytesToBase64Url(randomBytes(16))
+	return randomBase64Url(16)
 }
 
 export const deriveRoomKeys = async (secret: RoomSecret): Promise<RoomKeys> => {

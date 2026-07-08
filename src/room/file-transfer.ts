@@ -1,4 +1,5 @@
 import type { Packet, ParticipantId } from '../protocol'
+import { randomHex } from '../random'
 
 /** Incoming transfer bytes held outside Solid until the file completes. */
 export type IncomingFileTransfer = {
@@ -33,8 +34,5 @@ export const createIncomingFileTransfer = (
 
 /** Transfer id scoped to this short-lived room. */
 export const randomTransferId = () => {
-	// Transfer ids only need to be unique inside this short-lived room.
-	const bytes = new Uint8Array(12)
-	crypto.getRandomValues(bytes)
-	return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+	return randomHex(12)
 }

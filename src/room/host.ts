@@ -11,7 +11,7 @@ import { emptyBlipComposer, emptyHostConnection } from './initial-state'
 import { inviteCodeFromSignal, inviteLinkFromSecret } from './invite'
 import type { RoomLifecycle } from './lifecycle'
 import type { RoomLink } from './link'
-import { MANUAL_ADMISSION_TIMEOUT_MS } from './manual'
+import { MANUAL_ADMISSION_TIMEOUT_MS, watchRendezvousAdmission } from './manual'
 import { mergeParticipant } from './participant'
 import type { RoomRuntime } from './runtime'
 import { statusCopy } from './status-copy'
@@ -142,7 +142,7 @@ export const createHostFlow = (
 		options: StartHostOptions = { resetPeers: true },
 	) => {
 		// Invite flow: every host room prepares the link path and the code path.
-		const version = ++room.signalingVersion
+		const version = room.nextSignalingVersion()
 		const resetPeers = options.resetPeers ?? true
 		let nextLink: RoomLink | null = null
 
@@ -183,7 +183,7 @@ export const createHostFlow = (
 			const offer = await nextLink.peer.createOffer()
 			const inviteSignal = await encodeSignal(offer)
 			if (
-				version !== room.signalingVersion ||
+				!room.isCurrentSignalingVersion(version) ||
 				room.currentRendezvousLink('host-rendezvous', 'manual') !== nextLink
 			) {
 				room.closeLink(nextLink)
@@ -204,7 +204,7 @@ export const createHostFlow = (
 		} catch (error) {
 			log('warn', 'room', 'invite.create.failed', { error })
 			if (nextLink != null) room.closeLink(nextLink)
-			if (version !== room.signalingVersion) return
+			if (!room.isCurrentSignalingVersion(version)) return
 			room.setState('connection', {
 				...(room.state.connection.side === 'host'
 					? room.state.connection
@@ -215,32 +215,37 @@ export const createHostFlow = (
 	}
 
 	const watchManualAdmission = (link: RoomLink, version: number) => {
-		setTimeout(() => {
-			if (version !== room.signalingVersion) return
-			if (room.links.get(link.id) !== link) return
-			if (link.remoteId != null) return
-
-			log('warn', 'room', 'manual.admission.timeout', {
-				link,
-				nextStep: 'fresh-signaling-or-network-change',
-			})
-			room.closeLink(link)
-			if (room.state.connection.side === 'host') {
-				room.setState('connection', {
-					...room.state.connection,
-					issue: statusCopy.hostReplyFailed,
-					status: 'invite-ready',
+		watchRendezvousAdmission({
+			delayMs: MANUAL_ADMISSION_TIMEOUT_MS,
+			link,
+			linkStillCurrent: (candidate) =>
+				room.links.get(candidate.id) === candidate,
+			stillWaiting: () => true,
+			version,
+			versionStillCurrent: room.isCurrentSignalingVersion,
+			onTimeout: () => {
+				log('warn', 'room', 'manual.admission.timeout', {
+					link,
+					nextStep: 'fresh-signaling-or-network-change',
 				})
-			}
-			void startInviteAsHost({ resetPeers: false }).then(() => {
-				if (room.state.connection.side !== 'host') return
+				room.closeLink(link)
+				if (room.state.connection.side === 'host') {
+					room.setState('connection', {
+						...room.state.connection,
+						issue: statusCopy.hostReplyFailed,
+						status: 'invite-ready',
+					})
+				}
+				void startInviteAsHost({ resetPeers: false }).then(() => {
+					if (room.state.connection.side !== 'host') return
 
-				room.setState('connection', {
-					...room.state.connection,
-					issue: statusCopy.hostReplyFailed,
+					room.setState('connection', {
+						...room.state.connection,
+						issue: statusCopy.hostReplyFailed,
+					})
 				})
-			})
-		}, MANUAL_ADMISSION_TIMEOUT_MS)
+			},
+		})
 	}
 
 	const handleHostRendezvousMessage = (link: RoomLink, message: Packet) => {
@@ -298,7 +303,7 @@ export const createHostFlow = (
 
 			const answer = await decodeSignal(replyCode)
 			await answeringLink.peer.acceptAnswer(answer)
-			if (version !== room.signalingVersion) return
+			if (!room.isCurrentSignalingVersion(version)) return
 
 			watchManualAdmission(answeringLink, version)
 		} catch (error) {
@@ -306,7 +311,7 @@ export const createHostFlow = (
 				error,
 				nextStep: 'fresh-reply-or-network-change',
 			})
-			if (version !== room.signalingVersion) return
+			if (!room.isCurrentSignalingVersion(version)) return
 			if (room.state.connection.side === 'host') {
 				room.setState('connection', {
 					...room.state.connection,

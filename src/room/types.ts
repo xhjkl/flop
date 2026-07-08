@@ -35,6 +35,7 @@ export type RoomActions = {
 	toggleCamera: () => void
 	toggleMicrophone: () => void
 	toggleScreen: () => void
+	tryRelay: () => void
 }
 
 /** Host invite start can either mint a fresh room or claim an existing link secret. */

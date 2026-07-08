@@ -1,16 +1,25 @@
-import { createSignal, Match, onCleanup, Show, Switch } from 'solid-js'
+import { createSignal, type JSX, Match, Show, Switch } from 'solid-js'
 import { Daisy } from './daisy'
 import { canShareText, shareText } from './room/invite'
+import { RELAY_FALLBACK_WAIT_SECONDS } from './room/relay'
 import { statusCopy } from './room/status-copy'
-import type {
-	ConnectionState,
-	GuestConnectionState,
-	HostConnectionState,
+import {
+	type ConnectionState,
+	type GuestConnectionState,
+	guestFindingLinkConnection,
+	type HostConnectionState,
 } from './state'
+import { createPulse } from './ui/pulse'
 
 export type HostInviteMode = 'code' | 'link'
 
-const DAISY_MAX_SECONDS = 30
+const ConnectionActionRail = (props: { children: JSX.Element }) => {
+	return (
+		<div class="card-actions connection-side-switch connection-action">
+			{props.children}
+		</div>
+	)
+}
 
 const ShareTextBlock = (props: {
 	label: string
@@ -21,12 +30,11 @@ const ShareTextBlock = (props: {
 	disabled?: boolean
 	onCopy?: () => void
 }) => {
-	let copiedTimeout: ReturnType<typeof setTimeout> | null = null
-	const [copied, setCopied] = createSignal(false)
+	const copied = createPulse(1400)
 	const empty = () => props.value.trim() === ''
 	const canShare = () => !empty() && canShareText(props.value)
 	const actionLabel = () => {
-		if (copied()) return 'copied'
+		if (copied.active()) return 'copied'
 		if (canShare()) return props.shareLabel ?? 'share'
 		return props.copyLabel
 	}
@@ -38,14 +46,8 @@ const ShareTextBlock = (props: {
 		}
 
 		props.onCopy?.()
-		setCopied(true)
-		if (copiedTimeout != null) clearTimeout(copiedTimeout)
-		copiedTimeout = setTimeout(() => setCopied(false), 1400)
+		copied.trigger()
 	}
-
-	onCleanup(() => {
-		if (copiedTimeout != null) clearTimeout(copiedTimeout)
-	})
 
 	return (
 		<div class="connection-copy-block" classList={{ 'is-empty': empty() }}>
@@ -56,13 +58,13 @@ const ShareTextBlock = (props: {
 					class="connection-copy-button"
 					onClick={press}
 					disabled={empty() || (props.disabled ?? false)}
-					classList={{ 'is-copied': copied() }}
+					classList={{ 'is-copied': copied.active() }}
 				>
 					{actionLabel()}
 				</button>
 			</div>
 			{/* Codes are text memos. Show the whole thing; do not make users decode our UI. */}
-			<pre class="connection-copy-value">
+			<pre class="connection-copy-value scrollbarless">
 				{empty() ? props.placeholder : props.value}
 			</pre>
 		</div>
@@ -207,11 +209,11 @@ const HostInvitePane = (props: {
 						/>
 					</div>
 					<Show when={props.canJoinExistingRoom}>
-						<div class="connection-side-switch connection-action">
+						<ConnectionActionRail>
 							<button type="button" onClick={props.onBecomeGuest}>
 								join someone else instead
 							</button>
-						</div>
+						</ConnectionActionRail>
 					</Show>
 				</div>
 			</div>
@@ -316,18 +318,18 @@ const GuestInvitePane = (props: {
 					props.connection.status !== 'finding-link'
 				}
 			>
-				<div class="connection-side-switch connection-action">
+				<ConnectionActionRail>
 					<button type="button" onClick={props.onBecomeHost}>
 						start a room instead
 					</button>
-				</div>
+				</ConnectionActionRail>
 			</Show>
 		</>
 	)
 }
 
 const relayWaitSeconds = (seconds: number) => {
-	return Math.max(0, Math.min(DAISY_MAX_SECONDS, Math.round(seconds)))
+	return Math.max(0, Math.min(RELAY_FALLBACK_WAIT_SECONDS, Math.round(seconds)))
 }
 
 const FindingRelayControl = (props: {
@@ -341,7 +343,7 @@ const FindingRelayControl = (props: {
 			when={secondsLeft() <= 0}
 			fallback={
 				<Daisy
-					max={DAISY_MAX_SECONDS}
+					max={RELAY_FALLBACK_WAIT_SECONDS}
 					text={`${secondsLeft()}`}
 					value={secondsLeft()}
 				/>
@@ -379,18 +381,19 @@ export const ConnectionCard = (props: {
 		props.connection.side === 'host' ? props.connection : null
 	const guestConnection = () =>
 		props.connection.side === 'guest' ? props.connection : null
-	const findingLinkHosts = () => {
+	const findingLinkConnection = () => {
 		const connection = guestConnection()
-		return connection?.status === 'finding-link'
-			? (connection.inviteLinkPresence?.hosts ?? null)
-			: null
+		return connection == null ? null : guestFindingLinkConnection(connection)
+	}
+	const findingLinkHosts = () => {
+		return findingLinkConnection()?.inviteLinkPresence?.hosts ?? null
 	}
 	const hasFindingLinkHost = () => (findingLinkHosts() ?? 0) > 0
 	const hasClaimableFindingLink = () => {
-		const connection = guestConnection()
+		const connection = findingLinkConnection()
 		return (
 			props.canClaimFindingInviteLink &&
-			connection?.status === 'finding-link' &&
+			connection != null &&
 			connection.issue == null &&
 			connection.inviteLinkPresence?.hosts === 0
 		)
@@ -400,8 +403,8 @@ export const ConnectionCard = (props: {
 		return connection?.issue == null && hasFindingLinkHost()
 	}
 	const findingRelaySecondsLeft = () => {
-		const connection = guestConnection()
-		if (connection?.status !== 'finding-link') return null
+		const connection = findingLinkConnection()
+		if (connection == null) return null
 		if (!hasReachableFindingLinkHost()) return null
 
 		return connection.relayFallbackSecondsLeft
@@ -570,7 +573,7 @@ export const ConnectionCard = (props: {
 			</div>
 			<Switch>
 				<Match when={props.connection.side === 'closed'}>
-					<div class="card-actions connection-action">
+					<ConnectionActionRail>
 						<button type="button" onClick={props.onBecomeHost}>
 							start a new room
 						</button>
@@ -579,7 +582,7 @@ export const ConnectionCard = (props: {
 								join someone else
 							</button>
 						</Show>
-					</div>
+					</ConnectionActionRail>
 				</Match>
 				<Match when={hostConnection()}>
 					{(connection) => (

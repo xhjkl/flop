@@ -10,6 +10,8 @@ export const statusCopy = {
 		'That invite could not be read or used. Ask for a fresh invite link or code.',
 	inviteLinkUnreachable:
 		'This browser cannot reach invite-link discovery. Ask for an invite code, or leave this tab open in case it reconnects.',
+	relayUnavailable:
+		'The relay could not be started. Try another network, or ask for an invite code.',
 	replyStillWaiting:
 		'Still waiting for the host to paste your reply code. Send it again, or ask for a fresh invite if they started over.',
 } as const

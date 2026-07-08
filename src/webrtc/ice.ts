@@ -5,6 +5,7 @@ export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 
 // STUN helps peers find each other; it is not a relay and should not become a server path.
 export const ICE_GATHER_TIMEOUT_MS = 2500
+export const RELAY_ICE_GATHER_TIMEOUT_MS = 8000
 export const DISCONNECT_GRACE_MS = 30_000
 
 export const candidateTypeCounts = (sdp: string) => {
@@ -74,7 +75,8 @@ export const waitForIce = (
 	})
 }
 
-export const hasServerReflexiveCandidate = (pc: RTCPeerConnection) => {
-	// A srflx address means STUN has found the public-facing path.
-	return candidateTypeCounts(pc.localDescription?.sdp ?? '').srflx != null
+export const hasUsableIceCandidate = (pc: RTCPeerConnection) => {
+	// Direct mode can proceed on srflx; relay mode can proceed on TURN.
+	const counts = candidateTypeCounts(pc.localDescription?.sdp ?? '')
+	return counts.srflx != null || counts.relay != null
 }

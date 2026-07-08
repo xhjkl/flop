@@ -1,30 +1,14 @@
+import type { SignalDescription } from '../spec/signal'
 import {
 	base64UrlToBytes,
 	bytesToArrayBuffer,
 	bytesToBase64Url,
 } from './binary'
 
+export { isSignalDescription, type SignalDescription } from '../spec/signal'
+
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
-
-/** SDP shape shared by manual codes, beacon offers, and room mesh packets. */
-export type SignalDescription = {
-	sdp: string
-	type: 'answer' | 'offer'
-}
-
-/** Runtime guard for SDP passed through rendezvous and room packets. */
-export const isSignalDescription = (
-	value: unknown,
-): value is SignalDescription => {
-	if (typeof value !== 'object' || value == null) return false
-
-	const signal = value as SignalDescription
-	return (
-		(signal.type === 'offer' || signal.type === 'answer') &&
-		typeof signal.sdp === 'string'
-	)
-}
 
 const encodeSignalText = (description: SignalDescription) => {
 	// The invite code is SDP type plus SDP body. JSON would only add ceremony here.

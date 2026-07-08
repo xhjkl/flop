@@ -3,6 +3,7 @@ import { ConnectionCard, type HostInviteMode } from './connection-card'
 import { Daisy } from './daisy'
 import { PersonCard, Room } from './portraits'
 import type { RoomHandle } from './room'
+import { RELAY_GRANT_BYTES, RELAY_GRANT_SECONDS } from './room/relay'
 import { SelfPortraitCard } from './self-portrait-card'
 import type { RelayMetering } from './state'
 
@@ -12,8 +13,6 @@ export type RoomViewProps = {
 }
 
 const RELAY_BYTES_PER_GIGABYTE = 1_000_000_000
-const RELAY_MAX_BYTES = 2 * RELAY_BYTES_PER_GIGABYTE
-const RELAY_MAX_SECONDS = 60 * 60
 
 const relayMinutesLeft = (secondsLeft: number) => {
 	return Math.ceil(Math.max(0, secondsLeft) / 60)
@@ -64,13 +63,13 @@ const RelayNoticeCard = (props: { metering: RelayMetering }) => {
 			<div class="relay-meters">
 				<RelayMeter
 					label="min"
-					max={RELAY_MAX_SECONDS / 60}
+					max={RELAY_GRANT_SECONDS / 60}
 					text={`${minutesLeft()}`}
 					value={minutesLeft()}
 				/>
 				<RelayMeter
 					label="gb"
-					max={RELAY_MAX_BYTES}
+					max={RELAY_GRANT_BYTES}
 					text={gigabytesLeft()}
 					value={props.metering.bytesLeft}
 				/>
@@ -132,6 +131,7 @@ export const RoomView = (props: RoomViewProps) => {
 					onCreateReply={props.room.actions.createReply}
 					onSetInviteText={props.room.actions.setInviteText}
 					onSetReplyText={props.room.actions.setReplyText}
+					onTryRelay={props.room.actions.tryRelay}
 				/>
 			</Show>
 		</Room>

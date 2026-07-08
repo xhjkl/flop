@@ -3,6 +3,7 @@ import {
 	type ParticipantId,
 	participantIdToString,
 } from '../protocol'
+import { randomBytes } from '../random'
 import type { PortraitActivityState } from '../state'
 
 /** Solid store path key for a protocol participant id. */
@@ -54,8 +55,7 @@ export const rosterParticipant = (
 /** Temporary room participant id. */
 export const randomParticipantId = (): ParticipantId => {
 	// Eight random bytes is plenty for a room-sized temporary identity.
-	const bytes = new Uint8Array(8)
-	crypto.getRandomValues(bytes)
+	const bytes = randomBytes(8)
 	let id = 0n
 
 	for (const byte of bytes) {

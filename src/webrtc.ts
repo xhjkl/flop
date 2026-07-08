@@ -4,8 +4,9 @@ import { bindChannel } from './webrtc/channel'
 import {
 	DEFAULT_ICE_SERVERS,
 	DISCONNECT_GRACE_MS,
-	hasServerReflexiveCandidate,
+	hasUsableIceCandidate,
 	ICE_GATHER_TIMEOUT_MS,
+	RELAY_ICE_GATHER_TIMEOUT_MS,
 	waitForIce,
 } from './webrtc/ice'
 
@@ -15,6 +16,7 @@ export type Peer = {
 	acceptAnswer: (answer: SignalDescription) => Promise<void>
 	createAnswer: (offer: SignalDescription) => Promise<SignalDescription>
 	close: () => void
+	relayStats: () => Promise<PeerRelayStats | null>
 	send: (text: string) => boolean
 	setLocalMedia: (stream: MediaStream | null) => void
 	waitForBufferBelow: (bytes: number) => Promise<void>
@@ -30,6 +32,11 @@ type PeerOptions = {
 	onRemoteMedia?: (stream: MediaStream | null) => void
 	onState?: (state: PeerStateSnapshot) => void
 	iceServers?: RTCIceServer[]
+	iceTransportPolicy?: RTCIceTransportPolicy
+}
+
+export type PeerRelayStats = {
+	bytes: number
 }
 
 type PeerStateSnapshot = {
@@ -48,8 +55,14 @@ const localTrack = (stream: MediaStream | null, kind: MediaKind) => {
 }
 
 const localDescription = async (pc: RTCPeerConnection) => {
-	// Manual signaling has no trickle path; one srflx candidate is enough to stop making people wait.
-	await waitForIce(pc, ICE_GATHER_TIMEOUT_MS, hasServerReflexiveCandidate)
+	// Manual signaling has no trickle path; wait only until one viable address exists.
+	await waitForIce(
+		pc,
+		pc.getConfiguration().iceTransportPolicy === 'relay'
+			? RELAY_ICE_GATHER_TIMEOUT_MS
+			: ICE_GATHER_TIMEOUT_MS,
+		hasUsableIceCandidate,
+	)
 
 	const description = pc.localDescription
 	if (description == null) throw new Error('Missing local description')
@@ -65,6 +78,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	// SDP for setup, data channel for packets, transceivers for optional media.
 	const pc = new RTCPeerConnection({
 		iceServers: options.iceServers ?? DEFAULT_ICE_SERVERS,
+		iceTransportPolicy: options.iceTransportPolicy,
 	})
 	// Tracks can arrive one by one; the UI wants one stream to hang on a card.
 	const remoteTracks = new Map<string, MediaStreamTrack>()
@@ -328,6 +342,50 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		}
 	}
 
+	const relayStats = async (): Promise<PeerRelayStats | null> => {
+		const stats = await pc.getStats()
+		const stat = (id: unknown) => {
+			return typeof id === 'string'
+				? ((stats.get(id) as Record<string, unknown> | undefined) ?? null)
+				: null
+		}
+		const isRelayCandidate = (id: unknown) => {
+			const candidate = stat(id)
+			return candidate?.candidateType === 'relay'
+		}
+		let selectedPair: Record<string, unknown> | null = null
+
+		for (const report of stats.values()) {
+			const item = report as Record<string, unknown>
+			if (
+				item.type === 'transport' &&
+				typeof item.selectedCandidatePairId === 'string'
+			) {
+				selectedPair = stat(item.selectedCandidatePairId)
+				break
+			}
+			if (item.type === 'candidate-pair' && item.selected === true) {
+				selectedPair = item
+			}
+		}
+
+		if (selectedPair == null) return null
+		if (
+			!isRelayCandidate(selectedPair.localCandidateId) &&
+			!isRelayCandidate(selectedPair.remoteCandidateId)
+		) {
+			return null
+		}
+
+		const bytesSent =
+			typeof selectedPair.bytesSent === 'number' ? selectedPair.bytesSent : 0
+		const bytesReceived =
+			typeof selectedPair.bytesReceived === 'number'
+				? selectedPair.bytesReceived
+				: 0
+		return { bytes: bytesSent + bytesReceived }
+	}
+
 	const setLocalMedia = (stream: MediaStream | null) => {
 		// Media is room state; this peer just mirrors the latest version.
 		localMedia = stream
@@ -417,6 +475,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		acceptAnswer,
 		createAnswer,
 		close,
+		relayStats,
 		send,
 		setLocalMedia,
 		waitForBufferBelow,

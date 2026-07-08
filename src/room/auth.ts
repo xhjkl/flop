@@ -6,7 +6,12 @@ import {
 	signRoomAuth,
 	verifyRoomAuth,
 } from '../rendezvous/crypto'
-import type { RoomLink } from './link'
+import {
+	isBeaconLink,
+	isGuestRendezvousLink,
+	isHostRendezvousLink,
+	type RoomLink,
+} from './link'
 
 /** Beacon auth owns the secret proof before anonymous links may join the room protocol. */
 export type BeaconAuth = {
@@ -182,7 +187,7 @@ export const createBeaconAuth = (options: {
 		// Auth packets are consumed before room-role dispatch.
 		switch (message.type) {
 			case 'auth-challenge':
-				if (link.source !== 'beacon' || link.role !== 'guest-rendezvous') {
+				if (!isBeaconLink(link) || !isGuestRendezvousLink(link)) {
 					log('warn', 'room', 'auth.challenge.unexpected', { link })
 					return true
 				}
@@ -190,7 +195,7 @@ export const createBeaconAuth = (options: {
 				void answerChallenge(link, message.nonce)
 				return true
 			case 'auth-accepted':
-				if (link.source !== 'beacon' || link.role !== 'guest-rendezvous') {
+				if (!isBeaconLink(link) || !isGuestRendezvousLink(link)) {
 					log('warn', 'room', 'auth.accepted.unexpected', { link })
 					return true
 				}
@@ -198,7 +203,7 @@ export const createBeaconAuth = (options: {
 				void acceptAccepted(link, message.mac)
 				return true
 			case 'auth-response':
-				if (link.source !== 'beacon' || link.role !== 'host-rendezvous') {
+				if (!isBeaconLink(link) || !isHostRendezvousLink(link)) {
 					log('warn', 'room', 'auth.response.unexpected', { link })
 					return true
 				}

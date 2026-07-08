@@ -5,7 +5,18 @@ import type { GuestFlow } from './guest'
 import type { HostFlow } from './host'
 import { emptyGuestConnection } from './initial-state'
 import type { RoomLifecycle } from './lifecycle'
-import type { LinkId, RoomLink } from './link'
+import {
+	isBeaconCandidate,
+	isBeaconLink,
+	isGuestRendezvousLink,
+	isHostRendezvousLink,
+	isManualGuestReplyLink,
+	isManualHostInviteLink,
+	isParticipantLink,
+	isVerifiedLink,
+	type LinkId,
+	type RoomLink,
+} from './link'
 import { participantKey } from './participant'
 import type { RoomRuntime } from './runtime'
 import { statusCopy } from './status-copy'
@@ -70,22 +81,22 @@ export const createProtocolFlow = (
 		room.touchLinks()
 		log('info', 'room', 'link.open', { link })
 
-		if (link.source === 'beacon' && link.auth !== 'verified') {
-			if (link.role === 'host-rendezvous') room.beaconAuth.sendChallenge(link)
-			else if (link.role !== 'guest-rendezvous') {
+		if (isBeaconLink(link) && !isVerifiedLink(link)) {
+			if (isHostRendezvousLink(link)) room.beaconAuth.sendChallenge(link)
+			else if (!isGuestRendezvousLink(link)) {
 				log('error', 'room', 'auth.unexpected-beacon-link-role', { link })
 				room.closeLink(link)
 			}
 			return
 		}
 
-		if (link.role === 'guest-rendezvous') {
+		if (isGuestRendezvousLink(link)) {
 			// Guests say hello first; hosts answer with welcome and identity.
 			link.peer.send(encodePacket({ type: 'hello' }))
 			return
 		}
 
-		if (link.remoteId != null) {
+		if (isParticipantLink(link)) {
 			// Reconnected or mesh links should receive the current self presence.
 			room.blips.sendLocalToPeer(link.peer)
 			room.sendLocalMediaStateToPeer(link.peer)
@@ -102,7 +113,7 @@ export const createProtocolFlow = (
 			return
 		}
 		if (room.beaconAuth.handleAuthPacket(link, message)) return
-		if (link.source === 'beacon' && link.auth !== 'verified') {
+		if (isBeaconLink(link) && !isVerifiedLink(link)) {
 			// Beacon-discovered transports are only candidates until they prove the room secret.
 			log('warn', 'room', 'packet.before-auth', {
 				link,
@@ -120,7 +131,7 @@ export const createProtocolFlow = (
 				break
 			case 'mesh':
 				// Mesh packets are only meaningful after the link is tied to a participant.
-				if (link.remoteId == null) {
+				if (!isParticipantLink(link)) {
 					log('warn', 'room', 'mesh.message.missing-remote', {
 						link,
 						type: message.type,
@@ -147,28 +158,22 @@ export const createProtocolFlow = (
 		if (link == null) return
 
 		log('info', 'room', 'link.close', { link })
-		if (link.remoteId != null) {
+		if (isParticipantLink(link)) {
 			removeParticipantLink(link.remoteId, { peer: link.peer })
 			return
 		}
 
 		room.removeLink(link)
-		if (
-			link.role === 'host-rendezvous' &&
-			link.source === 'manual' &&
-			room.isSelfHost()
-		) {
+		if (isManualHostInviteLink(link) && room.isSelfHost()) {
 			// A closed manual host invite should be replaced so the host stays joinable.
 			void host.startInviteAsHost({ resetPeers: false })
 		} else if (
-			link.role === 'guest-rendezvous' &&
-			link.source === 'beacon' &&
+			isBeaconCandidate(link, 'guest-rendezvous') &&
 			room.localParticipantId == null
 		) {
 			return
 		} else if (
-			link.role === 'guest-rendezvous' &&
-			link.source === 'manual' &&
+			isManualGuestReplyLink(link) &&
 			room.localParticipantId == null
 		) {
 			const inviteText =
@@ -188,7 +193,7 @@ export const createProtocolFlow = (
 				inviteText,
 				issue: statusCopy.directConnectionFailed,
 			})
-		} else if (link.role === 'guest-rendezvous') {
+		} else if (isGuestRendezvousLink(link)) {
 			// Losing the host rendezvous before membership means the guest is done here.
 			lifecycle.markRoomClosed()
 		}

@@ -51,6 +51,7 @@ const fixtureActions: RoomViewProps['room']['actions'] = {
 	toggleCamera: noop,
 	toggleMicrophone: noop,
 	toggleScreen: noop,
+	tryRelay: noop,
 }
 
 const emptyActivity: PortraitActivityState = { blip: null, files: [] }

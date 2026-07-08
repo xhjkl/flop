@@ -236,11 +236,13 @@ textarea {
 	overflow-x: auto;
 	overflow-y: hidden;
 	scroll-snap-type: x mandatory;
+}
+
+.scrollbarless {
 	scrollbar-width: none;
 }
 
-.portrait-strip::-webkit-scrollbar,
-.connection-copy-value::-webkit-scrollbar {
+.scrollbarless::-webkit-scrollbar {
 	display: none;
 }
 
@@ -541,10 +543,10 @@ textarea {
 	background-color: var(--surface-pop);
 	color: var(--fg-inverse);
 	transform: scale(1.03);
-	animation: copied-pop var(--motion-pop);
+	animation: pulse-pop var(--motion-pop);
 }
 
-@keyframes copied-pop {
+@keyframes pulse-pop {
 	0% {
 		transform: scale(1);
 	}
@@ -563,7 +565,6 @@ textarea {
 	margin: 0;
 	min-block-size: 0;
 	overflow: auto;
-	scrollbar-width: none;
 	padding: var(--space-field);
 	white-space: pre-wrap;
 	overflow-wrap: normal;
@@ -677,9 +678,7 @@ textarea {
 	gap: var(--space-touch);
 }
 
-.file-chip,
-.portrait-blip,
-.blip-composer-input {
+.glass-pill {
 	min-block-size: var(--control-pill-block);
 	border: 1px solid var(--line-glass);
 	border-radius: var(--radius-pill);
@@ -857,7 +856,7 @@ textarea {
 	background-color: var(--surface-pop);
 	color: var(--fg-inverse);
 	transform: scale(1.03);
-	animation: copied-pop var(--motion-pop);
+	animation: pulse-pop var(--motion-pop);
 }
 
 .person-activity-shell {

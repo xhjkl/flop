@@ -7,6 +7,7 @@ import { createRoomLifecycle } from './room/lifecycle'
 import { createProtocolFlow, type ProtocolFlow } from './room/protocol-flow'
 import { createRoomRuntime } from './room/runtime'
 import type { RoomActions } from './room/types'
+import type { GuestConnectionState, HostConnectionState } from './state'
 
 export const createRoom = () => {
 	let protocol: ProtocolFlow | null = null
@@ -51,30 +52,27 @@ export const createRoom = () => {
 
 	onCleanup(lifecycle.disposeRoom)
 
+	const hostText = (pick: (connection: HostConnectionState) => string) => {
+		return room.state.connection.side === 'host'
+			? pick(room.state.connection)
+			: ''
+	}
+
+	const guestText = (pick: (connection: GuestConnectionState) => string) => {
+		return room.state.connection.side === 'guest'
+			? pick(room.state.connection)
+			: ''
+	}
+
 	const actions: RoomActions = {
 		// Keep UI callbacks synchronous-looking even when the room work is async.
 		acceptReply: (replyText?: string) => void host.acceptReply(replyText),
 		becomeGuest: guest.becomeGuest,
 		becomeHost: () => void host.startInviteAsHost(),
 		claimInviteLinkAsHost: guest.claimInviteLinkAsHost,
-		copyInviteCode: () =>
-			void copyText(
-				room.state.connection.side === 'host'
-					? room.state.connection.inviteCode
-					: '',
-			),
-		copyInviteLink: () =>
-			void copyText(
-				room.state.connection.side === 'host'
-					? room.state.connection.inviteLink
-					: '',
-			),
-		copyReplyCode: () =>
-			void copyText(
-				room.state.connection.side === 'guest'
-					? room.state.connection.replyCode
-					: '',
-			),
+		copyInviteCode: () => void copyText(hostText((c) => c.inviteCode)),
+		copyInviteLink: () => void copyText(hostText((c) => c.inviteLink)),
+		copyReplyCode: () => void copyText(guestText((c) => c.replyCode)),
 		createReply: (inviteText?: string) => void guest.createReply(inviteText),
 		dismissBlipIssue: () => room.setState('blipComposer', 'issue', null),
 		enableSelfMedia: () => void room.media.enableSelfMedia(),
@@ -103,6 +101,7 @@ export const createRoom = () => {
 		toggleCamera: room.media.toggleCamera,
 		toggleMicrophone: room.media.toggleMicrophone,
 		toggleScreen: room.media.toggleScreen,
+		tryRelay: () => void guest.tryRelay(),
 	}
 
 	return {
