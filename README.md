@@ -4,7 +4,7 @@ Flop is a single-page browser room for conferencing directly over WebRTC with an
 
 The whole interface is a strip of portraits: you, peers, and special utility portraits for connection or room actions, which keeps the implementation small and the room easy to scan.
 
-A tiny Cloudflare Durable Object beacon helps the browsers find each other; if that stalls, manual invite and reply codes carry the same WebRTC setup through any channel you already have. Once inside the same room, browsers carry audio, video, notes, and files directly over their peer connection; no one else sees or stores the contents.
+A tiny Cloudflare Durable Object beacon helps the browsers find each other; if that stalls, manual invite and reply codes carry the same WebRTC setup through any channel you already have. Once inside the same room, browsers carry audio, video, notes, and files directly over their peer connection unless a user explicitly falls back to the shared relay.
 
 <details>
 <summary>How It Works</summary>
@@ -23,7 +23,7 @@ Flop is meant for lightweight, direct live rooms, not hostile-network anonymity.
 
 ### Development
 
-It's a Vite/Solid app plus a Cloudflare Worker Durable Object beacon; the app owns the room UI and WebRTC state, while the Worker only handles `/-/*` rendezvous WebSockets. For UI-only work, run `bun run dev`; for invite-link testing, run `bun run dev:beacon` and `bun run dev` in separate terminals. Vite proxies `/-/*` WebSockets to Wrangler on `127.0.0.1:8787`, so local invite links keep the same same-origin shape as production.
+It's a Vite/Solid app plus a Cloudflare Worker. The app owns the room UI and WebRTC state, while the Worker handles `/-/<discovery-id>` rendezvous WebSockets and, when configured, `POST /-` relay credential issuance. For UI-only work, run `bun run dev`; for invite-link testing, run `bun run dev:beacon` and `bun run dev` in separate terminals. Vite proxies `/-`-prefixed requests to Wrangler on `127.0.0.1:8787`, so local invite links and relay requests keep the same same-origin shape as production.
 
 Use `bun run sculpt` for UI fixtures, and `bun run check && bun run typecheck && bun run build` before shipping changes.
 
