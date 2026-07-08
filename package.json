@@ -6,7 +6,7 @@
 	"packageManager": "bun@1.3.14",
 	"scripts": {
 		"dev": "vite",
-		"check": "biome check README.md package.json vite.config.ts src worker",
+		"check": "biome check README.md package.json vite.config.ts spec src worker",
 		"dev:beacon": "bunx wrangler dev --config worker/wrangler.toml",
 		"typecheck": "tsc",
 		"build": "vite build",
