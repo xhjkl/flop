@@ -17,6 +17,7 @@ export const json = (body: JsonBody, init: JsonResponseInit = {}) =>
 	new Response(JSON.stringify(body), {
 		...init,
 		headers: {
+			'cache-control': 'no-store',
 			'content-type': 'application/json; charset=utf-8',
 			...init.headers,
 		},

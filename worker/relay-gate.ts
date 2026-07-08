@@ -11,6 +11,7 @@ const RELAY_GRANT_BYTES = 2_000_000_000
 /** TURN credential TTL; the UI advertises 60 minutes and keeps 4 minutes grace. */
 const RELAY_TTL_SECONDS = 64 * 60
 const RELAY_REQUEST_HEADER = 'x-flop-relay'
+const RELAY_BUCKET_PATTERN = /^[a-f0-9]{32}$/
 
 type RelayGateReserveMessage = {
 	bucket: string
@@ -24,7 +25,10 @@ export const isRelayCredentialsRequest = (request: Request) => {
 const isRelayGateReserveMessage = (
 	message: JsonBody,
 ): message is RelayGateReserveMessage => {
-	return typeof message.bucket === 'string' && message.bucket.length > 0
+	return (
+		typeof message.bucket === 'string' &&
+		RELAY_BUCKET_PATTERN.test(message.bucket)
+	)
 }
 
 const readCounter = (value: unknown) => {
@@ -42,6 +46,9 @@ const calendarKeys = (date = new Date()) => {
 const clientIp = (request: Request) => {
 	const connectingIp = request.headers.get('cf-connecting-ip')?.trim()
 	if (connectingIp != null && connectingIp !== '') return connectingIp
+
+	const { hostname } = new URL(request.url)
+	if (hostname !== 'localhost' && hostname !== '127.0.0.1') return null
 
 	return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null
 }
@@ -128,7 +135,9 @@ const hashRelayBucket = async (maskedIp: string, secret: string) => {
 }
 
 const relayBucket = async (request: Request, env: Env) => {
-	if (env.RELAY_HASH_SECRET == null) return null
+	if (env.RELAY_HASH_SECRET == null || env.RELAY_HASH_SECRET.trim() === '') {
+		return null
+	}
 
 	const ip = clientIp(request)
 	if (ip == null) return null
@@ -183,8 +192,11 @@ export const issueRelayCredentials = async (request: Request, env: Env) => {
 
 	if (
 		env.RELAY_HASH_SECRET == null ||
+		env.RELAY_HASH_SECRET.trim() === '' ||
 		env.TURN_KEY_ID == null ||
-		env.TURN_KEY_API_TOKEN == null
+		env.TURN_KEY_ID.trim() === '' ||
+		env.TURN_KEY_API_TOKEN == null ||
+		env.TURN_KEY_API_TOKEN.trim() === ''
 	) {
 		return json({ error: 'relay not configured' }, { status: 503 })
 	}
