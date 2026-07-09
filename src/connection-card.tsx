@@ -1,4 +1,11 @@
-import { createSignal, type JSX, Match, Show, Switch } from 'solid-js'
+import {
+	createMemo,
+	createSignal,
+	type JSX,
+	Match,
+	Show,
+	Switch,
+} from 'solid-js'
 import { Daisy } from './daisy'
 import { canShareText, shareText } from './room/invite'
 import { RELAY_FALLBACK_WAIT_SECONDS } from './room/relay'
@@ -10,6 +17,8 @@ import {
 	type HostConnectionState,
 } from './state'
 import { createPulse } from './ui/pulse'
+import { QrBackdrop } from './ui/qr'
+import { encodeQrCode } from './ui/qr-code'
 
 export type HostInviteMode = 'code' | 'link'
 
@@ -29,10 +38,14 @@ const ShareTextBlock = (props: {
 	shareLabel?: string
 	disabled?: boolean
 	onCopy?: () => void
+	qr?: boolean
 }) => {
 	const copied = createPulse(1400)
 	const empty = () => props.value.trim() === ''
 	const canShare = () => !empty() && canShareText(props.value)
+	const qr = createMemo(() =>
+		(props.qr ?? false) && !empty() ? encodeQrCode(props.value) : null,
+	)
 	const actionLabel = () => {
 		if (copied.active()) return 'copied'
 		if (canShare()) return props.shareLabel ?? 'share'
@@ -50,7 +63,10 @@ const ShareTextBlock = (props: {
 	}
 
 	return (
-		<div class="connection-copy-block" classList={{ 'is-empty': empty() }}>
+		<div
+			class="connection-copy-block"
+			classList={{ 'has-qr': qr() != null, 'is-empty': empty() }}
+		>
 			<div class="connection-copy-head">
 				<span>{props.label}</span>
 				<button
@@ -64,9 +80,12 @@ const ShareTextBlock = (props: {
 				</button>
 			</div>
 			{/* Codes are text memos. Show the whole thing; do not make users decode our UI. */}
-			<pre class="connection-copy-value scrollbarless">
-				{empty() ? props.placeholder : props.value}
-			</pre>
+			<div class="connection-copy-value-frame">
+				<pre class="connection-copy-value scrollbarless">
+					{empty() ? props.placeholder : props.value}
+				</pre>
+				<Show when={qr()}>{(code) => <QrBackdrop code={code()} />}</Show>
+			</div>
 		</div>
 	)
 }
@@ -172,6 +191,7 @@ const HostInvitePane = (props: {
 							shareLabel="share link"
 							disabled={!inviteLinkReady()}
 							onCopy={props.onCopyInviteLink}
+							qr={inviteLinkReady()}
 						/>
 					</div>
 				</div>
@@ -198,6 +218,7 @@ const HostInvitePane = (props: {
 							shareLabel="share invite code"
 							disabled={props.mode !== 'code'}
 							onCopy={props.onCopyInviteCode}
+							qr
 						/>
 						<PasteLine
 							label="paste their reply code here to let them in"
@@ -308,6 +329,7 @@ const GuestInvitePane = (props: {
 							copyLabel="copy reply code"
 							shareLabel="share reply code"
 							onCopy={props.onCopyReplyCode}
+							qr
 						/>
 					</div>
 				</Match>

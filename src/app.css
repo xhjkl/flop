@@ -562,6 +562,8 @@ textarea {
 
 .connection-copy-value {
 	/* Invite and reply codes should feel like plain old text you can copy anywhere. */
+	position: relative;
+	z-index: 1;
 	margin: 0;
 	min-block-size: 0;
 	overflow: auto;
@@ -573,6 +575,43 @@ textarea {
 	font-family: var(--font-code);
 	font-size: var(--text-caption);
 	line-height: var(--leading-copy);
+}
+
+.connection-copy-value-frame {
+	position: relative;
+	isolation: isolate;
+	display: grid;
+	min-block-size: 0;
+	overflow: hidden;
+}
+
+.connection-copy-value-frame > * {
+	grid-area: 1 / 1;
+}
+
+.connection-copy-block.has-qr .connection-copy-value {
+	mix-blend-mode: difference;
+}
+
+.connection-copy-qr {
+	--connection-qr-margin: max(var(--space-field), 1rem);
+	z-index: 0;
+	align-self: stretch;
+	justify-self: stretch;
+	inline-size: calc(100% - 2 * var(--connection-qr-margin));
+	block-size: calc(100% - 2 * var(--connection-qr-margin));
+	margin: var(--connection-qr-margin);
+	pointer-events: none;
+	opacity: 0.82;
+	shape-rendering: crispEdges;
+}
+
+.connection-copy-qr-paper {
+	fill: var(--fg-inverse);
+}
+
+.connection-copy-qr-ink {
+	fill: var(--surface-code);
 }
 
 .connection-copy-block.is-empty .connection-copy-value {
