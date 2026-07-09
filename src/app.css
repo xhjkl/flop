@@ -641,7 +641,9 @@ textarea {
 .daisy-segment {
 	stroke: currentColor;
 	stroke-linecap: round;
-	stroke-dasharray: var(--daisy-fill) 1;
+	stroke-dasharray: 1;
+	stroke-dashoffset: calc(1 - var(--daisy-fill));
+	transition: stroke-dashoffset 1s linear;
 }
 
 .daisy-value {
@@ -652,6 +654,12 @@ textarea {
 	letter-spacing: 0;
 	text-anchor: middle;
 	dominant-baseline: central;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.daisy-segment {
+		transition: none;
+	}
 }
 
 .relay-meter .daisy {
