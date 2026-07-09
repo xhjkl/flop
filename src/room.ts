@@ -1,4 +1,5 @@
 import { onCleanup, onMount } from 'solid-js'
+import { hostInviteFromAddressBar } from './room/address-bar'
 import { createBeaconFlow } from './room/beacon-flow'
 import { createGuestFlow } from './room/guest'
 import { createHostFlow } from './room/host'
@@ -34,10 +35,16 @@ export const createRoom = () => {
 	protocol = createProtocolFlow(room, lifecycle, host, guest)
 
 	onMount(() => {
-		// URL hash wins on load; otherwise this browser starts as host.
+		// Shared URLs make guests; a tab-owned projection lets host refresh stay host.
 		const invite = readInviteFromHash()
+		const hostInvite = hostInviteFromAddressBar()
 
 		if (invite.type === 'invite-link') {
+			if (hostInvite === invite.secret) {
+				void host.startInviteAsHost({ secret: invite.secret })
+				return
+			}
+
 			guest.joinRoomWithInviteLink(invite.secret)
 			return
 		}

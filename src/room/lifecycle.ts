@@ -1,5 +1,6 @@
 import { reconcile } from 'solid-js/store'
 import type { RoomSecret } from '../rendezvous/secret'
+import { clearProjectedHostInvite } from './address-bar'
 import { closedConnection } from './initial-state'
 import { mergeParticipant, randomParticipantId } from './participant'
 import type { RoomRuntime } from './runtime'
@@ -43,6 +44,7 @@ export const createRoomLifecycle = (room: RoomRuntime): RoomLifecycle => {
 
 	const resetBeforeJoining = (options: { keepPendingBlip?: boolean } = {}) => {
 		// Before welcome, a guest has no durable identity in this room.
+		clearProjectedHostInvite()
 		room.relay.clear()
 		room.stopBeaconRendezvous()
 		if (!options.keepPendingBlip) room.blips.clearPending()
@@ -58,6 +60,7 @@ export const createRoomLifecycle = (room: RoomRuntime): RoomLifecycle => {
 
 	const markRoomClosed = (options: { keepRelayMetering?: boolean } = {}) => {
 		// Closed is visible state plus real transport teardown.
+		clearProjectedHostInvite()
 		room.relay.clear({ keepMetering: options.keepRelayMetering })
 		room.stopBeaconRendezvous()
 		room.closeAllLinks()

@@ -6,6 +6,7 @@ import {
 } from '../protocol'
 import { randomRoomSecret } from '../rendezvous/secret'
 import { decodeSignal, encodeSignal } from '../signal'
+import { projectHostInvite } from './address-bar'
 import type { BeaconFlow } from './beacon-flow'
 import { emptyBlipComposer, emptyHostConnection } from './initial-state'
 import { inviteCodeFromSignal, inviteLinkFromSecret } from './invite'
@@ -171,6 +172,7 @@ export const createHostFlow = (
 			// One secret powers all invite link attempts for this host room.
 			const secret = room.roomSecret
 			const inviteLink = inviteLinkFromSecret(secret)
+			projectHostInvite(secret, inviteLink)
 			room.setState('connection', {
 				...emptyHostConnection(),
 				inviteLink,

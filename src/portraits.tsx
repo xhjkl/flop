@@ -22,12 +22,6 @@ import { createPulse } from './ui/pulse'
 const SelfMediaStatusLabel = (props: { status: SelfMediaStatus }) => {
 	return (
 		<Switch fallback={null}>
-			<Match when={props.status === 'requesting'}>
-				<small>requesting</small>
-			</Match>
-			<Match when={props.status === 'denied'}>
-				<small>access denied</small>
-			</Match>
 			<Match when={props.status === 'missing'}>
 				<small>device missing</small>
 			</Match>
