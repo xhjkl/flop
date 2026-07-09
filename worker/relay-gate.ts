@@ -6,12 +6,12 @@ import {
 } from '../spec/relay'
 import { type Env, type JsonBody, json } from './common'
 
-const RELAY_BUCKET_DAY_GRANTS = 2
-const RELAY_BUCKET_MONTH_GRANTS = 20
+const RELAY_BUCKET_DAY_GRANTS = 4
+const RELAY_BUCKET_MONTH_GRANTS = 12
 const RELAY_GATE_NAME = 'relay-gate'
 const RELAY_GLOBAL_MONTH_BYTES = 800_000_000_000
-/** TURN credential TTL; the UI advertises 60 minutes and keeps 4 minutes grace. */
-const RELAY_TTL_SECONDS = 64 * 60
+/** TURN credential TTL; the UI advertises 120 minutes and keeps 8 minutes grace. */
+const RELAY_TTL_SECONDS = 128 * 60
 const RELAY_BUCKET_PATTERN = /^[a-f0-9]{32}$/
 
 type RelayGateReserveMessage = {

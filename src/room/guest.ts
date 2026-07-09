@@ -16,7 +16,7 @@ import type { RoomLifecycle } from './lifecycle'
 import { isBeaconCandidate, type RoomLink } from './link'
 import { MANUAL_ADMISSION_TIMEOUT_MS, watchRendezvousAdmission } from './manual'
 import { participantKey } from './participant'
-import { requestRelayIceServers } from './relay'
+import { RelayQuotaExceededError, requestRelayIceServers } from './relay'
 import type { RoomRuntime } from './runtime'
 import { statusCopy } from './status-copy'
 
@@ -193,7 +193,11 @@ export const createGuestFlow = (
 
 				room.setState('connection', {
 					...connection,
-					issue: statusCopy.relayUnavailable,
+					issue:
+						error instanceof RelayQuotaExceededError
+							? statusCopy.relayQuotaExceeded
+							: statusCopy.relayUnavailable,
+					relayFallbackSecondsLeft: null,
 				})
 			}
 		})().finally(() => {

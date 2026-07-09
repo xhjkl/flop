@@ -8,9 +8,17 @@ import type { RelayMetering } from '../state'
 import type { LinkId, RoomLink } from './link'
 
 export { RELAY_GRANT_BYTES, RELAY_GRANT_SECONDS } from '../../spec/relay'
-export const RELAY_FALLBACK_WAIT_SECONDS = 30
+export const RELAY_FALLBACK_WAIT_SECONDS = 8
 
 const RELAY_STATS_INTERVAL_MS = 3000
+
+/** Relay mint refusal after the shared free allowance has been spent. */
+export class RelayQuotaExceededError extends Error {
+	constructor() {
+		super('Relay quota exceeded')
+		this.name = 'RelayQuotaExceededError'
+	}
+}
 
 type RelayPeerOptions = {
 	iceServers?: RTCIceServer[]
@@ -78,6 +86,8 @@ export const requestRelayIceServers = async () => {
 	})
 
 	if (!response.ok) {
+		if (response.status === 429) throw new RelayQuotaExceededError()
+
 		throw new Error(`Relay credentials unavailable: ${response.status}`)
 	}
 

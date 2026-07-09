@@ -252,7 +252,7 @@ export const uiFixtures: UiFixture[] = [
 				status: 'finding-link',
 				inviteText: SAMPLE_INVITE_LINK,
 				inviteLinkPresence: { guests: 1, hosts: 1, peers: 1 },
-				relayFallbackSecondsLeft: 18,
+				relayFallbackSecondsLeft: 5,
 			}),
 		}),
 	),
@@ -273,6 +273,26 @@ export const uiFixtures: UiFixture[] = [
 				inviteText: SAMPLE_INVITE_LINK,
 				inviteLinkPresence: { guests: 1, hosts: 1, peers: 2 },
 				relayFallbackSecondsLeft: 0,
+			}),
+		}),
+	),
+	fixture(
+		'guest-link-relay-quota-exceeded',
+		'Guest link relay quota exceeded',
+		room({
+			themeSeed: SAMPLE_INVITE_LINK,
+			peers: [
+				{
+					activity: emptyActivity,
+					id: HOST_ID,
+					connectionState: 'waiting',
+				},
+			],
+			connection: guestConnection({
+				status: 'finding-link',
+				inviteText: SAMPLE_INVITE_LINK,
+				inviteLinkPresence: { guests: 1, hosts: 1, peers: 2 },
+				issue: statusCopy.relayQuotaExceeded,
 			}),
 		}),
 	),
