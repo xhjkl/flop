@@ -250,7 +250,7 @@ const GuestInvitePane = (props: {
 	onCopyReplyCode: () => void
 	onCreateReply: (inviteText?: string) => void
 	onSetInviteText: (inviteText: string) => void
-	onTryRelay?: () => void
+	onTryRelay: () => void
 }) => {
 	const creating = () => props.connection.status === 'creating-reply'
 	const hasInviteField = () => props.connection.status !== 'finding-link'
@@ -356,7 +356,7 @@ const relayWaitSeconds = (seconds: number) => {
 
 const FindingRelayControl = (props: {
 	secondsLeft: number
-	onTryRelay?: () => void
+	onTryRelay: () => void
 }) => {
 	const secondsLeft = () => relayWaitSeconds(props.secondsLeft)
 
@@ -386,7 +386,7 @@ export const ConnectionCard = (props: {
 	connection: ConnectionState
 	canClaimFindingInviteLink: boolean
 	canJoinExistingRoom: boolean
-	initialHostInviteMode?: HostInviteMode
+	initialHostInviteMode: HostInviteMode | null
 	onAcceptReply: (replyText?: string) => void
 	onBecomeGuest: () => void
 	onBecomeHost: () => void
@@ -397,7 +397,7 @@ export const ConnectionCard = (props: {
 	onCreateReply: (inviteText?: string) => void
 	onSetInviteText: (inviteText: string) => void
 	onSetReplyText: (replyText: string) => void
-	onTryRelay?: () => void
+	onTryRelay: () => void
 }) => {
 	const hostConnection = () =>
 		props.connection.side === 'host' ? props.connection : null

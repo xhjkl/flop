@@ -1,17 +1,22 @@
 import { DurableObject } from 'cloudflare:workers'
-import { isSignalDescription, type SignalDescription } from '../spec/signal'
-import { type JsonBody, json } from './common'
+import {
+	type BeaconRole,
+	type ClientBeaconAnswerMessage,
+	type ClientBeaconJoinMessage,
+	type ClientBeaconOfferMessage,
+	decodeClientBeaconMessage,
+	isBeaconId,
+	type ServerBeaconMessage,
+	type ServerBeaconOfferMessage,
+} from '../contracts/beacon'
+import { json } from './common'
 
 /** Same-origin rendezvous prefix reserved for room discovery sockets. */
-const MEET_PREFIX = '/-/'
-const BEACON_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
+const RENDEZVOUS_PREFIX = '/-/'
 const MAX_MESSAGE_LENGTH = 256 * 1024
-
-type BeaconRole = 'guest' | 'host'
 
 type BeaconAttachment = {
 	beaconPeerId: string | null
-	joinedAt: number
 	role: BeaconRole | null
 }
 
@@ -20,43 +25,24 @@ type BeaconSocket = WebSocket & {
 	serializeAttachment(attachment: BeaconAttachment): void
 }
 
-type JoinMessage = {
-	beaconPeerId: string
-	role: BeaconRole
-	type: 'join'
-}
-
-type OfferMessage = {
-	beaconPeerId?: unknown
-	offer: SignalDescription
-	offerId: string
-	type: 'offer'
-}
-
-type AnswerMessage = {
-	answer: SignalDescription
-	beaconPeerId: string
-	offerId: string
-	type: 'answer'
-}
-
 export const websocketResponse = () =>
 	new Response('Expected a WebSocket upgrade', {
 		status: 426,
 		headers: { upgrade: 'websocket' },
 	})
 
-export const roomNameFromRequest = (request: Request) => {
+/** Valid room discovery id carried by a rendezvous URL. */
+export const discoveryIdFromRequest = (request: Request) => {
 	const { pathname } = new URL(request.url)
-	if (!pathname.startsWith(MEET_PREFIX)) return null
+	if (!pathname.startsWith(RENDEZVOUS_PREFIX)) return null
 
-	const discoveryId = pathname.slice(MEET_PREFIX.length)
-	return BEACON_ID_PATTERN.test(discoveryId) ? discoveryId : null
+	const discoveryId = pathname.slice(RENDEZVOUS_PREFIX.length)
+	return isBeaconId(discoveryId) ? discoveryId : null
 }
 
 export const isRendezvousRequest = (request: Request) => {
 	const { pathname } = new URL(request.url)
-	return pathname.startsWith(MEET_PREFIX)
+	return pathname.startsWith(RENDEZVOUS_PREFIX)
 }
 
 const parseMessage = (message: unknown) => {
@@ -65,51 +51,16 @@ const parseMessage = (message: unknown) => {
 
 	try {
 		const value: unknown = JSON.parse(message)
-		return typeof value === 'object' && value != null
-			? (value as JsonBody)
-			: null
+		return decodeClientBeaconMessage(value)
 	} catch {
 		return null
 	}
 }
 
-const isPeerId = (value: unknown): value is string => {
-	return typeof value === 'string' && BEACON_ID_PATTERN.test(value)
-}
-
-const isOfferId = (value: unknown): value is string => {
-	return typeof value === 'string' && BEACON_ID_PATTERN.test(value)
-}
-
-const isJoinMessage = (message: JsonBody): message is JoinMessage => {
-	return (
-		message.type === 'join' &&
-		isPeerId(message.beaconPeerId) &&
-		(message.role === 'guest' || message.role === 'host')
-	)
-}
-
-const isOfferMessage = (message: JsonBody): message is OfferMessage => {
-	return (
-		message.type === 'offer' &&
-		isOfferId(message.offerId) &&
-		isSignalDescription(message.offer)
-	)
-}
-
-const isAnswerMessage = (message: JsonBody): message is AnswerMessage => {
-	return (
-		message.type === 'answer' &&
-		isPeerId(message.beaconPeerId) &&
-		isOfferId(message.offerId) &&
-		isSignalDescription(message.answer)
-	)
-}
-
 const socketPeerId = (socket: BeaconSocket) => {
 	const attachment =
 		socket.deserializeAttachment() as Partial<BeaconAttachment> | null
-	return isPeerId(attachment?.beaconPeerId) ? attachment.beaconPeerId : null
+	return isBeaconId(attachment?.beaconPeerId) ? attachment.beaconPeerId : null
 }
 
 const socketRole = (socket: BeaconSocket) => {
@@ -120,7 +71,7 @@ const socketRole = (socket: BeaconSocket) => {
 		: null
 }
 
-const sendSocket = (socket: BeaconSocket, message: JsonBody) => {
+const sendSocket = (socket: BeaconSocket, message: ServerBeaconMessage) => {
 	try {
 		socket.send(JSON.stringify(message))
 		return true
@@ -136,7 +87,7 @@ export class FlopRoom extends DurableObject {
 			return websocketResponse()
 		}
 
-		const discoveryId = roomNameFromRequest(request)
+		const discoveryId = discoveryIdFromRequest(request)
 		if (discoveryId == null) {
 			return json({ error: 'invalid room' }, { status: 400 })
 		}
@@ -148,7 +99,6 @@ export class FlopRoom extends DurableObject {
 		this.ctx.acceptWebSocket(server)
 		server.serializeAttachment({
 			beaconPeerId: null,
-			joinedAt: Date.now(),
 			role: null,
 		})
 
@@ -164,52 +114,51 @@ export class FlopRoom extends DurableObject {
 
 		const beaconPeerId = socketPeerId(socket)
 		if (beaconPeerId == null) {
+			if (message.type !== 'join') {
+				socket.close(1008, 'join required')
+				return
+			}
+
 			this.handleJoin(socket, message)
 			return
 		}
 
-		if (isOfferMessage(message)) {
-			if (socketRole(socket) !== 'host') {
+		switch (message.type) {
+			case 'offer':
+				if (socketRole(socket) !== 'host') {
+					sendSocket(socket, {
+						reason: 'only hosts may offer',
+						type: 'error',
+					})
+					return
+				}
+
+				this.forwardOffer(socket, beaconPeerId, message)
+				return
+			case 'answer':
+				if (socketRole(socket) !== 'guest') {
+					sendSocket(socket, {
+						reason: 'only guests may answer',
+						type: 'error',
+					})
+					return
+				}
+
+				this.forwardAnswer(socket, beaconPeerId, message)
+				return
+			case 'join':
 				sendSocket(socket, {
-					reason: 'only hosts may offer',
+					reason: 'invalid message',
 					type: 'error',
 				})
 				return
-			}
-
-			this.forwardOffer(socket, beaconPeerId, message)
-			return
 		}
-
-		if (isAnswerMessage(message)) {
-			if (socketRole(socket) !== 'guest') {
-				sendSocket(socket, {
-					reason: 'only guests may answer',
-					type: 'error',
-				})
-				return
-			}
-
-			this.forwardAnswer(socket, beaconPeerId, message)
-			return
-		}
-
-		sendSocket(socket, {
-			reason: 'invalid message',
-			type: 'error',
-		})
 	}
 
-	handleJoin(socket: BeaconSocket, message: JsonBody) {
-		if (!isJoinMessage(message)) {
-			socket.close(1008, 'join required')
-			return
-		}
-
+	handleJoin(socket: BeaconSocket, message: ClientBeaconJoinMessage) {
 		const beaconPeerId = message.beaconPeerId
 		socket.serializeAttachment({
 			beaconPeerId,
-			joinedAt: Date.now(),
 			role: message.role,
 		})
 
@@ -246,16 +195,16 @@ export class FlopRoom extends DurableObject {
 	forwardOffer(
 		sender: BeaconSocket,
 		beaconPeerId: string,
-		message: OfferMessage,
+		message: ClientBeaconOfferMessage,
 	) {
-		const payload = {
+		const payload: ServerBeaconOfferMessage = {
 			beaconPeerId,
 			offer: message.offer,
 			offerId: message.offerId,
 			type: 'offer',
 		}
 
-		if (isPeerId(message.beaconPeerId)) {
+		if (message.beaconPeerId != null) {
 			const target = this.peerById(message.beaconPeerId)
 			if (
 				target != null &&
@@ -277,7 +226,7 @@ export class FlopRoom extends DurableObject {
 	forwardAnswer(
 		sender: BeaconSocket,
 		beaconPeerId: string,
-		message: AnswerMessage,
+		message: ClientBeaconAnswerMessage,
 	) {
 		const target = this.peerById(message.beaconPeerId)
 		if (target == null) return

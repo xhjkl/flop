@@ -1,8 +1,8 @@
 import { render } from 'solid-js/web'
 import App from './app'
 
-const root = document.getElementById('app')
-if (!root) {
-	throw new Error('#root')
+const mount = document.getElementById('app')
+if (mount == null) {
+	throw new Error('Missing #app mount element')
 }
-render(() => <App />, root)
+render(() => <App />, mount)

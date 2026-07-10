@@ -17,7 +17,7 @@ export type RoomBlips = {
 export const createRoomBlips = (options: {
 	getComposerText: () => string
 	getLocalParticipantId: () => ParticipantId | null
-	liveParticipantLinks: () => RoomLink[]
+	openParticipantLinks: () => RoomLink[]
 	participantById: (
 		participantId: ParticipantId | null,
 	) => RoomParticipant | null
@@ -54,7 +54,7 @@ export const createRoomBlips = (options: {
 		const blip = localBlip()
 		if (blip == null) return false
 
-		return peer.send(encodePacket({ type: 'blip', text: blip }))
+		return peer.trySend(encodePacket({ type: 'blip', text: blip }))
 	}
 
 	const publishLocal = () => {
@@ -62,7 +62,7 @@ export const createRoomBlips = (options: {
 		const blip = localBlip()
 		if (blip == null) return 0
 
-		return options.sendToLinks(options.liveParticipantLinks(), {
+		return options.sendToLinks(options.openParticipantLinks(), {
 			type: 'blip',
 			text: blip,
 		})
@@ -82,7 +82,7 @@ export const createRoomBlips = (options: {
 			options.setParticipantBlip(localParticipantId, blip)
 		}
 
-		options.sendToLinks(options.liveParticipantLinks(), {
+		options.sendToLinks(options.openParticipantLinks(), {
 			type: 'blip',
 			text: blip,
 		})

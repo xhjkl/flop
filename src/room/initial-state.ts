@@ -20,7 +20,6 @@ export type RoomState = {
 
 /** Host card before an invite link/code has finished preparing. */
 export const emptyHostConnection = (): HostConnectionState => ({
-	// The host card first promises an invite, then fills link and code as they land.
 	side: 'host',
 	status: 'creating-invite',
 	inviteLink: '',
@@ -32,7 +31,6 @@ export const emptyHostConnection = (): HostConnectionState => ({
 
 /** Guest card before the user has supplied any invite. */
 export const emptyGuestConnection = (): GuestConnectionState => ({
-	// The guest card starts with one job: paste what the host sent.
 	side: 'guest',
 	status: 'needs-invite',
 	inviteText: '',
@@ -44,21 +42,18 @@ export const emptyGuestConnection = (): GuestConnectionState => ({
 
 /** Closed room recovery card. */
 export const closedConnection = (): ClosedConnectionState => ({
-	// Closed is a visible recovery state, not just missing transport.
 	side: 'closed',
 	issue: null,
 })
 
 /** Empty local blip composer. */
 export const emptyBlipComposer = (): BlipComposerState => ({
-	// Text survives typing; issues are short-lived nudges.
 	issue: null,
 	text: '',
 })
 
 /** Initial room store seeded by the first local host identity. */
 export const emptyRoomState = (themeSeed: string): RoomState => {
-	// The first host identity paints the room before anyone joins.
 	return {
 		blipComposer: emptyBlipComposer(),
 		connection: emptyHostConnection(),

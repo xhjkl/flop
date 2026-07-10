@@ -3,11 +3,11 @@ import {
 	RELAY_GRANT_SECONDS,
 	RELAY_PATH,
 	RELAY_REQUEST_HEADER,
-} from '../../spec/relay'
+} from '../../contracts/relay'
 import type { RelayMetering } from '../state'
 import type { LinkId, RoomLink } from './link'
 
-export { RELAY_GRANT_BYTES, RELAY_GRANT_SECONDS } from '../../spec/relay'
+export { RELAY_GRANT_BYTES, RELAY_GRANT_SECONDS } from '../../contracts/relay'
 export const RELAY_FALLBACK_WAIT_SECONDS = 8
 
 const RELAY_STATS_INTERVAL_MS = 3000
@@ -104,29 +104,32 @@ export const createRoomRelay = (options: {
 	onStatsError: (error: unknown, link: RoomLink) => void
 	setMetering: (metering: RelayMetering | null) => void
 }): RoomRelay => {
-	const linkBytes = new Map<LinkId, number>()
+	let generation = 0
 	let iceServers: RTCIceServer[] | null = null
 	let meterTimer: ReturnType<typeof setInterval> | null = null
 
 	const clear = (clearOptions: { keepMetering?: boolean } = {}) => {
+		generation++
 		if (meterTimer != null) {
 			clearInterval(meterTimer)
 			meterTimer = null
 		}
 
-		linkBytes.clear()
 		iceServers = null
 		if (!clearOptions.keepMetering) options.setMetering(null)
 	}
 
-	const sampleBytes = async () => {
+	const sampleBytes = async (
+		linkBytes: Map<LinkId, number>,
+		session: number,
+	) => {
 		await Promise.all(
 			[...options.links.values()].map(async (link) => {
 				const stats = await link.peer.relayStats().catch((error: unknown) => {
-					options.onStatsError(error, link)
+					if (session === generation) options.onStatsError(error, link)
 					return null
 				})
-				if (stats == null) return
+				if (session !== generation || stats == null) return
 
 				linkBytes.set(
 					link.id,
@@ -135,11 +138,14 @@ export const createRoomRelay = (options: {
 			}),
 		)
 
+		if (session !== generation) return null
 		return [...linkBytes.values()].reduce((sum, bytes) => sum + bytes, 0)
 	}
 
 	const start = (servers: RTCIceServer[], onExpired: () => void) => {
 		clear()
+		const session = generation
+		const linkBytes = new Map<LinkId, number>()
 		iceServers = servers
 
 		const expiresAt = Date.now() + RELAY_GRANT_SECONDS * 1000
@@ -148,16 +154,20 @@ export const createRoomRelay = (options: {
 		let updateRunning = false
 
 		const update = async () => {
-			if (updateRunning) return
+			if (session !== generation || updateRunning) return
 
 			updateRunning = true
 			try {
-				const now = Date.now()
-				if (now - lastStatsAt >= RELAY_STATS_INTERVAL_MS) {
-					bytesSpent = await sampleBytes()
-					lastStatsAt = now
-				}
+				if (Date.now() - lastStatsAt >= RELAY_STATS_INTERVAL_MS) {
+					const sampledBytes = await sampleBytes(linkBytes, session)
+					if (sampledBytes == null) return
 
+					bytesSpent = sampledBytes
+					lastStatsAt = Date.now()
+				}
+				if (session !== generation) return
+
+				const now = Date.now()
 				const secondsLeft = Math.max(0, Math.ceil((expiresAt - now) / 1000))
 				const bytesLeft = Math.max(0, RELAY_GRANT_BYTES - bytesSpent)
 				options.setMetering({ bytesLeft, secondsLeft })

@@ -34,7 +34,7 @@ const App = () => {
 		<>
 			<BeforeUnloadGuard when={shouldWarnBeforeUnload(room)} />
 			<FileDropGuard onDropFiles={room.actions.sendFiles} />
-			<RoomView room={room} />
+			<RoomView hostInviteMode={null} room={room} />
 		</>
 	)
 }

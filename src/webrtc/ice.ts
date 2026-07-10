@@ -75,8 +75,8 @@ export const waitForIce = (
 	})
 }
 
-export const hasUsableIceCandidate = (pc: RTCPeerConnection) => {
-	// Direct mode can proceed on srflx; relay mode can proceed on TURN.
+/** Server-reflexive or relay address suitable for non-trickle signaling. */
+export const hasServerReflexiveOrRelayCandidate = (pc: RTCPeerConnection) => {
 	const counts = candidateTypeCounts(pc.localDescription?.sdp ?? '')
 	return counts.srflx != null || counts.relay != null
 }

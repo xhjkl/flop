@@ -21,7 +21,7 @@ import type { StartHostOptions } from './types'
 /** Host-side invite, admission, and manual reply transitions. */
 export type HostFlow = {
 	acceptReply: (replyText?: string) => Promise<void>
-	handleHostPacket: (participantId: ParticipantId, message: Packet) => void
+	handleHostPacket: (participantId: ParticipantId, message: Packet) => boolean
 	handleHostRendezvousMessage: (link: RoomLink, message: Packet) => void
 	startInviteAsHost: (options?: StartHostOptions) => Promise<void>
 }
@@ -37,7 +37,7 @@ export const createHostFlow = (
 			log('error', 'room', 'welcome.missing-local-host-id', {
 				participantId: participantIdToString(participantId),
 			})
-			return
+			return false
 		}
 		const sent = room.sendToParticipant(participantId, {
 			hostId: room.localParticipantId,
@@ -49,23 +49,25 @@ export const createHostFlow = (
 			log('warn', 'room', 'welcome.send.failed', {
 				participantId: participantIdToString(participantId),
 			})
-			const link = room.participantLink(participantId)
-			if (link != null) room.closeLink(link)
-			return
+			return false
 		}
 		const link = room.participantLink(participantId)
 		if (link != null) {
 			room.blips.sendLocalToPeer(link.peer)
 			room.sendLocalMediaStateToPeer(link.peer)
 		}
+		return true
 	}
 
 	const handleHostPacket = (participantId: ParticipantId, message: Packet) => {
 		// Hosts accept room activity and broker mesh setup.
-		if (room.handleCommonMessage(participantId, message)) return
+		if (room.handleCommonMessage(participantId, message)) return true
 		switch (message.type) {
 			case 'hello':
-				sendHostWelcome(participantId)
+				if (!sendHostWelcome(participantId)) {
+					room.removeParticipant(participantId)
+					return false
+				}
 				room.broadcastMembershipChange()
 				break
 			case 'peer-offer':
@@ -76,7 +78,7 @@ export const createHostFlow = (
 						from: participantIdToString(participantId),
 						type: message.type,
 					})
-					return
+					return true
 				}
 				if (
 					!room.sendToParticipant(message.to, {
@@ -101,6 +103,7 @@ export const createHostFlow = (
 			case 'welcome':
 				break
 		}
+		return true
 	}
 
 	const admitHostRendezvous = (link: RoomLink) => {
@@ -121,7 +124,7 @@ export const createHostFlow = (
 				link,
 				participantId: participantIdToString(participant.id),
 			})
-			room.deleteParticipant(participant.id)
+			room.removeParticipant(participant.id)
 			return null
 		}
 
@@ -270,8 +273,8 @@ export const createHostFlow = (
 			return
 		}
 
-		handleHostPacket(participantId, message)
-		if (fresh) {
+		const participantRetained = handleHostPacket(participantId, message)
+		if (fresh || !participantRetained) {
 			// Keep the host ready for the next person only after this peer joined the room protocol.
 			void startInviteAsHost({ resetPeers: false })
 		}
@@ -304,6 +307,9 @@ export const createHostFlow = (
 			}
 
 			const answer = await decodeSignal(replyCode)
+			if (answer.type !== 'answer') {
+				throw new Error('Reply code did not contain an answer')
+			}
 			await answeringLink.peer.acceptAnswer(answer)
 			if (!room.isCurrentSignalingVersion(version)) return
 

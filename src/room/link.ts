@@ -18,7 +18,8 @@ export type RoomLink = {
 	auth: LinkAuthState
 	authNonce: string | null
 	id: LinkId
-	live: boolean
+	/** Data channel ready for room packets. */
+	channelOpen: boolean
 	mediaState: PeerMediaState | null
 	mediaStream: MediaStream | null
 	peer: Peer
@@ -130,8 +131,10 @@ export const findParticipantLink = (
 	return null
 }
 
-/** Live links that crossed the hello/welcome identity boundary. */
-export const liveIdentifiedLinks = (links: Iterable<RoomLink>) => {
+/** Open links that crossed the hello/welcome identity boundary. */
+export const openParticipantLinks = (links: Iterable<RoomLink>) => {
 	// Broadcasts only go to links that made it past the hello/welcome line.
-	return [...links].filter((link) => link.live && isParticipantLink(link))
+	return [...links].filter(
+		(link) => link.channelOpen && isParticipantLink(link),
+	)
 }

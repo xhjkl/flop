@@ -1,7 +1,11 @@
+import {
+	type ClientBeaconMessage,
+	decodeServerBeaconMessage,
+} from '../../contracts/beacon'
 import { bytesToBase64Url } from '../binary'
 import { log } from '../log'
 import { randomBase64Url } from '../random'
-import { isSignalDescription, type SignalDescription } from '../signal'
+import type { AnswerDescription, OfferDescription } from '../signal'
 import type { BeaconPresence, BeaconStatus } from './types'
 
 export type { BeaconPresence, BeaconStatus } from './types'
@@ -10,28 +14,35 @@ export type BeaconRendezvous = {
 	close: () => void
 }
 
-type BeaconOptions = {
-	createOffer?: (
-		offerId: string,
-		beaconPeerId: string | null,
-	) => Promise<SignalDescription | null>
+type CommonBeaconOptions = {
 	discoveryId: Uint8Array
-	onAnswer?: (
-		offerId: string,
-		beaconPeerId: string,
-		answer: SignalDescription,
-	) => void
-	onOffer?: (
-		offer: SignalDescription,
-		beaconPeerId: string,
-		reply: (answer: SignalDescription) => void,
-	) => void
-	onPresence?: (presence: BeaconPresence) => void
-	onStatus?: (status: BeaconStatus) => void
-	role: 'guest' | 'host'
+	onPresence: (presence: BeaconPresence) => void
+	onStatus: (status: BeaconStatus) => void
 }
 
-type BeaconMessage = Record<string, unknown>
+type HostBeaconOptions = CommonBeaconOptions & {
+	createOffer: (
+		offerId: string,
+		beaconPeerId: string | null,
+	) => Promise<OfferDescription | null>
+	onAnswer: (
+		offerId: string,
+		beaconPeerId: string,
+		answer: AnswerDescription,
+	) => void
+	role: 'host'
+}
+
+type GuestBeaconOptions = CommonBeaconOptions & {
+	onOffer: (
+		offer: OfferDescription,
+		beaconPeerId: string,
+		reply: (answer: AnswerDescription) => void,
+	) => void
+	role: 'guest'
+}
+
+type BeaconOptions = GuestBeaconOptions | HostBeaconOptions
 
 const OFFER_ID_BYTES = 16
 const PEER_ID_BYTES = 16
@@ -44,27 +55,15 @@ const decodeBeaconMessage = (data: unknown) => {
 	if (typeof data !== 'string') return null
 
 	try {
-		const message = JSON.parse(data) as Record<string, unknown>
-		return typeof message === 'object' && message != null ? message : null
+		const message: unknown = JSON.parse(data)
+		return decodeServerBeaconMessage(message)
 	} catch {
 		return null
 	}
 }
 
-const beaconCount = (value: unknown) => {
-	return typeof value === 'number' && Number.isInteger(value) && value >= 0
-		? value
-		: null
-}
-
-const beaconPresence = (message: BeaconMessage): BeaconPresence | null => {
-	const guests = beaconCount(message.guests)
-	const hosts = beaconCount(message.hosts)
-	const peers = beaconCount(message.peers)
-
-	return guests == null || hosts == null || peers == null
-		? null
-		: { guests, hosts, peers }
+const beaconPresence = (message: BeaconPresence): BeaconPresence => {
+	return { guests: message.guests, hosts: message.hosts, peers: message.peers }
 }
 
 const beaconUrl = (discoveryId: Uint8Array) => {
@@ -93,14 +92,14 @@ export const createBeaconRendezvous = (
 		if (status === currentStatus) return
 
 		currentStatus = status
-		options.onStatus?.(status)
+		options.onStatus(status)
 	}
 
 	const setPresence = (presence: BeaconPresence) => {
-		options.onPresence?.(presence)
+		options.onPresence(presence)
 	}
 
-	const send = (message: BeaconMessage) => {
+	const send = (message: ClientBeaconMessage) => {
 		if (socket?.readyState !== WebSocket.OPEN) return false
 
 		try {
@@ -134,7 +133,7 @@ export const createBeaconRendezvous = (
 	}
 
 	const sendOffer = (beaconPeerId: string | null) => {
-		if (options.createOffer == null) return
+		if (options.role !== 'host') return
 
 		const offerId = randomBase64Url(OFFER_ID_BYTES)
 		void options
@@ -189,99 +188,74 @@ export const createBeaconRendezvous = (
 			return
 		}
 
-		if (message.type === 'ready' && typeof message.beaconPeerId === 'string') {
-			const presence = beaconPresence(message)
-			log('info', 'beacon', 'ready', {
-				guests: presence?.guests ?? null,
-				hosts: presence?.hosts ?? null,
-				role: options.role,
-				url,
-			})
-			if (presence != null) setPresence(presence)
-			setStatus('ready')
-			if (options.role === 'host') {
-				sendOffer(null)
-				scheduleRefreshOffer()
-			}
-			return
-		}
-
-		if (
-			message.type === 'peer-joined' &&
-			typeof message.beaconPeerId === 'string'
-		) {
-			if (message.beaconPeerId === peerId) return
-
-			const presence = beaconPresence(message)
-			log('info', 'beacon', 'peer.joined', {
-				guests: presence?.guests ?? null,
-				hosts: presence?.hosts ?? null,
-				role: options.role,
-				url,
-			})
-			if (presence != null) setPresence(presence)
-			if (options.role === 'host') {
-				sendOffer(message.beaconPeerId)
-			}
-			return
-		}
-
-		if (message.type === 'presence') {
-			const presence = beaconPresence(message)
-			if (presence == null) {
-				log('warn', 'beacon', 'presence.invalid', { url })
+		switch (message.type) {
+			case 'ready': {
+				const presence = beaconPresence(message)
+				log('info', 'beacon', 'ready', {
+					guests: presence.guests,
+					hosts: presence.hosts,
+					role: options.role,
+					url,
+				})
+				setPresence(presence)
+				setStatus('ready')
+				if (options.role === 'host') {
+					sendOffer(null)
+					scheduleRefreshOffer()
+				}
 				return
 			}
+			case 'peer-joined': {
+				if (message.beaconPeerId === peerId) return
 
-			log('info', 'beacon', 'presence', {
-				guests: presence.guests,
-				hosts: presence.hosts,
-				role: options.role,
-				url,
-			})
-			setPresence(presence)
-			return
-		}
-
-		if (
-			message.type === 'answer' &&
-			typeof message.offerId === 'string' &&
-			typeof message.beaconPeerId === 'string' &&
-			isSignalDescription(message.answer)
-		) {
-			log('info', 'beacon', 'answer.received', { url })
-			options.onAnswer?.(message.offerId, message.beaconPeerId, message.answer)
-			return
-		}
-
-		if (
-			message.type === 'offer' &&
-			typeof message.offerId === 'string' &&
-			typeof message.beaconPeerId === 'string' &&
-			isSignalDescription(message.offer)
-		) {
-			if (message.beaconPeerId === peerId) return
-
-			log('info', 'beacon', 'offer.received', { url })
-			options.onOffer?.(message.offer, message.beaconPeerId, (answer) => {
-				log('info', 'beacon', 'answer.sent', { url })
-				send({
-					answer,
-					beaconPeerId: message.beaconPeerId,
-					offerId: message.offerId,
-					type: 'answer',
+				const presence = beaconPresence(message)
+				log('info', 'beacon', 'peer.joined', {
+					guests: presence.guests,
+					hosts: presence.hosts,
+					role: options.role,
+					url,
 				})
-			})
-			return
-		}
+				setPresence(presence)
+				if (options.role === 'host' && message.role === 'guest') {
+					sendOffer(message.beaconPeerId)
+				}
+				return
+			}
+			case 'presence': {
+				const presence = beaconPresence(message)
+				log('info', 'beacon', 'presence', {
+					guests: presence.guests,
+					hosts: presence.hosts,
+					role: options.role,
+					url,
+				})
+				setPresence(presence)
+				return
+			}
+			case 'answer':
+				if (options.role !== 'host') return
+				log('info', 'beacon', 'answer.received', { url })
+				options.onAnswer(message.offerId, message.beaconPeerId, message.answer)
+				return
+			case 'offer':
+				if (options.role !== 'guest' || message.beaconPeerId === peerId) return
 
-		if (message.type === 'error' && typeof message.reason === 'string') {
-			log('warn', 'beacon', 'message.error', { reason: message.reason, url })
-			setStatus('failed')
-			return
+				log('info', 'beacon', 'offer.received', { url })
+				options.onOffer(message.offer, message.beaconPeerId, (answer) => {
+					log('info', 'beacon', 'answer.sent', { url })
+					send({
+						answer,
+						beaconPeerId: message.beaconPeerId,
+						offerId: message.offerId,
+						type: 'answer',
+					})
+				})
+				return
+			case 'error':
+				log('warn', 'beacon', 'message.error', { reason: message.reason, url })
+				setStatus('failed')
+				return
 		}
-
-		log('warn', 'beacon', 'message.invalid', { type: message.type, url })
 	}
 
 	const openSocket = () => {

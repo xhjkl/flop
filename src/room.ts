@@ -5,26 +5,19 @@ import { createGuestFlow } from './room/guest'
 import { createHostFlow } from './room/host'
 import { copyText, readInviteFromHash } from './room/invite'
 import { createRoomLifecycle } from './room/lifecycle'
-import { createProtocolFlow, type ProtocolFlow } from './room/protocol-flow'
+import { createProtocolFlow } from './room/protocol-flow'
 import { createRoomRuntime } from './room/runtime'
 import type { RoomActions } from './room/types'
 import type { GuestConnectionState, HostConnectionState } from './state'
 
 export const createRoom = () => {
-	let protocol: ProtocolFlow | null = null
-	const currentProtocol = () => {
-		if (protocol == null) {
-			throw new Error('Room protocol flow is not bound')
-		}
-
-		return protocol
-	}
 	const room = createRoomRuntime({
 		linkEvents: {
-			onClose: (linkId) => currentProtocol().handleLinkClose(linkId),
+			// Links are created only after this synchronous assembly binds protocol.
+			onClose: (linkId) => protocol.handleLinkClose(linkId),
 			onMessage: (linkId, text) =>
-				currentProtocol().handleLinkMessage(linkId, text),
-			onOpen: (linkId) => currentProtocol().handleLinkOpen(linkId),
+				protocol.handleLinkMessage(linkId, text),
+			onOpen: (linkId) => protocol.handleLinkOpen(linkId),
 		},
 	})
 	const lifecycle = createRoomLifecycle(room)
@@ -32,7 +25,7 @@ export const createRoom = () => {
 	const host = createHostFlow(room, lifecycle, beacon)
 	const guest = createGuestFlow(room, lifecycle, beacon, host)
 
-	protocol = createProtocolFlow(room, lifecycle, host, guest)
+	const protocol = createProtocolFlow(room, lifecycle, host, guest)
 
 	onMount(() => {
 		// Shared URLs make guests; a tab-owned projection lets host refresh stay host.

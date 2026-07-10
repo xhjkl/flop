@@ -1,10 +1,15 @@
 import { log } from './log'
-import type { SignalDescription } from './signal'
-import { bindChannel } from './webrtc/channel'
+import type { AnswerDescription, OfferDescription } from './signal'
+import {
+	acceptRoomDataChannel,
+	bindChannel,
+	ROOM_DATA_CHANNEL_LABEL,
+} from './webrtc/channel'
+import { connectionHealth } from './webrtc/connection'
 import {
 	DEFAULT_ICE_SERVERS,
 	DISCONNECT_GRACE_MS,
-	hasUsableIceCandidate,
+	hasServerReflexiveOrRelayCandidate,
 	ICE_GATHER_TIMEOUT_MS,
 	RELAY_ICE_GATHER_TIMEOUT_MS,
 	waitForIce,
@@ -12,12 +17,12 @@ import {
 
 // The room wants one simple peer: one text lane, optional camera/mic.
 export type Peer = {
-	createOffer: () => Promise<SignalDescription>
-	acceptAnswer: (answer: SignalDescription) => Promise<void>
-	createAnswer: (offer: SignalDescription) => Promise<SignalDescription>
+	createOffer: () => Promise<OfferDescription>
+	acceptAnswer: (answer: AnswerDescription) => Promise<void>
+	createAnswer: (offer: OfferDescription) => Promise<AnswerDescription>
 	close: () => void
 	relayStats: () => Promise<PeerRelayStats | null>
-	send: (text: string) => boolean
+	trySend: (text: string) => boolean
 	setLocalMedia: (stream: MediaStream | null) => void
 	waitForBufferBelow: (bytes: number) => Promise<void>
 }
@@ -54,32 +59,31 @@ const localTrack = (stream: MediaStream | null, kind: MediaKind) => {
 	return tracks?.[0] ?? null
 }
 
-const localDescription = async (pc: RTCPeerConnection) => {
+const completeLocalDescription = async (pc: RTCPeerConnection) => {
 	// Manual signaling has no trickle path; wait only until one viable address exists.
 	await waitForIce(
 		pc,
 		pc.getConfiguration().iceTransportPolicy === 'relay'
 			? RELAY_ICE_GATHER_TIMEOUT_MS
 			: ICE_GATHER_TIMEOUT_MS,
-		hasUsableIceCandidate,
+		hasServerReflexiveOrRelayCandidate,
 	)
 
 	const description = pc.localDescription
 	if (description == null) throw new Error('Missing local description')
-	if (description.type !== 'offer' && description.type !== 'answer') {
-		throw new Error('Unsupported local description')
-	}
-
-	return { sdp: description.sdp, type: description.type }
+	return description
 }
 
 export const createPeer = (options: PeerOptions = {}): Peer => {
 	// The wrapper collapses three browser surfaces into one room primitive:
 	// SDP for setup, data channel for packets, transceivers for optional media.
-	const pc = new RTCPeerConnection({
+	const configuration: RTCConfiguration = {
 		iceServers: options.iceServers ?? DEFAULT_ICE_SERVERS,
-		iceTransportPolicy: options.iceTransportPolicy,
-	})
+	}
+	if (options.iceTransportPolicy != null) {
+		configuration.iceTransportPolicy = options.iceTransportPolicy
+	}
+	const pc = new RTCPeerConnection(configuration)
 	// Tracks can arrive one by one; the UI wants one stream to hang on a card.
 	const remoteTracks = new Map<string, MediaStreamTrack>()
 	// A peer has one data lane. Everything room-shaped rides as packets on it.
@@ -135,14 +139,11 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 			timeoutMs: DISCONNECT_GRACE_MS,
 		})
 		disconnectTimeout = setTimeout(() => {
+			disconnectTimeout = null
 			const connectionState = pc.connectionState
 			const iceState = pc.iceConnectionState
-			if (
-				connectionState === 'disconnected' ||
-				connectionState === 'failed' ||
-				iceState === 'disconnected' ||
-				iceState === 'failed'
-			) {
+			const health = connectionHealth(connectionState, iceState)
+			if (health === 'disconnected' || health === 'failed') {
 				log('warn', 'rtc', 'disconnect.grace.expired', {
 					connectionState,
 					iceConnectionState: iceState,
@@ -171,37 +172,41 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	}
 
 	const handleConnectionHealth = () => {
-		// ICE and peer connection states overlap. Treat either healthy signal as enough.
+		// Fatal transport state wins when the browser surfaces momentarily disagree.
 		emitState()
-		const connectionState = pc.connectionState
-		const iceState = pc.iceConnectionState
-
-		if (connectionState === 'connected' || iceState === 'connected') {
-			clearDisconnectTimeout()
-			return
-		}
-
-		if (
-			connectionState === 'failed' ||
-			connectionState === 'closed' ||
-			iceState === 'failed' ||
-			iceState === 'closed'
-		) {
-			emitClose()
-			return
-		}
-
-		if (connectionState === 'disconnected' || iceState === 'disconnected') {
-			scheduleDisconnectClose()
+		switch (connectionHealth(pc.connectionState, pc.iceConnectionState)) {
+			case 'connected':
+				clearDisconnectTimeout()
+				break
+			case 'failed':
+				emitClose()
+				break
+			case 'disconnected':
+				scheduleDisconnectClose()
+				break
+			case 'waiting':
+				break
 		}
 	}
 
 	const attachChannel = (nextChannel: RTCDataChannel) => {
 		// Offerers create the lane; answerers receive it. After this, both look the same.
+		if (!acceptRoomDataChannel(channel, nextChannel)) {
+			log('warn', 'rtc', 'datachannel.rejected', {
+				duplicate: channel != null,
+				expectedLabel: ROOM_DATA_CHANNEL_LABEL,
+				label: nextChannel.label,
+			})
+			return
+		}
+
 		channel = nextChannel
 		bindChannel(
 			nextChannel,
-			{ onOpen: options.onOpen, onMessage: options.onMessage },
+			{
+				onMessage: options.onMessage ?? null,
+				onOpen: options.onOpen ?? null,
+			},
 			emitClose,
 		)
 	}
@@ -302,26 +307,30 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 
 	const createOffer = async () => {
 		// Whoever offers also names the data lane.
-		attachChannel(pc.createDataChannel('data'))
+		attachChannel(pc.createDataChannel(ROOM_DATA_CHANNEL_LABEL))
 		prepareMediaSlots()
 		const offer = await pc.createOffer()
 		await pc.setLocalDescription(offer)
-		return localDescription(pc)
+		const description = await completeLocalDescription(pc)
+		if (description.type !== 'offer') throw new Error('Missing local offer')
+		return { sdp: description.sdp, type: 'offer' as const }
 	}
 
-	const acceptAnswer = async (answer: SignalDescription) => {
+	const acceptAnswer = async (answer: AnswerDescription) => {
 		// This completes the offerer's half of a copy-paste or beacon handshake.
 		await pc.setRemoteDescription(answer)
 	}
 
-	const createAnswer = async (offer: SignalDescription) => {
+	const createAnswer = async (offer: OfferDescription) => {
 		// Answerers inherit the offer's media shape, then attach their own tracks.
 		await pc.setRemoteDescription(offer)
 		prepareMediaSlots()
 
 		const answer = await pc.createAnswer()
 		await pc.setLocalDescription(answer)
-		return localDescription(pc)
+		const description = await completeLocalDescription(pc)
+		if (description.type !== 'answer') throw new Error('Missing local answer')
+		return { sdp: description.sdp, type: 'answer' as const }
 	}
 
 	const close = () => {
@@ -330,8 +339,8 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		closeTransport()
 	}
 
-	const send = (text: string) => {
-		// Callers use false as backpressure-by-failure, not exceptions.
+	const trySend = (text: string) => {
+		// Enqueue failure stays a normal result when the data lane closes mid-send.
 		if (channel?.readyState !== 'open') return false
 
 		try {
@@ -476,7 +485,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		createAnswer,
 		close,
 		relayStats,
-		send,
+		trySend,
 		setLocalMedia,
 		waitForBufferBelow,
 	}

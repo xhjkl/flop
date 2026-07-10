@@ -7,7 +7,7 @@ export type IncomingFileTransfer = {
 	from: ParticipantId
 	mime: string
 	name: string
-	receivedBytes: number
+	transferredBytes: number
 	size: number
 }
 
@@ -27,7 +27,7 @@ export const createIncomingFileTransfer = (
 		from,
 		mime: message.mime,
 		name: message.name,
-		receivedBytes: 0,
+		transferredBytes: 0,
 		size: message.size,
 	}
 }

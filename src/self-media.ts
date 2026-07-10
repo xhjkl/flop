@@ -12,8 +12,10 @@ export type SelfMediaStatus =
 export type SelfMedia = {
 	status: SelfMediaStatus
 	issue: string | null
-	stream: MediaStream | null
-	cameraStream: MediaStream | null
+	/** Composite stream currently published to peers and the local preview. */
+	outboundStream: MediaStream | null
+	/** Original camera-and-microphone capture returned by getUserMedia. */
+	deviceStream: MediaStream | null
 	screenStream: MediaStream | null
 	cameraAvailable: boolean
 	cameraEnabled: boolean
@@ -39,8 +41,8 @@ export const emptySelfMedia = (): SelfMedia => {
 	return {
 		status: 'ready',
 		issue: null,
-		stream: null,
-		cameraStream: null,
+		outboundStream: null,
+		deviceStream: null,
 		screenStream: null,
 		cameraAvailable: false,
 		cameraEnabled: false,
@@ -60,7 +62,11 @@ export const stopMediaStream = (stream: MediaStream | null) => {
 
 export const stopSelfMedia = (media: SelfMedia) => {
 	const tracks = new Set<MediaStreamTrack>()
-	for (const stream of [media.stream, media.cameraStream, media.screenStream]) {
+	for (const stream of [
+		media.outboundStream,
+		media.deviceStream,
+		media.screenStream,
+	]) {
 		for (const track of stream?.getTracks() ?? []) {
 			tracks.add(track)
 		}
@@ -71,13 +77,14 @@ export const stopSelfMedia = (media: SelfMedia) => {
 	}
 }
 
-export const activeSelfMediaStream = (media: SelfMedia) => {
+/** Audio plus the selected camera or screen track sent to peers. */
+export const outboundSelfMediaStream = (media: SelfMedia) => {
 	const tracks: MediaStreamTrack[] = []
-	const audioTrack = media.cameraStream?.getAudioTracks()[0] ?? null
+	const audioTrack = media.deviceStream?.getAudioTracks()[0] ?? null
 	if (audioTrack != null) tracks.push(audioTrack)
 
 	const screenTrack = media.screenStream?.getVideoTracks()[0] ?? null
-	const cameraTrack = media.cameraStream?.getVideoTracks()[0] ?? null
+	const cameraTrack = media.deviceStream?.getVideoTracks()[0] ?? null
 	const videoTrack =
 		media.screenEnabled && screenTrack != null ? screenTrack : cameraTrack
 	if (videoTrack != null) tracks.push(videoTrack)
@@ -85,8 +92,9 @@ export const activeSelfMediaStream = (media: SelfMedia) => {
 	return tracks.length === 0 ? null : new MediaStream(tracks)
 }
 
-export const withActiveSelfMediaStream = (media: SelfMedia): SelfMedia => {
-	return { ...media, stream: activeSelfMediaStream(media) }
+/** Self media snapshot with its peer-facing stream rebuilt from source streams. */
+export const withOutboundSelfMediaStream = (media: SelfMedia): SelfMedia => {
+	return { ...media, outboundStream: outboundSelfMediaStream(media) }
 }
 
 export const setSelfMediaTracksEnabled = (
@@ -96,8 +104,8 @@ export const setSelfMediaTracksEnabled = (
 ) => {
 	const tracks =
 		kind === 'video'
-			? (media.cameraStream?.getVideoTracks() ?? [])
-			: (media.cameraStream?.getAudioTracks() ?? [])
+			? (media.deviceStream?.getVideoTracks() ?? [])
+			: (media.deviceStream?.getAudioTracks() ?? [])
 	if (tracks.length === 0) return false
 
 	for (const track of tracks) {
@@ -125,11 +133,11 @@ export const captureSelfMedia = async (): Promise<SelfMedia> => {
 		const cameraAvailable = stream.getVideoTracks().length > 0
 		const microphoneAvailable = stream.getAudioTracks().length > 0
 
-		return withActiveSelfMediaStream({
+		return withOutboundSelfMediaStream({
 			...emptySelfMedia(),
 			status: 'live',
 			issue: null,
-			cameraStream: stream,
+			deviceStream: stream,
 			cameraAvailable,
 			cameraEnabled: cameraAvailable,
 			microphoneAvailable,

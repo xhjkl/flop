@@ -9,7 +9,7 @@ import type { RelayMetering } from './state'
 
 export type RoomViewProps = {
 	room: RoomHandle
-	hostInviteMode?: HostInviteMode
+	hostInviteMode: HostInviteMode | null
 }
 
 const RELAY_BYTES_PER_GIGABYTE = 1_000_000_000

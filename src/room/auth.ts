@@ -37,7 +37,7 @@ export const createBeaconAuth = (options: {
 
 		const nonce = randomNonce()
 		link.authNonce = nonce
-		if (!link.peer.send(encodePacket({ nonce, type: 'auth-challenge' }))) {
+		if (!link.peer.trySend(encodePacket({ nonce, type: 'auth-challenge' }))) {
 			log('warn', 'room', 'auth.challenge.send.failed', { link })
 			options.closeLink(link)
 			return
@@ -66,7 +66,9 @@ export const createBeaconAuth = (options: {
 		}
 		if (!options.linkStillCurrent(link)) return
 
-		if (!link.peer.send(encodePacket({ mac, nonce, type: 'auth-response' }))) {
+		if (
+			!link.peer.trySend(encodePacket({ mac, nonce, type: 'auth-response' }))
+		) {
 			log('warn', 'room', 'auth.response.send.failed', { link })
 			options.closeLink(link)
 			return
@@ -126,7 +128,9 @@ export const createBeaconAuth = (options: {
 
 		options.verifyLink(link)
 		if (
-			!link.peer.send(encodePacket({ mac: acceptMac, type: 'auth-accepted' }))
+			!link.peer.trySend(
+				encodePacket({ mac: acceptMac, type: 'auth-accepted' }),
+			)
 		) {
 			log('warn', 'room', 'auth.accept.send.failed', { link })
 			options.closeLink(link)
@@ -175,7 +179,7 @@ export const createBeaconAuth = (options: {
 		}
 
 		options.verifyLink(link)
-		if (!link.peer.send(encodePacket({ type: 'hello' }))) {
+		if (!link.peer.trySend(encodePacket({ type: 'hello' }))) {
 			log('warn', 'room', 'auth.hello.send.failed', { link })
 			options.closeLink(link)
 			return

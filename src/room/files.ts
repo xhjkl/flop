@@ -31,7 +31,7 @@ export type RoomFileTransfers = {
 
 /** File transfer state kept outside Solid until bytes become visible activity. */
 export const createRoomFileTransfers = (options: {
-	liveParticipantLinks: () => RoomLink[]
+	openParticipantLinks: () => RoomLink[]
 	localParticipantId: () => ParticipantId | null
 	markLocalSendingFilesError: () => void
 	sendToLinks: (links: RoomLink[], packet: Packet) => number
@@ -49,7 +49,7 @@ export const createRoomFileTransfers = (options: {
 		options.upsertParticipantFile(transfer.from, {
 			id,
 			name: transfer.name,
-			receivedBytes: transfer.receivedBytes,
+			transferredBytes: transfer.transferredBytes,
 			size: transfer.size,
 			state: 'error',
 			url: null,
@@ -68,7 +68,7 @@ export const createRoomFileTransfers = (options: {
 		options.upsertParticipantFile(participantId, {
 			id: message.id,
 			name: message.name,
-			receivedBytes: 0,
+			transferredBytes: 0,
 			size: message.size,
 			state: 'receiving',
 			url: null,
@@ -91,11 +91,11 @@ export const createRoomFileTransfers = (options: {
 			return
 		}
 
-		if (transfer.receivedBytes + bytes.byteLength > transfer.size) {
+		if (transfer.transferredBytes + bytes.byteLength > transfer.size) {
 			log('warn', 'room', 'file.chunk.too-large', {
 				chunkBytes: bytes.byteLength,
 				id: message.id,
-				receivedBytes: transfer.receivedBytes,
+				transferredBytes: transfer.transferredBytes,
 				size: transfer.size,
 			})
 			markIncomingError(message.id, transfer)
@@ -105,11 +105,11 @@ export const createRoomFileTransfers = (options: {
 		const chunk = new Uint8Array(new ArrayBuffer(bytes.byteLength))
 		chunk.set(bytes)
 		transfer.chunks.push(chunk.buffer)
-		transfer.receivedBytes += bytes.byteLength
+		transfer.transferredBytes += bytes.byteLength
 		options.upsertParticipantFile(transfer.from, {
 			id: message.id,
 			name: transfer.name,
-			receivedBytes: Math.min(transfer.receivedBytes, transfer.size),
+			transferredBytes: Math.min(transfer.transferredBytes, transfer.size),
 			size: transfer.size,
 			state: 'receiving',
 			url: null,
@@ -130,7 +130,7 @@ export const createRoomFileTransfers = (options: {
 				expected: transfer.size,
 				id: message.id,
 			})
-			transfer.receivedBytes = blob.size
+			transfer.transferredBytes = blob.size
 			markIncomingError(message.id, transfer)
 			return
 		}
@@ -141,7 +141,7 @@ export const createRoomFileTransfers = (options: {
 		options.upsertParticipantFile(transfer.from, {
 			id: message.id,
 			name: transfer.name,
-			receivedBytes: blob.size,
+			transferredBytes: blob.size,
 			size: transfer.size,
 			state: 'ready',
 			url,
@@ -159,7 +159,7 @@ export const createRoomFileTransfers = (options: {
 		options.upsertParticipantFile(localParticipantId, {
 			id,
 			name: file.name,
-			receivedBytes: 0,
+			transferredBytes: 0,
 			size: file.size,
 			state: 'sending',
 			url: null,
@@ -206,7 +206,7 @@ export const createRoomFileTransfers = (options: {
 			options.upsertParticipantFile(localParticipantId, {
 				id,
 				name: file.name,
-				receivedBytes: offset + bytes.byteLength,
+				transferredBytes: offset + bytes.byteLength,
 				size: file.size,
 				state: 'sending',
 				url: null,
@@ -225,7 +225,7 @@ export const createRoomFileTransfers = (options: {
 		options.upsertParticipantFile(localParticipantId, {
 			id,
 			name: file.name,
-			receivedBytes: file.size,
+			transferredBytes: file.size,
 			size: file.size,
 			state: 'ready',
 			url: null,
@@ -236,7 +236,7 @@ export const createRoomFileTransfers = (options: {
 		// Drops without peers become composer feedback, not hidden work.
 		if (files.length === 0) return
 
-		const peers = options.liveParticipantLinks()
+		const peers = options.openParticipantLinks()
 		if (peers.length === 0) {
 			options.setBlipIssue(blipIssueCopy.fileNoPeers)
 			return

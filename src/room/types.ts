@@ -10,8 +10,8 @@ import type { ParticipantKey } from './participant'
 export type RoomPeer = {
 	activity: PortraitActivityState
 	id: ParticipantKey
-	mediaState?: PeerMediaState | null
-	mediaStream?: MediaStream | null
+	mediaState: PeerMediaState | null
+	mediaStream: MediaStream | null
 	connectionState: PeerConnectionState
 }
 

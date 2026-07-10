@@ -1,7 +1,8 @@
-// Browser APIs still make binary take the scenic route through strings. Keep that tax here.
+/** Base64 bridge for browser APIs that still accept binary strings. */
 export const bytesToBase64 = (bytes: Uint8Array): string => {
 	let binary = ''
 
+	// Bound the spread so large payloads stay below engine argument-count limits.
 	for (let i = 0; i < bytes.length; i += 0x8000) {
 		binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
 	}

@@ -86,7 +86,7 @@ export const createGuestFlow = (
 		}
 
 		room.fileTransfers.abortIncomingFrom(participantId)
-		room.deleteParticipant(participantId)?.peer.close()
+		room.removeParticipant(participantId)
 	}
 
 	const handleGuestMessage = (link: RoomLink, message: Packet) => {
@@ -294,6 +294,9 @@ export const createGuestFlow = (
 			nextLink = room.createLink('guest-rendezvous', { source: 'manual' })
 			// Manual reply turns the host's offer into an answer they can paste back.
 			const offer = await decodeSignal(invite.code)
+			if (offer.type !== 'offer') {
+				throw new Error('Invite code did not contain an offer')
+			}
 			const answer = await nextLink.peer.createAnswer(offer)
 			const replyCode = await encodeSignal(answer)
 			if (

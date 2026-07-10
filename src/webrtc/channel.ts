@@ -1,8 +1,22 @@
 import { log } from '../log'
 
+export const ROOM_DATA_CHANNEL_LABEL = 'data'
+
 export type DataChannelHandlers = {
-	onOpen?: () => void
-	onMessage?: (text: string) => void
+	onOpen: (() => void) | null
+	onMessage: ((text: string) => void) | null
+}
+
+/** Accept the room's one expected packet lane and close every extra channel. */
+export const acceptRoomDataChannel = (
+	current: RTCDataChannel | null,
+	candidate: RTCDataChannel,
+) => {
+	if (current == null && candidate.label === ROOM_DATA_CHANNEL_LABEL)
+		return true
+
+	candidate.close()
+	return false
 }
 
 // The data channel is the room bus. Unexpected payloads should not change room state.

@@ -36,13 +36,13 @@ const SelfMediaStatusLabel = (props: { status: SelfMediaStatus }) => {
 }
 
 const hasLiveSelfPreview = (media: SelfMedia) => {
-	return media.status === 'live' && media.stream != null
+	return media.status === 'live' && media.outboundStream != null
 }
 
 const hasActiveSelfPreview = (media: SelfMedia) => {
 	return (
 		media.status === 'live' &&
-		media.stream != null &&
+		media.outboundStream != null &&
 		((media.screenEnabled && media.screenStream != null) ||
 			(media.cameraAvailable && media.cameraEnabled))
 	)
@@ -138,7 +138,7 @@ const fileProgress = (file: PortraitFileState) => {
 	if (file.state !== 'sending' && file.state !== 'receiving') return 100
 	if (file.size <= 0) return 100
 
-	return Math.min(100, Math.round((file.receivedBytes / file.size) * 100))
+	return Math.min(100, Math.round((file.transferredBytes / file.size) * 100))
 }
 
 const FileChip = (props: { file: PortraitFileState }) => {
@@ -377,7 +377,7 @@ export const SelfMediaCard = (props: {
 						class="self-video"
 						mirrored={!props.media.screenEnabled}
 						muted
-						stream={props.media.stream}
+						stream={props.media.outboundStream}
 					/>
 				</div>
 			</Show>

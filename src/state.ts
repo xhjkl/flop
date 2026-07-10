@@ -48,9 +48,8 @@ export type HostConnectionState = {
 }
 
 /** Guest-side connection card state: consume invite, optionally produce reply. */
-export type GuestConnectionState = {
+type GuestConnectionBase = {
 	side: 'guest'
-	status: GuestConnectionStatus
 	inviteText: string
 	inviteLinkPresence: InviteLinkPresence | null
 	/** Direct-first relay affordance: null hides it, 0 offers the relay. */
@@ -58,6 +57,12 @@ export type GuestConnectionState = {
 	replyCode: string
 	issue: string | null
 }
+
+export type GuestConnectionState =
+	| (GuestConnectionBase & { status: 'finding-link' })
+	| (GuestConnectionBase & {
+			status: Exclude<GuestConnectionStatus, 'finding-link'>
+	  })
 
 /** Recovery card shown after the host room is no longer reachable. */
 export type ClosedConnectionState = {
@@ -81,14 +86,15 @@ export const guestFindingLinkConnection = (connection: ConnectionState) => {
 		return null
 	}
 
-	return connection as GuestFindingLinkConnection
+	return connection
 }
 
 /** File chip state, shared by outgoing progress and incoming downloads. */
 export type PortraitFileState = {
 	id: string
 	name: string
-	receivedBytes: number
+	/** Bytes sent or received so far. */
+	transferredBytes: number
 	size: number
 	state: 'sending' | 'receiving' | 'ready' | 'error'
 	url: string | null

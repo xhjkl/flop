@@ -14,6 +14,14 @@ export type RoomLifecycle = {
 }
 
 export const createRoomLifecycle = (room: RoomRuntime): RoomLifecycle => {
+	const cancelSignaling = () => {
+		// Retire every async invite owner before tearing down the resources it can touch.
+		room.nextSignalingVersion()
+		room.roomSecret = null
+		room.roomKeys = null
+		room.stopBeaconRendezvous()
+	}
+
 	const clearPeerParticipants = () => {
 		// When a room ends, keep only the self card's history.
 		const local = room.localKey()
@@ -61,8 +69,8 @@ export const createRoomLifecycle = (room: RoomRuntime): RoomLifecycle => {
 	const markRoomClosed = (options: { keepRelayMetering?: boolean } = {}) => {
 		// Closed is visible state plus real transport teardown.
 		clearProjectedHostInvite()
-		room.relay.clear({ keepMetering: options.keepRelayMetering })
-		room.stopBeaconRendezvous()
+		cancelSignaling()
+		room.relay.clear({ keepMetering: options.keepRelayMetering ?? false })
 		room.closeAllLinks()
 		clearPeerParticipants()
 		room.setState('connection', closedConnection())
@@ -70,8 +78,8 @@ export const createRoomLifecycle = (room: RoomRuntime): RoomLifecycle => {
 
 	const disposeRoom = () => {
 		// Tear down browser resources in the opposite order people see them.
+		cancelSignaling()
 		room.relay.clear()
-		room.stopBeaconRendezvous()
 		room.closeAllLinks()
 		room.fileTransfers.disposeFileUrls()
 		room.media.disposeSelfMedia()

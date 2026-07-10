@@ -18,7 +18,6 @@ export type RoomParticipant = {
 
 /** New participant activity before any social packets arrive. */
 export const emptyParticipantActivity = (): PortraitActivityState => {
-	// New people arrive quiet; the portrait grows as packets land.
 	return { blip: null, files: [] }
 }
 

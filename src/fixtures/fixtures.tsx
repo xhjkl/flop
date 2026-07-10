@@ -61,8 +61,8 @@ const selfMedia = (overrides: Partial<SelfMedia> = {}): SelfMedia => {
 	return {
 		status: 'ready',
 		issue: null,
-		stream: null,
-		cameraStream: null,
+		outboundStream: null,
+		deviceStream: null,
 		screenStream: null,
 		cameraAvailable: false,
 		cameraEnabled: false,
@@ -138,7 +138,7 @@ const room = (
 	props: {
 		connection: RoomState['connection']
 		themeSeed: string
-		hostInviteMode?: RoomViewProps['hostInviteMode']
+		hostInviteMode?: HostInviteMode
 		peers?: RoomPeer[]
 		relayMetering?: RelayMetering | null
 		selfActivity?: PortraitActivityState
@@ -147,7 +147,7 @@ const room = (
 	} & Partial<Pick<RoomState, 'blipComposer'>>,
 ): RoomViewProps => {
 	return {
-		hostInviteMode: props.hostInviteMode,
+		hostInviteMode: props.hostInviteMode ?? null,
 		room: {
 			actions: fixtureActions,
 			canClaimFindingInviteLink: () => props.canClaimFindingInviteLink ?? false,
@@ -226,6 +226,8 @@ export const uiFixtures: UiFixture[] = [
 				{
 					activity: emptyActivity,
 					id: HOST_ID,
+					mediaState: null,
+					mediaStream: null,
 					connectionState: 'waiting',
 				},
 			],
@@ -245,6 +247,8 @@ export const uiFixtures: UiFixture[] = [
 				{
 					activity: emptyActivity,
 					id: HOST_ID,
+					mediaState: null,
+					mediaStream: null,
 					connectionState: 'waiting',
 				},
 			],
@@ -265,6 +269,8 @@ export const uiFixtures: UiFixture[] = [
 				{
 					activity: emptyActivity,
 					id: HOST_ID,
+					mediaState: null,
+					mediaStream: null,
 					connectionState: 'waiting',
 				},
 			],
@@ -285,6 +291,8 @@ export const uiFixtures: UiFixture[] = [
 				{
 					activity: emptyActivity,
 					id: HOST_ID,
+					mediaState: null,
+					mediaStream: null,
 					connectionState: 'waiting',
 				},
 			],
@@ -333,7 +341,7 @@ export const uiFixtures: UiFixture[] = [
 					{
 						id: 'stopped-file',
 						name: 'camera-roll.zip',
-						receivedBytes: 42,
+						transferredBytes: 42,
 						size: 100,
 						state: 'error',
 						url: null,
@@ -349,6 +357,8 @@ export const uiFixtures: UiFixture[] = [
 				{
 					activity: emptyActivity,
 					id: OLEG_ID,
+					mediaState: null,
+					mediaStream: null,
 					connectionState: 'waiting',
 				},
 			],
@@ -366,7 +376,7 @@ export const uiFixtures: UiFixture[] = [
 					{
 						id: 'local-file',
 						name: 'screenshots.zip',
-						receivedBytes: 64,
+						transferredBytes: 64,
 						size: 100,
 						state: 'sending',
 						url: null,
@@ -374,7 +384,7 @@ export const uiFixtures: UiFixture[] = [
 					{
 						id: 'backup-file',
 						name: 'backup.zip',
-						receivedBytes: 42,
+						transferredBytes: 42,
 						size: 100,
 						state: 'sending',
 						url: null,
@@ -394,7 +404,7 @@ export const uiFixtures: UiFixture[] = [
 							{
 								id: 'oleg-file',
 								name: 'photo-export.zip',
-								receivedBytes: 37,
+								transferredBytes: 37,
 								size: 100,
 								state: 'receiving',
 								url: null,
@@ -402,11 +412,15 @@ export const uiFixtures: UiFixture[] = [
 						],
 					},
 					id: OLEG_ID,
+					mediaState: null,
+					mediaStream: null,
 					connectionState: 'live',
 				},
 				{
 					activity: emptyActivity,
 					id: NADIA_ID,
+					mediaState: null,
+					mediaStream: null,
 					connectionState: 'live',
 				},
 			],
@@ -429,6 +443,7 @@ export const uiFixtures: UiFixture[] = [
 						microphoneEnabled: true,
 						screenEnabled: false,
 					},
+					mediaStream: null,
 					connectionState: 'live',
 				},
 			],

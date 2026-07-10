@@ -64,7 +64,7 @@ export const createProtocolFlow = (
 			room.broadcastMembershipChange({ left: participantId })
 
 			if (
-				room.liveParticipantLinkCount() === 0 &&
+				room.openParticipantLinkCount() === 0 &&
 				room.currentRendezvousLink('host-rendezvous', 'manual') == null
 			) {
 				void host.startInviteAsHost({ resetPeers: false })
@@ -77,8 +77,8 @@ export const createProtocolFlow = (
 		const link = room.links.get(linkId)
 		if (link == null) return
 
-		link.live = true
-		room.touchLinks()
+		link.channelOpen = true
+		room.notifyLinksChanged()
 		log('info', 'room', 'link.open', { link })
 
 		if (isBeaconLink(link) && !isVerifiedLink(link)) {
@@ -92,7 +92,7 @@ export const createProtocolFlow = (
 
 		if (isGuestRendezvousLink(link)) {
 			// Guests say hello first; hosts answer with welcome and identity.
-			link.peer.send(encodePacket({ type: 'hello' }))
+			link.peer.trySend(encodePacket({ type: 'hello' }))
 			return
 		}
 

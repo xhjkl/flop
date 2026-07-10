@@ -3,7 +3,7 @@ import {
 	RELAY_GRANT_BYTES,
 	RELAY_PATH,
 	RELAY_REQUEST_HEADER,
-} from '../spec/relay'
+} from '../contracts/relay'
 import { type Env, type JsonBody, json } from './common'
 
 const RELAY_BUCKET_DAY_GRANTS = 4

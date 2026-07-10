@@ -6,7 +6,7 @@ import {
 	setSelfMediaTracksEnabled,
 	stopMediaStream,
 	stopSelfMedia,
-	withActiveSelfMediaStream,
+	withOutboundSelfMediaStream,
 } from '../self-media'
 import type { PeerMediaState } from '../state'
 import type { Peer } from '../webrtc'
@@ -62,7 +62,7 @@ export const createRoomMediaController = (options: {
 
 	const publishSelfMediaSnapshot = (selfMedia: SelfMedia) => {
 		options.setSelfMedia(selfMedia)
-		publishSelfMedia(selfMedia.stream)
+		publishSelfMedia(selfMedia.outboundStream)
 		options.publishLocalMediaState(selfMediaState(selfMedia))
 	}
 
@@ -78,7 +78,7 @@ export const createRoomMediaController = (options: {
 		clearScreenTrackEndListener()
 		if (settings.stopTracks ?? true) stopMediaStream(selfMedia.screenStream)
 
-		const nextSelfMedia = withActiveSelfMediaStream({
+		const nextSelfMedia = withOutboundSelfMediaStream({
 			...selfMedia,
 			screenEnabled: false,
 			screenRequesting: false,
@@ -200,7 +200,7 @@ export const createRoomMediaController = (options: {
 
 		clearScreenTrackEndListener()
 		stopMediaStream(latest.screenStream)
-		const selfMedia = withActiveSelfMediaStream({
+		const selfMedia = withOutboundSelfMediaStream({
 			...latest,
 			issue: null,
 			screenEnabled: true,

@@ -7,7 +7,7 @@ import {
 } from '../rendezvous/beacon'
 import { deriveRoomKeys } from '../rendezvous/crypto'
 import type { RoomSecret } from '../rendezvous/secret'
-import type { SignalDescription } from '../signal'
+import type { AnswerDescription, OfferDescription } from '../signal'
 import { guestFindingLinkConnection } from '../state'
 import {
 	isBeaconCandidate,
@@ -239,7 +239,7 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 	const acceptBeaconAnswer = (
 		offerId: string,
 		beaconPeerId: string,
-		answer: SignalDescription,
+		answer: AnswerDescription,
 	) => {
 		// An answer names the beacon peer that responded to our speculative offer.
 		const link = room.beaconOffers.get(offerId)
@@ -259,7 +259,7 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 		}
 
 		link.beaconPeerId = beaconPeerId
-		room.touchLinks()
+		room.notifyLinksChanged()
 		log('info', 'room', 'beacon.answer.accept.start', { link })
 		void link.peer
 			.acceptAnswer(answer)
@@ -279,9 +279,9 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 	}
 
 	const answerBeaconOffer = (
-		offer: SignalDescription,
+		offer: OfferDescription,
 		beaconPeerId: string,
-		reply: (answer: SignalDescription) => void,
+		reply: (answer: AnswerDescription) => void,
 	) => {
 		// A beacon offer is worth answering only while we know this room secret.
 		const role = beaconRendezvousRole()
@@ -328,13 +328,14 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 	) => {
 		// The invite link becomes discovery plus auth; beacons never see room contents.
 		relayFallback.stop()
+		const attemptCurrent = () => {
+			return (
+				room.isCurrentSignalingVersion(version) && room.roomSecret === secret
+			)
+		}
 		try {
 			const keys = await deriveRoomKeys(secret)
-			if (
-				!room.isCurrentSignalingVersion(version) ||
-				room.roomSecret !== secret
-			)
-				return
+			if (!attemptCurrent()) return
 
 			room.roomKeys = keys
 			room.beaconRendezvous?.close()
@@ -344,59 +345,61 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 				}
 				room.beaconOffers.clear()
 			}
-			room.beaconRendezvous = createBeaconRendezvous({
-				createOffer: role === 'host' ? createBeaconOffer : undefined,
-				discoveryId: keys.discoveryId,
-				onAnswer: role === 'host' ? acceptBeaconAnswer : undefined,
-				onOffer: role === 'guest' ? answerBeaconOffer : undefined,
-				onPresence: (presence) => {
-					// Ignore old beacon loops after a new invite/reply attempt starts.
-					if (
-						!room.isCurrentSignalingVersion(version) ||
-						room.roomSecret !== secret
-					) {
-						return
-					}
 
-					log('info', 'room', 'invite.link.ready', {
-						guests: presence.guests,
-						hosts: presence.hosts,
-						nextStep: inviteLinkNextStep(role, presence),
-						role,
-					})
-					if (role === 'guest') setGuestInviteLinkPresence(presence)
-				},
-				onStatus: (status) => {
-					// Ignore old beacon loops after a new invite/reply attempt starts.
-					if (
-						!room.isCurrentSignalingVersion(version) ||
-						room.roomSecret !== secret
-					) {
-						return
-					}
+			const onPresence = (presence: BeaconPresence) => {
+				if (!attemptCurrent()) return
 
-					if (role === 'host') {
-						setHostAutoStatus(status === 'idle' ? 'finding' : status)
-						if (status === 'failed') {
-							log('warn', 'room', 'invite.link.unreachable', {
-								nextStep: 'switch-to-code',
-								role,
-							})
-						}
-					} else if (status === 'failed' && findingLinkConnection() != null) {
+				log('info', 'room', 'invite.link.ready', {
+					guests: presence.guests,
+					hosts: presence.hosts,
+					nextStep: inviteLinkNextStep(role, presence),
+					role,
+				})
+				if (role === 'guest') setGuestInviteLinkPresence(presence)
+			}
+			const onStatus = (status: BeaconStatus) => {
+				if (!attemptCurrent()) return
+
+				if (role === 'host') {
+					setHostAutoStatus(status === 'idle' ? 'finding' : status)
+					if (status === 'failed') {
 						log('warn', 'room', 'invite.link.unreachable', {
-							nextStep: 'ask-for-code-or-wait',
+							nextStep: 'switch-to-code',
 							role,
 						})
-						room.setState('connection', {
-							...room.state.connection,
-							issue: statusCopy.inviteLinkUnreachable,
-						})
 					}
-				},
-				role,
-			})
+				} else if (status === 'failed' && findingLinkConnection() != null) {
+					log('warn', 'room', 'invite.link.unreachable', {
+						nextStep: 'ask-for-code-or-wait',
+						role,
+					})
+					room.setState('connection', {
+						...room.state.connection,
+						issue: statusCopy.inviteLinkUnreachable,
+					})
+				}
+			}
+			const commonOptions = {
+				discoveryId: keys.discoveryId,
+				onPresence,
+				onStatus,
+			}
+			room.beaconRendezvous =
+				role === 'host'
+					? createBeaconRendezvous({
+							...commonOptions,
+							createOffer: createBeaconOffer,
+							onAnswer: acceptBeaconAnswer,
+							role,
+						})
+					: createBeaconRendezvous({
+							...commonOptions,
+							onOffer: answerBeaconOffer,
+							role,
+						})
 		} catch (error) {
+			if (!attemptCurrent()) return
+
 			log('warn', 'room', 'beacon.start.failed', { error, role })
 			log('warn', 'room', 'invite.link.unreachable', {
 				nextStep: role === 'host' ? 'switch-to-code' : 'ask-for-code-or-wait',
