@@ -25,6 +25,12 @@ type RelayPeerOptions = {
 	iceTransportPolicy?: RTCIceTransportPolicy
 }
 
+/** Link surface needed to aggregate TURN usage. */
+type RelayStatsLink = {
+	id: LinkId
+	peer: Pick<RoomLink['peer'], 'relayStats'>
+}
+
 export type RoomRelay = {
 	active: () => boolean
 	clear: (options?: { keepMetering?: boolean }) => void
@@ -100,8 +106,8 @@ export const requestRelayIceServers = async () => {
 
 /** Active relay state and honest local usage meter for the current room. */
 export const createRoomRelay = (options: {
-	links: Map<LinkId, RoomLink>
-	onStatsError: (error: unknown, link: RoomLink) => void
+	links: ReadonlyMap<LinkId, RelayStatsLink>
+	onStatsError: (error: unknown, link: RelayStatsLink) => void
 	setMetering: (metering: RelayMetering | null) => void
 }): RoomRelay => {
 	let generation = 0

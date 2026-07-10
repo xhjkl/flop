@@ -1,27 +1,40 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createRoot } from 'solid-js'
 import type { ParticipantId } from '../src/protocol'
-import type { BeaconFlow } from '../src/room/beacon-flow'
+import { createBeaconFlow } from '../src/room/beacon-flow'
 import { createHostFlow } from '../src/room/host'
-import type { RoomLifecycle } from '../src/room/lifecycle'
-import type { RoomRuntime } from '../src/room/runtime'
+import { createRoomLifecycle } from '../src/room/lifecycle'
+import { createRoomRuntime } from '../src/room/runtime'
 
 test('failed welcome rolls back host admission before broadcasting', () => {
-	const guestId = 2n as ParticipantId
-	const removed: ParticipantId[] = []
-	let broadcasts = 0
-	const room = {
-		broadcastMembershipChange: () => broadcasts++,
-		handleCommonMessage: () => false,
-		localParticipantId: 1n as ParticipantId,
-		removeParticipant: (participantId: ParticipantId) =>
-			removed.push(participantId),
-		roomRoster: () => [],
-		sendToParticipant: () => false,
-	} as unknown as RoomRuntime
-	const flow = createHostFlow(room, {} as RoomLifecycle, {} as BeaconFlow)
+	createRoot((dispose) => {
+		try {
+			const guestId = 2n
+			const removed: ParticipantId[] = []
+			let broadcasts = 0
+			const room = createRoomRuntime({
+				linkEvents: {
+					onClose: () => {},
+					onMessage: () => {},
+					onOpen: () => {},
+				},
+			})
+			const removeParticipant = room.removeParticipant
+			room.removeParticipant = (participantId) => {
+				removed.push(participantId)
+				removeParticipant(participantId)
+			}
+			room.broadcastMembershipChange = () => broadcasts++
+			const lifecycle = createRoomLifecycle(room)
+			const beacon = createBeaconFlow(room)
+			const flow = createHostFlow(room, lifecycle, beacon)
 
-	assert.equal(flow.handleHostPacket(guestId, { type: 'hello' }), false)
-	assert.deepEqual(removed, [guestId])
-	assert.equal(broadcasts, 0)
+			assert.equal(flow.handleHostPacket(guestId, { type: 'hello' }), false)
+			assert.deepEqual(removed, [guestId])
+			assert.equal(broadcasts, 0)
+		} finally {
+			dispose()
+		}
+	})
 })

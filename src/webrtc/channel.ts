@@ -7,10 +7,12 @@ export type DataChannelHandlers = {
 	onMessage: ((text: string) => void) | null
 }
 
+type RoomDataChannel = Pick<RTCDataChannel, 'close' | 'label'>
+
 /** Accept the room's one expected packet lane and close every extra channel. */
 export const acceptRoomDataChannel = (
-	current: RTCDataChannel | null,
-	candidate: RTCDataChannel,
+	current: RoomDataChannel | null,
+	candidate: RoomDataChannel,
 ) => {
 	if (current == null && candidate.label === ROOM_DATA_CHANNEL_LABEL)
 		return true

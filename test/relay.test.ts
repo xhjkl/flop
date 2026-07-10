@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { RELAY_GRANT_BYTES } from '../contracts/relay'
-import type { LinkId, RoomLink } from '../src/room/link'
 import { createRoomRelay } from '../src/room/relay'
 import type { RelayMetering } from '../src/state'
 import type { PeerRelayStats } from '../src/webrtc'
@@ -21,12 +20,12 @@ test('a replaced relay session cannot publish late stats', async () => {
 	const secondStats = deferred<PeerRelayStats | null>()
 	let sample = 0
 	const link = {
-		id: 'mesh:1' as LinkId,
+		id: 'mesh:1',
 		peer: {
 			relayStats: () =>
 				sample++ === 0 ? firstStats.promise : secondStats.promise,
 		},
-	} as RoomLink
+	}
 	const metering: Array<RelayMetering | null> = []
 	let expirations = 0
 	const relay = createRoomRelay({

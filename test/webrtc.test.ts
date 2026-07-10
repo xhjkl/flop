@@ -14,7 +14,7 @@ const channel = (label: string) => {
 				closed = true
 			},
 			label,
-		} as RTCDataChannel,
+		},
 		closed: () => closed,
 	}
 }
