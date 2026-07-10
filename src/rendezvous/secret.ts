@@ -67,8 +67,17 @@ export const parseRoomSecret = (value: string): RoomSecret | null => {
 	return secret as RoomSecret
 }
 
+/** Room secret encoding for an exact 128-bit random value. */
+export const roomSecretFromBytes = (bytes: Uint8Array): RoomSecret => {
+	if (bytes.byteLength !== ROOM_SECRET_BYTES) {
+		throw new Error('Room secret requires 16 bytes')
+	}
+
+	return encodeZBase32(bytes) as RoomSecret
+}
+
 export const randomRoomSecret = (): RoomSecret => {
-	return encodeZBase32(randomBytes(ROOM_SECRET_BYTES)) as RoomSecret
+	return roomSecretFromBytes(randomBytes(ROOM_SECRET_BYTES))
 }
 
 export const roomSecretBytes = (secret: RoomSecret) => {

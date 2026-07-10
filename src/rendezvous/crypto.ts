@@ -1,4 +1,4 @@
-import { bytesToBase64Url } from '../binary'
+import { base64UrlToBytes, bytesToBase64Url } from '../binary'
 import { randomBase64Url } from '../random'
 import { type RoomSecret, roomSecretBytes } from './secret'
 
@@ -77,6 +77,18 @@ export const verifyRoomAuth = async (
 	nonce: string,
 	mac: string,
 ) => {
-	const expected = await signRoomAuth(key, purpose, nonce)
-	return mac === expected
+	let signature: Uint8Array<ArrayBuffer>
+	try {
+		signature = base64UrlToBytes(mac)
+	} catch {
+		return false
+	}
+	if (signature.byteLength !== 32) return false
+
+	return await crypto.subtle.verify(
+		'HMAC',
+		key,
+		signature,
+		roomAuthPayload(purpose, nonce),
+	)
 }

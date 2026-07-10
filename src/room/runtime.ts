@@ -70,10 +70,10 @@ export type RoomRuntime = {
 	adoptLink: (link: RoomLink, participantId: ParticipantId) => boolean
 	allocateParticipantId: () => ParticipantId
 	assignGuestParticipant: () => Participant
-	beaconAuth: BeaconAuth
+	readonly beaconAuth: BeaconAuth
 	beaconOffers: Map<string, RoomLink>
 	beaconRendezvous: BeaconRendezvous | null
-	blips: RoomBlips
+	readonly blips: RoomBlips
 	broadcastMembershipChange: (options?: { left?: ParticipantId }) => void
 	broadcastPacket: (packet: Packet, except?: ParticipantId | null) => void
 	closeAllLinks: () => void
@@ -94,7 +94,7 @@ export type RoomRuntime = {
 		role?: LinkRole,
 		source?: LinkSource,
 	) => RoomLink | null
-	fileTransfers: RoomFileTransfers
+	readonly fileTransfers: RoomFileTransfers
 	handleCommonMessage: (
 		participantId: ParticipantId,
 		message: Packet,
@@ -112,8 +112,8 @@ export type RoomRuntime = {
 	localKey: Accessor<ParticipantKey | null>
 	localParticipantId: ParticipantId | null
 	markLocalSendingFilesError: () => void
-	media: RoomMediaController
-	mesh: RoomMesh
+	readonly media: RoomMediaController
+	readonly mesh: RoomMesh
 	nextSignalingVersion: () => number
 	participantById: (
 		participantId: ParticipantId | null,
@@ -160,28 +160,6 @@ export type RoomRuntime = {
 	verifyLink: (link: RoomLink) => void
 }
 
-type RoomRuntimeSeed = Pick<
-	RoomRuntime,
-	| 'beaconOffers'
-	| 'beaconRendezvous'
-	| 'hostParticipantId'
-	| 'linkSequence'
-	| 'links'
-	| 'localKey'
-	| 'localParticipantId'
-	| 'participantKeys'
-	| 'participants'
-	| 'relay'
-	| 'roomKeys'
-	| 'roomSecret'
-	| 'setLocalKey'
-	| 'setParticipantKeys'
-	| 'setParticipants'
-	| 'setState'
-	| 'signalingVersion'
-	| 'state'
->
-
 /** Create the long-lived room runtime without choosing a host or guest flow. */
 export const createRoomRuntime = (runtimeOptions: {
 	linkEvents: RoomLinkEvents
@@ -208,51 +186,29 @@ export const createRoomRuntime = (runtimeOptions: {
 		setMetering: (metering) => setState('relayMetering', metering),
 	})
 
-	const roomSeed = {
-		beaconOffers,
-		beaconRendezvous: null,
-		hostParticipantId: hostParticipant.participantId,
-		linkSequence: 0,
-		links,
-		localKey,
-		localParticipantId: hostParticipant.participantId,
-		participantKeys,
-		participants,
-		relay,
-		roomKeys: null,
-		roomSecret: null,
-		setLocalKey,
-		setParticipantKeys,
-		setParticipants,
-		setState,
-		signalingVersion: 0,
-		state,
-	} satisfies RoomRuntimeSeed
-	// Single recursive assembly seam: every remaining member is bound synchronously below.
-	const room = roomSeed as RoomRuntime
-
-	room.notifyLinksChanged = () => {
+	const notifyLinksChanged: RoomRuntime['notifyLinksChanged'] = () => {
 		// Links are mutable on purpose; this is the one Solid wake-up bell.
 		setLinkRevision((revision) => revision + 1)
 	}
 
-	room.participantByKey = (key) => participants[key] ?? null
+	const participantByKey: RoomRuntime['participantByKey'] = (key) =>
+		participants[key] ?? null
 
-	room.participantById = (participantId) => {
+	const participantById: RoomRuntime['participantById'] = (participantId) => {
 		return participantId == null
 			? null
-			: room.participantByKey(participantKey(participantId))
+			: participantByKey(participantKey(participantId))
 	}
 
-	room.selfActivity = createMemo(() => {
+	const selfActivity = createMemo(() => {
 		// Before welcome, the composer is local-only; self has no room activity yet.
 		const key = localKey()
 		return key == null
 			? emptyParticipantActivity()
-			: (room.participantByKey(key)?.activity ?? emptyParticipantActivity())
+			: (participantByKey(key)?.activity ?? emptyParticipantActivity())
 	})
 
-	room.isSelfHost = () => {
+	const isSelfHost: RoomRuntime['isSelfHost'] = () => {
 		// Hostness is identity, not which card is currently visible.
 		return (
 			room.localParticipantId != null &&
@@ -260,7 +216,7 @@ export const createRoomRuntime = (runtimeOptions: {
 		)
 	}
 
-	room.isSelfGuest = () => {
+	const isSelfGuest: RoomRuntime['isSelfGuest'] = () => {
 		// A welcomed guest has both ids, and they differ.
 		return (
 			room.localParticipantId != null &&
@@ -269,27 +225,33 @@ export const createRoomRuntime = (runtimeOptions: {
 		)
 	}
 
-	room.nextSignalingVersion = () => {
+	const nextSignalingVersion: RoomRuntime['nextSignalingVersion'] = () => {
 		// Invite/reply/beacon attempts share one cancellation clock.
 		return ++room.signalingVersion
 	}
 
-	room.isCurrentSignalingVersion = (version) => {
+	const isCurrentSignalingVersion: RoomRuntime['isCurrentSignalingVersion'] = (
+		version,
+	) => {
 		return version === room.signalingVersion
 	}
 
-	room.currentRendezvousLink = (role?: LinkRole, source?: LinkSource) => {
+	const currentRendezvousLink: RoomRuntime['currentRendezvousLink'] = (
+		role,
+		source,
+	) => {
 		// There should be at most one open invite lane for a given path.
 		return findRendezvousLink(links.values(), role, source)
 	}
 
-	room.linkByParticipantKey = (key) => {
+	const linkByParticipantKey: RoomRuntime['linkByParticipantKey'] = (key) => {
 		return findParticipantLink(links.values(), key)
 	}
 
-	room.linkedPeers = () => [...links.values()].map((link) => link.peer)
+	const linkedPeers: RoomRuntime['linkedPeers'] = () =>
+		[...links.values()].map((link) => link.peer)
 
-	room.removeLink = (link) => {
+	const removeLink: RoomRuntime['removeLink'] = (link) => {
 		// Remove means "stop routing"; closeLink adds browser teardown.
 		if (links.get(link.id) !== link) return
 
@@ -298,31 +260,34 @@ export const createRoomRuntime = (runtimeOptions: {
 		for (const [offerId, offerLink] of beaconOffers) {
 			if (offerLink === link) beaconOffers.delete(offerId)
 		}
-		room.notifyLinksChanged()
+		notifyLinksChanged()
 	}
 
-	room.closeLink = (link) => {
+	const closeLink: RoomRuntime['closeLink'] = (link) => {
 		// Close from our side should still clean room bookkeeping first.
-		room.removeLink(link)
+		removeLink(link)
 
 		try {
 			link.peer.close()
 		} catch {}
 	}
 
-	room.closeRendezvousLink = (role?: LinkRole, source?: LinkSource) => {
+	const closeRendezvousLink: RoomRuntime['closeRendezvousLink'] = (
+		role,
+		source,
+	) => {
 		// Replacing an invite should not disturb established mesh links.
-		const link = room.currentRendezvousLink(role, source)
-		if (link != null) room.closeLink(link)
+		const link = currentRendezvousLink(role, source)
+		if (link != null) closeLink(link)
 	}
 
-	room.closeAllLinks = () => {
+	const closeAllLinks: RoomRuntime['closeAllLinks'] = () => {
 		// Snapshot first; close callbacks may try to mutate the same map.
 		const closingLinks = [...links.values()]
 		links.clear()
 		beaconOffers.clear()
 		for (const link of closingLinks) link.channelOpen = false
-		room.notifyLinksChanged()
+		notifyLinksChanged()
 
 		for (const link of closingLinks) {
 			try {
@@ -331,19 +296,19 @@ export const createRoomRuntime = (runtimeOptions: {
 		}
 	}
 
-	room.stopBeaconRendezvous = () => {
+	const stopBeaconRendezvous: RoomRuntime['stopBeaconRendezvous'] = () => {
 		// Beacon candidates are meaningless once the beacon loop stops.
 		room.beaconRendezvous?.close()
 		room.beaconRendezvous = null
 		beaconOffers.clear()
 	}
 
-	room.participantLink = (participantId) => {
+	const participantLink: RoomRuntime['participantLink'] = (participantId) => {
 		// Most protocol packets name participants, not link ids.
-		return room.linkByParticipantKey(participantKey(participantId))
+		return linkByParticipantKey(participantKey(participantId))
 	}
 
-	room.adoptLink = (link: RoomLink, participantId: ParticipantId) => {
+	const adoptLink: RoomRuntime['adoptLink'] = (link, participantId) => {
 		// Adoption needs a participant record first, then enforces one link per person.
 		if (links.get(link.id) !== link) return false
 		if (isParticipantLink(link) && link.remoteId !== participantId) return false
@@ -352,38 +317,39 @@ export const createRoomRuntime = (runtimeOptions: {
 		const person = participants[key]
 		if (person == null) return false
 
-		const existing = room.linkByParticipantKey(key)
-		if (existing != null && existing !== link) room.closeLink(existing)
+		const existing = linkByParticipantKey(key)
+		if (existing != null && existing !== link) closeLink(existing)
 
 		link.remoteId = participantId
 		for (const [offerId, offerLink] of beaconOffers) {
 			if (offerLink === link) beaconOffers.delete(offerId)
 		}
-		room.notifyLinksChanged()
+		notifyLinksChanged()
 		return true
 	}
 
-	room.closeSiblingRendezvousLinks = (link) => {
-		// Once one candidate wins a doorway, parallel candidates there retire.
-		for (const candidate of [...links.values()]) {
-			if (candidate === link) continue
-			if (isParticipantLink(candidate)) continue
-			if (candidate.role !== link.role) continue
-			if (candidate.source !== link.source) continue
-			if (
-				isBeaconLink(link) &&
-				(candidate.beaconPeerId == null ||
-					link.beaconPeerId == null ||
-					candidate.beaconPeerId !== link.beaconPeerId)
-			) {
-				continue
+	const closeSiblingRendezvousLinks: RoomRuntime['closeSiblingRendezvousLinks'] =
+		(link) => {
+			// Once one candidate wins a doorway, parallel candidates there retire.
+			for (const candidate of [...links.values()]) {
+				if (candidate === link) continue
+				if (isParticipantLink(candidate)) continue
+				if (candidate.role !== link.role) continue
+				if (candidate.source !== link.source) continue
+				if (
+					isBeaconLink(link) &&
+					(candidate.beaconPeerId == null ||
+						link.beaconPeerId == null ||
+						candidate.beaconPeerId !== link.beaconPeerId)
+				) {
+					continue
+				}
+
+				closeLink(candidate)
 			}
-
-			room.closeLink(candidate)
 		}
-	}
 
-	room.replaceParticipants = (roster) => {
+	const replaceParticipants: RoomRuntime['replaceParticipants'] = (roster) => {
 		// The host owns membership; guests keep local activity while matching it.
 		const nextKeys = roster.map((person) => participantKey(person.id))
 		const nextKeySet = new Set(nextKeys)
@@ -396,8 +362,8 @@ export const createRoomRuntime = (runtimeOptions: {
 		for (const key of participantKeys()) {
 			if (key === host || nextKeySet.has(key)) continue
 
-			const link = room.linkByParticipantKey(key)
-			if (link != null) room.closeLink(link)
+			const link = linkByParticipantKey(key)
+			if (link != null) closeLink(link)
 		}
 
 		for (const person of roster) {
@@ -410,17 +376,19 @@ export const createRoomRuntime = (runtimeOptions: {
 		setParticipantKeys(nextKeys)
 	}
 
-	room.removeParticipant = (participantId) => {
+	const removeParticipant: RoomRuntime['removeParticipant'] = (
+		participantId,
+	) => {
 		// Membership and its transport leave together so callers cannot keep a ghost card.
 		const key = participantKey(participantId)
-		const link = room.participantLink(participantId)
+		const link = participantLink(participantId)
 
 		setParticipantKeys((keys) => keys.filter((item) => item !== key))
 		setParticipants(key, undefined)
-		if (link != null) room.closeLink(link)
+		if (link != null) closeLink(link)
 	}
 
-	room.allocateParticipantId = () => {
+	const allocateParticipantId: RoomRuntime['allocateParticipantId'] = () => {
 		// The host hands guests ids so all peers agree on the same roster.
 		while (true) {
 			const id = randomParticipantId()
@@ -432,7 +400,7 @@ export const createRoomRuntime = (runtimeOptions: {
 		}
 	}
 
-	room.roomRoster = () => {
+	const roomRoster: RoomRuntime['roomRoster'] = () => {
 		// Send only protocol identity; activity moves as live packets.
 		return participantKeys()
 			.map((key) => participants[key])
@@ -440,22 +408,26 @@ export const createRoomRuntime = (runtimeOptions: {
 			.map(rosterParticipant)
 	}
 
-	room.openParticipantLinks = () => {
+	const participantLinksOpen: RoomRuntime['openParticipantLinks'] = () => {
 		// Common packets go only to people, not invite candidates.
 		return openParticipantLinks(links.values())
 	}
 
-	room.openParticipantLinkCount = () => room.openParticipantLinks().length
+	const openParticipantLinkCount: RoomRuntime['openParticipantLinkCount'] =
+		() => participantLinksOpen().length
 
-	room.sendToParticipant = (participantId, packet) => {
+	const sendToParticipant: RoomRuntime['sendToParticipant'] = (
+		participantId,
+		packet,
+	) => {
 		// Missing links are normal while the mesh is still forming.
-		const link = room.participantLink(participantId)
+		const link = participantLink(participantId)
 		if (link == null || !link.channelOpen) return false
 
 		return link.peer.trySend(encodePacket(packet))
 	}
 
-	room.sendToLinks = (targetLinks, packet) => {
+	const sendToLinks: RoomRuntime['sendToLinks'] = (targetLinks, packet) => {
 		// Return a count so file sends can fail fast when everyone disappears.
 		let sent = 0
 
@@ -466,33 +438,41 @@ export const createRoomRuntime = (runtimeOptions: {
 		return sent
 	}
 
-	room.broadcastPacket = (packet, except = null) => {
+	const broadcastPacket: RoomRuntime['broadcastPacket'] = (
+		packet,
+		except = null,
+	) => {
 		// Broadcast follows the roster order and skips the optional sender.
 		const exceptKey = except == null ? null : participantKey(except)
 
 		for (const key of participantKeys()) {
-			const link = room.linkByParticipantKey(key)
+			const link = linkByParticipantKey(key)
 			if (key === exceptKey || link == null || !link.channelOpen) continue
 
 			link.peer.trySend(encodePacket(packet))
 		}
 	}
 
-	room.broadcastMembershipChange = (options = {}) => {
+	const broadcastMembershipChange: RoomRuntime['broadcastMembershipChange'] = (
+		options = {},
+	) => {
 		// Membership is a protocol commit, not any participant-store mutation.
 		if (options.left != null) {
-			room.broadcastPacket({ type: 'peer-left', id: options.left })
+			broadcastPacket({ type: 'peer-left', id: options.left })
 		}
-		room.broadcastPacket({ type: 'roster', roster: room.roomRoster() })
+		broadcastPacket({ type: 'roster', roster: roomRoster() })
 	}
 
-	room.setPeerMediaState = (participantId, mediaState) => {
+	const setPeerMediaState: RoomRuntime['setPeerMediaState'] = (
+		participantId,
+		mediaState,
+	) => {
 		// Remote media state decorates the link because it is transport-adjacent.
-		const link = room.participantLink(participantId)
+		const link = participantLink(participantId)
 		if (link == null) return
 
 		link.mediaState = mediaState
-		room.notifyLinksChanged()
+		notifyLinksChanged()
 	}
 
 	const updateParticipantActivity = (
@@ -506,7 +486,10 @@ export const createRoomRuntime = (runtimeOptions: {
 		setParticipants(key, 'activity', update)
 	}
 
-	room.setParticipantBlip = (participantId, text) => {
+	const setParticipantBlip: RoomRuntime['setParticipantBlip'] = (
+		participantId,
+		text,
+	) => {
 		const blip = text.trim()
 		updateParticipantActivity(participantId, (activity) => ({
 			...activity,
@@ -514,35 +497,38 @@ export const createRoomRuntime = (runtimeOptions: {
 		}))
 	}
 
-	room.sendLocalMediaStateToPeer = (
+	const sendLocalMediaStateToPeer: RoomRuntime['sendLocalMediaStateToPeer'] = (
 		peer,
 		mediaState = selfMediaState(state.selfMedia),
 	) => {
 		return peer.trySend(encodePacket({ ...mediaState, type: 'media-state' }))
 	}
 
-	room.verifyLink = (link) => {
+	const verifyLink: RoomRuntime['verifyLink'] = (link) => {
 		// After auth, normal room packets may pass on this candidate.
 		link.auth = 'verified'
 		link.authNonce = null
-		room.notifyLinksChanged()
+		notifyLinksChanged()
 	}
 
-	room.publishLocalMediaState = (
+	const publishLocalMediaState: RoomRuntime['publishLocalMediaState'] = (
 		mediaState = selfMediaState(state.selfMedia),
 	) => {
 		// When camera state changes, every live portrait should update.
-		return room.sendToLinks(room.openParticipantLinks(), {
+		return sendToLinks(participantLinksOpen(), {
 			...mediaState,
 			type: 'media-state',
 		})
 	}
 
-	room.setBlipIssue = (issue) => {
+	const setBlipIssue: RoomRuntime['setBlipIssue'] = (issue) => {
 		setState('blipComposer', 'issue', issue)
 	}
 
-	room.upsertParticipantFile = (participantId, nextFile) => {
+	const upsertParticipantFile: RoomRuntime['upsertParticipantFile'] = (
+		participantId,
+		nextFile,
+	) => {
 		// File chips update in place so progress does not reorder the activity stack.
 		updateParticipantActivity(participantId, (activity) => {
 			const files = activity.files
@@ -558,25 +544,26 @@ export const createRoomRuntime = (runtimeOptions: {
 		})
 	}
 
-	room.markLocalSendingFilesError = () => {
-		// One failed drop marks any in-flight local chips as failed.
-		if (room.localParticipantId == null) return
+	const markLocalSendingFilesError: RoomRuntime['markLocalSendingFilesError'] =
+		() => {
+			// One failed drop marks any in-flight local chips as failed.
+			if (room.localParticipantId == null) return
 
-		updateParticipantActivity(room.localParticipantId, (activity) => ({
-			...activity,
-			files: activity.files.map((file) =>
-				file.state === 'sending' ? { ...file, state: 'error' } : file,
-			),
-		}))
-	}
+			updateParticipantActivity(room.localParticipantId, (activity) => ({
+				...activity,
+				files: activity.files.map((file) =>
+					file.state === 'sending' ? { ...file, state: 'error' } : file,
+				),
+			}))
+		}
 
-	room.createLink = (role, linkOptions = {}) => {
+	const createLink: RoomRuntime['createLink'] = (role, linkOptions = {}) => {
 		// Create the transport first; the room role decides what it becomes.
 		const source = linkOptions.source ?? 'manual'
 		room.linkSequence++
 		const id: LinkId = `${role}:${room.linkSequence}`
 		const peer = createPeer({
-			...room.relay.peerOptions(),
+			...relay.peerOptions(),
 			onOpen: () => runtimeOptions.linkEvents.onOpen(id),
 			onMessage: (text) => runtimeOptions.linkEvents.onMessage(id, text),
 			onRemoteMedia: (stream) => {
@@ -585,7 +572,7 @@ export const createRoomRuntime = (runtimeOptions: {
 				if (link == null) return
 
 				link.mediaStream = stream
-				room.notifyLinksChanged()
+				notifyLinksChanged()
 			},
 			onState: (state) => {
 				// Rendezvous failures are the hard ones to explain to users.
@@ -612,19 +599,19 @@ export const createRoomRuntime = (runtimeOptions: {
 			source,
 		}
 		links.set(id, link)
-		room.notifyLinksChanged()
+		notifyLinksChanged()
 		// New links should inherit any already-enabled camera/mic immediately.
 		peer.setLocalMedia(state.selfMedia.outboundStream)
 		return link
 	}
 
 	const peerByKey = (key: ParticipantKey): RoomPeer | null => {
-		const participant = room.participantByKey(key)
+		const participant = participantByKey(key)
 		if (participant == null) return null
 
 		// Link state decides whether a person is live; participant state decides what they showed.
 		linkRevision()
-		const link = room.linkByParticipantKey(key)
+		const link = linkByParticipantKey(key)
 		return {
 			activity: participant.activity,
 			connectionState: link?.channelOpen ? 'live' : 'waiting',
@@ -634,7 +621,7 @@ export const createRoomRuntime = (runtimeOptions: {
 		}
 	}
 
-	room.peers = createMemo(() => {
+	const peers = createMemo(() => {
 		const local = localKey()
 		return participantKeys()
 			.filter((key) => key !== local)
@@ -644,104 +631,187 @@ export const createRoomRuntime = (runtimeOptions: {
 			})
 	})
 
-	room.beaconAuth = createBeaconAuth({
-		closeLink: room.closeLink,
-		linkStillCurrent: (link) => links.get(link.id) === link,
-		roomKeys: () => room.roomKeys,
-		verifyLink: room.verifyLink,
-	})
-
-	room.blips = createRoomBlips({
-		getComposerText: () => state.blipComposer.text,
-		getLocalParticipantId: () => room.localParticipantId,
-		openParticipantLinks: room.openParticipantLinks,
-		participantById: room.participantById,
-		sendToLinks: room.sendToLinks,
-		setBlipIssue: room.setBlipIssue,
-		setComposerText: (text) => setState('blipComposer', 'text', text),
-		setParticipantBlip: room.setParticipantBlip,
-	})
-
-	room.fileTransfers = createRoomFileTransfers({
-		openParticipantLinks: room.openParticipantLinks,
-		localParticipantId: () => room.localParticipantId,
-		markLocalSendingFilesError: room.markLocalSendingFilesError,
-		sendToLinks: room.sendToLinks,
-		setBlipIssue: room.setBlipIssue,
-		upsertParticipantFile: room.upsertParticipantFile,
-	})
-
-	room.createMeshLink = (participantId) => {
+	const createMeshLink: RoomRuntime['createMeshLink'] = (participantId) => {
 		// Mesh links skip rendezvous; the roster already names the target.
-		const link = room.createLink('mesh', { remoteId: participantId })
+		const link = createLink('mesh', { remoteId: participantId })
 
-		if (room.participantById(participantId) == null) {
+		if (participantById(participantId) == null) {
 			log('warn', 'room', 'mesh.link.unknown-participant', {
 				participantId: participantIdToString(participantId),
 			})
-			room.closeLink(link)
+			closeLink(link)
 			return null
 		}
 
 		return link
 	}
 
-	room.sendToHost = (message) => {
+	const sendToHost: RoomRuntime['sendToHost'] = (message) => {
 		if (room.hostParticipantId == null) return false
-		return room.sendToParticipant(room.hostParticipantId, message)
+		return sendToParticipant(room.hostParticipantId, message)
 	}
 
-	room.mesh = createRoomMesh({
-		closeLink: room.closeLink,
-		createMeshLink: room.createMeshLink,
-		hostParticipantId: () => room.hostParticipantId,
-		isSelfGuest: room.isSelfGuest,
-		linkByParticipantKey: room.linkByParticipantKey,
-		localParticipantId: () => room.localParticipantId,
-		participantByKey: room.participantByKey,
-		participantKeys,
-		participantLink: room.participantLink,
-		sendToHost: room.sendToHost,
-	})
-
-	room.media = createRoomMediaController({
-		getSelfMedia: () => state.selfMedia,
-		linkedPeers: room.linkedPeers,
-		publishLocalMediaState: room.publishLocalMediaState,
-		setSelfMedia: (selfMedia) => setState('selfMedia', selfMedia),
-		setSelfMediaField: (key, value) => setState('selfMedia', key, value),
-	})
-
-	room.handleCommonMessage = (participantId, message) => {
+	const handleCommonMessage: RoomRuntime['handleCommonMessage'] = (
+		participantId,
+		message,
+	) => {
 		// Blips and files are symmetric; only connection setup needs host/guest ceremony.
 		switch (message.type) {
 			case 'blip':
-				room.setParticipantBlip(participantId, message.text)
+				setParticipantBlip(participantId, message.text)
 				return true
 			case 'media-state':
-				room.setPeerMediaState(participantId, {
+				setPeerMediaState(participantId, {
 					cameraEnabled: message.cameraEnabled,
 					microphoneEnabled: message.microphoneEnabled,
 					screenEnabled: message.screenEnabled,
 				})
 				return true
 			case 'file-start':
-				room.fileTransfers.handleFileStart(participantId, message)
+				fileTransfers.handleFileStart(participantId, message)
 				return true
 			case 'file-chunk':
-				room.fileTransfers.handleFileChunk(message)
+				fileTransfers.handleFileChunk(message)
 				return true
 			case 'file-end':
-				room.fileTransfers.handleFileEnd(message)
+				fileTransfers.handleFileEnd(message)
 				return true
 			default:
 				return false
 		}
 	}
 
-	room.assignGuestParticipant = (): Participant => {
-		return { id: room.allocateParticipantId() }
+	const assignGuestParticipant: RoomRuntime['assignGuestParticipant'] = () => {
+		return { id: allocateParticipantId() }
 	}
+
+	// Service getters close the construction cycle; every factory is bound before return.
+	const room: RoomRuntime = {
+		adoptLink,
+		allocateParticipantId,
+		assignGuestParticipant,
+		get beaconAuth() {
+			return beaconAuth
+		},
+		beaconOffers,
+		beaconRendezvous: null,
+		get blips() {
+			return blips
+		},
+		broadcastMembershipChange,
+		broadcastPacket,
+		closeAllLinks,
+		closeLink,
+		closeRendezvousLink,
+		closeSiblingRendezvousLinks,
+		createLink,
+		createMeshLink,
+		currentRendezvousLink,
+		get fileTransfers() {
+			return fileTransfers
+		},
+		handleCommonMessage,
+		hostParticipantId: hostParticipant.participantId,
+		isCurrentSignalingVersion,
+		isSelfGuest,
+		isSelfHost,
+		linkByParticipantKey,
+		linkSequence: 0,
+		linkedPeers,
+		links,
+		localKey,
+		localParticipantId: hostParticipant.participantId,
+		markLocalSendingFilesError,
+		get media() {
+			return media
+		},
+		get mesh() {
+			return mesh
+		},
+		nextSignalingVersion,
+		notifyLinksChanged,
+		openParticipantLinkCount,
+		openParticipantLinks: participantLinksOpen,
+		participantById,
+		participantByKey,
+		participantKeys,
+		participantLink,
+		participants,
+		peers,
+		publishLocalMediaState,
+		relay,
+		removeLink,
+		removeParticipant,
+		replaceParticipants,
+		roomKeys: null,
+		roomRoster,
+		roomSecret: null,
+		selfActivity,
+		sendLocalMediaStateToPeer,
+		sendToHost,
+		sendToLinks,
+		sendToParticipant,
+		setBlipIssue,
+		setLocalKey,
+		setParticipantBlip,
+		setParticipantKeys,
+		setParticipants,
+		setPeerMediaState,
+		setState,
+		signalingVersion: 0,
+		state,
+		stopBeaconRendezvous,
+		upsertParticipantFile,
+		verifyLink,
+	}
+
+	const beaconAuth = createBeaconAuth({
+		closeLink,
+		linkStillCurrent: (link) => links.get(link.id) === link,
+		roomKeys: () => room.roomKeys,
+		verifyLink,
+	})
+
+	const blips = createRoomBlips({
+		getComposerText: () => state.blipComposer.text,
+		getLocalParticipantId: () => room.localParticipantId,
+		openParticipantLinks: participantLinksOpen,
+		participantById,
+		sendToLinks,
+		setBlipIssue,
+		setComposerText: (text) => setState('blipComposer', 'text', text),
+		setParticipantBlip,
+	})
+
+	const fileTransfers = createRoomFileTransfers({
+		localParticipantId: () => room.localParticipantId,
+		markLocalSendingFilesError,
+		openParticipantLinks: participantLinksOpen,
+		sendToLinks,
+		setBlipIssue,
+		upsertParticipantFile,
+	})
+
+	const mesh = createRoomMesh({
+		closeLink,
+		createMeshLink,
+		hostParticipantId: () => room.hostParticipantId,
+		isSelfGuest,
+		linkByParticipantKey,
+		localParticipantId: () => room.localParticipantId,
+		participantByKey,
+		participantKeys,
+		participantLink,
+		sendToHost,
+	})
+
+	const media = createRoomMediaController({
+		getSelfMedia: () => state.selfMedia,
+		linkedPeers,
+		publishLocalMediaState,
+		setSelfMedia: (selfMedia) => setState('selfMedia', selfMedia),
+		setSelfMediaField: (key, value) => setState('selfMedia', key, value),
+	})
 
 	return room
 }
