@@ -80,7 +80,9 @@ const rawDataModules = (version: number) => {
 	if (version === 1) return base
 
 	const alignments = Math.floor(version / 7) + 2
-	return base - ((25 * alignments - 10) * alignments - 55)
+	const modules = base - ((25 * alignments - 10) * alignments - 55)
+	// Versions 7–40 reserve two 18-bit version-information blocks.
+	return version < 7 ? modules : modules - 36
 }
 
 const rawCodewords = (version: number) =>

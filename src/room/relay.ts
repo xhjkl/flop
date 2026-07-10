@@ -184,14 +184,14 @@ export const createRoomRelay = (options: {
 		void update()
 		meterTimer = setInterval(() => void update(), 1000)
 	}
+	const peerOptions = (): RelayPeerOptions => {
+		return iceServers == null ? {} : { iceServers, iceTransportPolicy: 'relay' }
+	}
 
 	return {
 		active: () => iceServers != null,
 		clear,
-		peerOptions: () =>
-			iceServers == null
-				? {}
-				: { iceServers, iceTransportPolicy: 'relay' as const },
+		peerOptions,
 		start,
 	}
 }

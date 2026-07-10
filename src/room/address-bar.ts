@@ -28,7 +28,7 @@ const readJson = (key: string): unknown => {
 	if (text == null) return null
 
 	try {
-		return JSON.parse(text) as unknown
+		return JSON.parse(text)
 	} catch {
 		return null
 	}
@@ -45,10 +45,8 @@ const removeItem = (key: string) => {
 	storage()?.removeItem(key)
 }
 
-const record = (value: unknown): Record<string, unknown> | null => {
-	if (typeof value !== 'object' || value == null) return null
-
-	return value as Record<string, unknown>
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+	return typeof value === 'object' && value != null
 }
 
 const tabToken = () => {
@@ -62,8 +60,8 @@ const tabToken = () => {
 }
 
 const hostInviteMarker = (value: unknown): HostInviteMarker | null => {
-	const marker = record(value)
-	if (marker == null) return null
+	if (!isRecord(value)) return null
+	const marker = value
 	if (marker.kind !== 'host-invite') return null
 	if (typeof marker.tab !== 'string') return null
 	if (typeof marker.secret !== 'string') return null
@@ -75,7 +73,7 @@ const hostInviteMarker = (value: unknown): HostInviteMarker | null => {
 }
 
 const currentState = () => {
-	return record(window.history.state) ?? {}
+	return isRecord(window.history.state) ? window.history.state : {}
 }
 
 const stateWithMarker = (marker: HostInviteMarker) => {
@@ -111,10 +109,10 @@ const cleanUrl = () => {
 }
 
 const loadedByReload = () => {
-	const [navigation] = performance.getEntriesByType(
-		'navigation',
-	) as PerformanceNavigationTiming[]
-	return navigation?.type === 'reload'
+	const [navigation] = performance.getEntriesByType('navigation')
+	return (
+		navigation != null && 'type' in navigation && navigation.type === 'reload'
+	)
 }
 
 const ownedHostInviteMarker = () => {

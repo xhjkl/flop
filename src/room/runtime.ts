@@ -228,6 +228,7 @@ export const createRoomRuntime = (runtimeOptions: {
 		signalingVersion: 0,
 		state,
 	} satisfies RoomRuntimeSeed
+	// Single recursive assembly seam: every remaining member is bound synchronously below.
 	const room = roomSeed as RoomRuntime
 
 	room.notifyLinksChanged = () => {

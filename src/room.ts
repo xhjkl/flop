@@ -15,8 +15,7 @@ export const createRoom = () => {
 		linkEvents: {
 			// Links are created only after this synchronous assembly binds protocol.
 			onClose: (linkId) => protocol.handleLinkClose(linkId),
-			onMessage: (linkId, text) =>
-				protocol.handleLinkMessage(linkId, text),
+			onMessage: (linkId, text) => protocol.handleLinkMessage(linkId, text),
 			onOpen: (linkId) => protocol.handleLinkOpen(linkId),
 		},
 	})

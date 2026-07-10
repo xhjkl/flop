@@ -80,9 +80,8 @@ const encodeRoomValue = (_key: string, value: unknown) => {
 	return typeof value === 'bigint' ? participantIdToString(value) : value
 }
 
-const record = (value: unknown): Record<string, unknown> | null => {
-	if (typeof value !== 'object' || value == null) return null
-	return value as Record<string, unknown>
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+	return typeof value === 'object' && value != null
 }
 
 const decodeParticipantId = (value: unknown) => {
@@ -90,10 +89,9 @@ const decodeParticipantId = (value: unknown) => {
 }
 
 const decodeParticipant = (value: unknown): Participant | null => {
-	const participant = record(value)
-	if (participant == null) return null
+	if (!isRecord(value)) return null
 
-	const id = decodeParticipantId(participant.id)
+	const id = decodeParticipantId(value.id)
 	return id == null ? null : { id }
 }
 
@@ -125,13 +123,13 @@ export const decodePacket = (text: string): Packet | null => {
 	let value: unknown
 
 	try {
-		value = JSON.parse(text) as unknown
+		value = JSON.parse(text)
 	} catch {
 		return null
 	}
 
-	const message = record(value)
-	if (message == null) return null
+	if (!isRecord(value)) return null
+	const message = value
 
 	// Data channels are friendly, not trusted. Keep bad packets boring.
 	switch (message.type) {

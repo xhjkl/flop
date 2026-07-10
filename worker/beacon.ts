@@ -20,11 +20,6 @@ type BeaconAttachment = {
 	role: BeaconRole | null
 }
 
-type BeaconSocket = WebSocket & {
-	deserializeAttachment(): Partial<BeaconAttachment> | null
-	serializeAttachment(attachment: BeaconAttachment): void
-}
-
 export const websocketResponse = () =>
 	new Response('Expected a WebSocket upgrade', {
 		status: 426,
@@ -57,21 +52,32 @@ const parseMessage = (message: unknown) => {
 	}
 }
 
-const socketPeerId = (socket: BeaconSocket) => {
-	const attachment =
-		socket.deserializeAttachment() as Partial<BeaconAttachment> | null
-	return isBeaconId(attachment?.beaconPeerId) ? attachment.beaconPeerId : null
-}
-
-const socketRole = (socket: BeaconSocket) => {
-	const attachment =
-		socket.deserializeAttachment() as Partial<BeaconAttachment> | null
-	return attachment?.role === 'guest' || attachment?.role === 'host'
-		? attachment.role
+const attachment = (socket: WebSocket) => {
+	const attachment = socket.deserializeAttachment()
+	return typeof attachment === 'object' && attachment != null
+		? attachment
 		: null
 }
 
-const sendSocket = (socket: BeaconSocket, message: ServerBeaconMessage) => {
+const socketPeerId = (socket: WebSocket) => {
+	const value = attachment(socket)
+	return value != null &&
+		'beaconPeerId' in value &&
+		isBeaconId(value.beaconPeerId)
+		? value.beaconPeerId
+		: null
+}
+
+const socketRole = (socket: WebSocket) => {
+	const value = attachment(socket)
+	return value != null &&
+		'role' in value &&
+		(value.role === 'guest' || value.role === 'host')
+		? value.role
+		: null
+}
+
+const sendSocket = (socket: WebSocket, message: ServerBeaconMessage) => {
 	try {
 		socket.send(JSON.stringify(message))
 		return true
@@ -94,18 +100,18 @@ export class FlopRoom extends DurableObject {
 
 		const pair = new WebSocketPair()
 		const client = pair[0]
-		const server = pair[1] as BeaconSocket
+		const server = pair[1]
 
 		this.ctx.acceptWebSocket(server)
 		server.serializeAttachment({
 			beaconPeerId: null,
 			role: null,
-		})
+		} satisfies BeaconAttachment)
 
 		return new Response(null, { status: 101, webSocket: client })
 	}
 
-	webSocketMessage(socket: BeaconSocket, data: unknown) {
+	webSocketMessage(socket: WebSocket, data: unknown) {
 		const message = parseMessage(data)
 		if (message == null) {
 			socket.close(1003, 'invalid message')
@@ -155,12 +161,12 @@ export class FlopRoom extends DurableObject {
 		}
 	}
 
-	handleJoin(socket: BeaconSocket, message: ClientBeaconJoinMessage) {
+	handleJoin(socket: WebSocket, message: ClientBeaconJoinMessage) {
 		const beaconPeerId = message.beaconPeerId
 		socket.serializeAttachment({
 			beaconPeerId,
 			role: message.role,
-		})
+		} satisfies BeaconAttachment)
 
 		sendSocket(socket, {
 			beaconPeerId,
@@ -178,7 +184,7 @@ export class FlopRoom extends DurableObject {
 		}
 	}
 
-	webSocketClose(socket: BeaconSocket) {
+	webSocketClose(socket: WebSocket) {
 		const leftPeerId = socketPeerId(socket)
 		const leftRole = socketRole(socket)
 
@@ -193,7 +199,7 @@ export class FlopRoom extends DurableObject {
 	}
 
 	forwardOffer(
-		sender: BeaconSocket,
+		sender: WebSocket,
 		beaconPeerId: string,
 		message: ClientBeaconOfferMessage,
 	) {
@@ -224,7 +230,7 @@ export class FlopRoom extends DurableObject {
 	}
 
 	forwardAnswer(
-		sender: BeaconSocket,
+		sender: WebSocket,
 		beaconPeerId: string,
 		message: ClientBeaconAnswerMessage,
 	) {
@@ -241,17 +247,17 @@ export class FlopRoom extends DurableObject {
 		})
 	}
 
-	peers(except: BeaconSocket | null = null) {
-		return (this.ctx.getWebSockets() as BeaconSocket[]).filter(
-			(socket) => socket !== except && socketPeerId(socket) != null,
-		)
+	peers(except: WebSocket | null = null) {
+		return this.ctx
+			.getWebSockets()
+			.filter((socket) => socket !== except && socketPeerId(socket) != null)
 	}
 
-	presence(...except: BeaconSocket[]) {
+	presence(...except: WebSocket[]) {
 		const excluded = new Set(except)
-		const peers = (this.ctx.getWebSockets() as BeaconSocket[]).filter(
-			(socket) => !excluded.has(socket) && socketPeerId(socket) != null,
-		)
+		const peers = this.ctx
+			.getWebSockets()
+			.filter((socket) => !excluded.has(socket) && socketPeerId(socket) != null)
 
 		return {
 			guests: peers.filter((socket) => socketRole(socket) === 'guest').length,
@@ -262,9 +268,9 @@ export class FlopRoom extends DurableObject {
 
 	peerById(beaconPeerId: string) {
 		return (
-			(this.ctx.getWebSockets() as BeaconSocket[]).find(
-				(socket) => socketPeerId(socket) === beaconPeerId,
-			) ?? null
+			this.ctx
+				.getWebSockets()
+				.find((socket) => socketPeerId(socket) === beaconPeerId) ?? null
 		)
 	}
 }

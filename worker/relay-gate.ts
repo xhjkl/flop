@@ -4,7 +4,7 @@ import {
 	RELAY_PATH,
 	RELAY_REQUEST_HEADER,
 } from '../contracts/relay'
-import { type Env, type JsonBody, json } from './common'
+import { type Env, json } from './common'
 
 const RELAY_BUCKET_DAY_GRANTS = 4
 const RELAY_BUCKET_MONTH_GRANTS = 12
@@ -24,9 +24,12 @@ export const isRelayCredentialsRequest = (request: Request) => {
 }
 
 const isRelayGateReserveMessage = (
-	message: JsonBody,
+	message: unknown,
 ): message is RelayGateReserveMessage => {
 	return (
+		typeof message === 'object' &&
+		message != null &&
+		'bucket' in message &&
 		typeof message.bucket === 'string' &&
 		RELAY_BUCKET_PATTERN.test(message.bucket)
 	)
@@ -244,11 +247,7 @@ export class RelayGate extends DurableObject {
 		}
 
 		const message = await request.json().catch(() => null)
-		if (
-			typeof message !== 'object' ||
-			message == null ||
-			!isRelayGateReserveMessage(message as JsonBody)
-		) {
+		if (!isRelayGateReserveMessage(message)) {
 			return json({ error: 'invalid relay reservation' }, { status: 400 })
 		}
 

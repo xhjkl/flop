@@ -305,7 +305,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		attachChannel(event.channel)
 	}
 
-	const createOffer = async () => {
+	const createOffer = async (): Promise<OfferDescription> => {
 		// Whoever offers also names the data lane.
 		attachChannel(pc.createDataChannel(ROOM_DATA_CHANNEL_LABEL))
 		prepareMediaSlots()
@@ -313,7 +313,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		await pc.setLocalDescription(offer)
 		const description = await completeLocalDescription(pc)
 		if (description.type !== 'offer') throw new Error('Missing local offer')
-		return { sdp: description.sdp, type: 'offer' as const }
+		return { sdp: description.sdp, type: 'offer' }
 	}
 
 	const acceptAnswer = async (answer: AnswerDescription) => {
@@ -321,7 +321,9 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		await pc.setRemoteDescription(answer)
 	}
 
-	const createAnswer = async (offer: OfferDescription) => {
+	const createAnswer = async (
+		offer: OfferDescription,
+	): Promise<AnswerDescription> => {
 		// Answerers inherit the offer's media shape, then attach their own tracks.
 		await pc.setRemoteDescription(offer)
 		prepareMediaSlots()
@@ -330,7 +332,7 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		await pc.setLocalDescription(answer)
 		const description = await completeLocalDescription(pc)
 		if (description.type !== 'answer') throw new Error('Missing local answer')
-		return { sdp: description.sdp, type: 'answer' as const }
+		return { sdp: description.sdp, type: 'answer' }
 	}
 
 	const close = () => {
@@ -354,18 +356,15 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 	const relayStats = async (): Promise<PeerRelayStats | null> => {
 		const stats = await pc.getStats()
 		const stat = (id: unknown) => {
-			return typeof id === 'string'
-				? ((stats.get(id) as Record<string, unknown> | undefined) ?? null)
-				: null
+			return typeof id === 'string' ? (stats.get(id) ?? null) : null
 		}
 		const isRelayCandidate = (id: unknown) => {
 			const candidate = stat(id)
 			return candidate?.candidateType === 'relay'
 		}
-		let selectedPair: Record<string, unknown> | null = null
+		let selectedPair: RTCStats | null = null
 
-		for (const report of stats.values()) {
-			const item = report as Record<string, unknown>
+		for (const item of stats.values()) {
 			if (
 				item.type === 'transport' &&
 				typeof item.selectedCandidatePairId === 'string'
@@ -379,19 +378,24 @@ export const createPeer = (options: PeerOptions = {}): Peer => {
 		}
 
 		if (selectedPair == null) return null
+		const localCandidateId =
+			'localCandidateId' in selectedPair ? selectedPair.localCandidateId : null
+		const remoteCandidateId =
+			'remoteCandidateId' in selectedPair
+				? selectedPair.remoteCandidateId
+				: null
 		if (
-			!isRelayCandidate(selectedPair.localCandidateId) &&
-			!isRelayCandidate(selectedPair.remoteCandidateId)
+			!isRelayCandidate(localCandidateId) &&
+			!isRelayCandidate(remoteCandidateId)
 		) {
 			return null
 		}
 
-		const bytesSent =
-			typeof selectedPair.bytesSent === 'number' ? selectedPair.bytesSent : 0
-		const bytesReceived =
-			typeof selectedPair.bytesReceived === 'number'
-				? selectedPair.bytesReceived
-				: 0
+		const sent = 'bytesSent' in selectedPair ? selectedPair.bytesSent : null
+		const received =
+			'bytesReceived' in selectedPair ? selectedPair.bytesReceived : null
+		const bytesSent = typeof sent === 'number' ? sent : 0
+		const bytesReceived = typeof received === 'number' ? received : 0
 		return { bytes: bytesSent + bytesReceived }
 	}
 

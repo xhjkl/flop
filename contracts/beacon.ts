@@ -85,9 +85,8 @@ export const isBeaconId = (value: unknown): value is string => {
 	return typeof value === 'string' && BEACON_ID_PATTERN.test(value)
 }
 
-const record = (value: unknown): Record<string, unknown> | null => {
-	if (typeof value !== 'object' || value == null) return null
-	return value as Record<string, unknown>
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+	return typeof value === 'object' && value != null
 }
 
 const role = (value: unknown): BeaconRole | null => {
@@ -113,8 +112,8 @@ const presence = (message: Record<string, unknown>): BeaconPresence | null => {
 export const decodeClientBeaconMessage = (
 	value: unknown,
 ): ClientBeaconMessage | null => {
-	const message = record(value)
-	if (message == null) return null
+	if (!isRecord(value)) return null
+	const message = value
 
 	switch (message.type) {
 		case 'join': {
@@ -159,8 +158,8 @@ export const decodeClientBeaconMessage = (
 export const decodeServerBeaconMessage = (
 	value: unknown,
 ): ServerBeaconMessage | null => {
-	const message = record(value)
-	if (message == null) return null
+	if (!isRecord(value)) return null
+	const message = value
 
 	switch (message.type) {
 		case 'ready': {

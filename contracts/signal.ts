@@ -12,18 +12,17 @@ export type AnswerDescription = {
 
 export type SignalDescription = AnswerDescription | OfferDescription
 
-const signalRecord = (value: unknown) => {
-	if (typeof value !== 'object' || value == null) return null
-	return value as Record<string, unknown>
-}
-
 /** Runtime guard for an offer crossing a signaling boundary. */
 export const isOfferDescription = (
 	value: unknown,
 ): value is OfferDescription => {
-	const signal = signalRecord(value)
 	return (
-		signal != null && signal.type === 'offer' && typeof signal.sdp === 'string'
+		typeof value === 'object' &&
+		value != null &&
+		'type' in value &&
+		'sdp' in value &&
+		value.type === 'offer' &&
+		typeof value.sdp === 'string'
 	)
 }
 
@@ -31,9 +30,13 @@ export const isOfferDescription = (
 export const isAnswerDescription = (
 	value: unknown,
 ): value is AnswerDescription => {
-	const signal = signalRecord(value)
 	return (
-		signal != null && signal.type === 'answer' && typeof signal.sdp === 'string'
+		typeof value === 'object' &&
+		value != null &&
+		'type' in value &&
+		'sdp' in value &&
+		value.type === 'answer' &&
+		typeof value.sdp === 'string'
 	)
 }
 

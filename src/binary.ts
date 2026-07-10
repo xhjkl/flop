@@ -35,7 +35,7 @@ export const base64UrlToBytes = (value: string): Uint8Array<ArrayBuffer> => {
 }
 
 export const bytesToArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
-	return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
-		? (bytes.buffer as ArrayBuffer)
-		: (bytes.slice().buffer as ArrayBuffer)
+	const copy = new Uint8Array(bytes.byteLength)
+	copy.set(bytes)
+	return copy.buffer
 }

@@ -1,4 +1,5 @@
 import type { JSX } from 'solid-js'
+import type { HostInviteMode } from '../connection-card'
 import type { RoomPeer, RoomState } from '../room'
 import { blipIssueCopy, statusCopy } from '../room/status-copy'
 import { RoomView, type RoomViewProps } from '../room-view'
