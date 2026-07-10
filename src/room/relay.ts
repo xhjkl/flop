@@ -215,14 +215,14 @@ export const createRelayFallbackTimer = (options: {
 	finding: () => boolean
 	setSecondsLeft: (seconds: number | null) => void
 }): RelayFallbackTimer => {
-	let timer: ReturnType<typeof setTimeout> | null = null
+	let frame: number | null = null
 	let endsAt = 0
 
 	const stop = () => {
-		if (timer == null) return
+		if (frame == null) return
 
-		clearTimeout(timer)
-		timer = null
+		cancelAnimationFrame(frame)
+		frame = null
 	}
 
 	const hide = () => {
@@ -231,7 +231,7 @@ export const createRelayFallbackTimer = (options: {
 	}
 
 	const tick = () => {
-		if (timer == null) return
+		if (frame == null) return
 		if (!options.finding()) {
 			stop()
 			return
@@ -241,24 +241,24 @@ export const createRelayFallbackTimer = (options: {
 			return
 		}
 
-		const secondsLeft = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000))
+		const secondsLeft = Math.max(0, (endsAt - Date.now()) / 1000)
 		options.setSecondsLeft(secondsLeft)
 		if (secondsLeft <= 0) {
 			stop()
 			return
 		}
 
-		timer = setTimeout(tick, 1000)
+		frame = requestAnimationFrame(tick)
 	}
 
 	const start = () => {
 		if (options.active()) return
-		if (timer != null) return
+		if (frame != null) return
 		if (options.currentSecondsLeft() === 0) return
 
 		endsAt = Date.now() + RELAY_FALLBACK_WAIT_SECONDS * 1000
 		options.setSecondsLeft(RELAY_FALLBACK_WAIT_SECONDS)
-		timer = setTimeout(tick, 1000)
+		frame = requestAnimationFrame(tick)
 	}
 
 	return { hide, start, stop }

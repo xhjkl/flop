@@ -63,9 +63,9 @@ const RelayNoticeCard = (props: { metering: RelayMetering }) => {
 			<div class="relay-meters">
 				<RelayMeter
 					label="min"
-					max={RELAY_GRANT_SECONDS / 60}
+					max={RELAY_GRANT_SECONDS}
 					text={`${minutesLeft()}`}
-					value={minutesLeft()}
+					value={props.metering.secondsLeft}
 				/>
 				<RelayMeter
 					label="gb"

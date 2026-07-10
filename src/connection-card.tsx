@@ -351,7 +351,7 @@ const GuestInvitePane = (props: {
 }
 
 const relayWaitSeconds = (seconds: number) => {
-	return Math.max(0, Math.min(RELAY_FALLBACK_WAIT_SECONDS, Math.round(seconds)))
+	return Math.max(0, Math.min(RELAY_FALLBACK_WAIT_SECONDS, seconds))
 }
 
 const FindingRelayControl = (props: {
@@ -366,7 +366,7 @@ const FindingRelayControl = (props: {
 			fallback={
 				<Daisy
 					max={RELAY_FALLBACK_WAIT_SECONDS}
-					text={`${secondsLeft()}`}
+					text={`${Math.ceil(secondsLeft())}`}
 					value={secondsLeft()}
 				/>
 			}
