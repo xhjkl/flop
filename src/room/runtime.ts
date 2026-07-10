@@ -58,7 +58,7 @@ import type { RoomPeer } from './types'
 
 type ParticipantsStore = Partial<Record<ParticipantKey, RoomParticipant>>
 
-/** Link callbacks supplied by the protocol flow boundary. */
+/** WebRTC link callbacks bound during synchronous room assembly. */
 export type RoomLinkEvents = {
 	onClose: (linkId: LinkId) => void
 	onMessage: (linkId: LinkId, text: string) => void

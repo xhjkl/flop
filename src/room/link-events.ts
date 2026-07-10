@@ -18,22 +18,16 @@ import {
 	type RoomLink,
 } from './link'
 import { participantKey } from './participant'
-import type { RoomRuntime } from './runtime'
+import type { RoomLinkEvents, RoomRuntime } from './runtime'
 import { statusCopy } from './status-copy'
 
-/** WebRTC packet dispatch and link-close consequences. */
-export type ProtocolFlow = {
-	handleLinkClose: (linkId: LinkId) => void
-	handleLinkMessage: (linkId: LinkId, text: string) => void
-	handleLinkOpen: (linkId: LinkId) => void
-}
-
-export const createProtocolFlow = (
+/** Link callbacks that turn WebRTC events into room protocol consequences. */
+export const createRoomLinkEvents = (
 	room: RoomRuntime,
 	lifecycle: RoomLifecycle,
 	host: HostFlow,
 	guest: GuestFlow,
-): ProtocolFlow => {
+): RoomLinkEvents => {
 	const removeParticipantLink = (
 		participantId: ParticipantId,
 		options: { peer?: Peer | null } = {},
@@ -72,7 +66,7 @@ export const createProtocolFlow = (
 		}
 	}
 
-	const handleLinkOpen = (linkId: LinkId) => {
+	const onOpen = (linkId: LinkId) => {
 		// Open transport is not always room membership; beacon auth may still be pending.
 		const link = room.links.get(linkId)
 		if (link == null) return
@@ -144,7 +138,7 @@ export const createProtocolFlow = (
 		}
 	}
 
-	const handleLinkMessage = (linkId: LinkId, text: string) => {
+	const onMessage = (linkId: LinkId, text: string) => {
 		// Every incoming string becomes either auth, setup, or common room activity.
 		const link = room.links.get(linkId)
 		if (link == null) return
@@ -152,7 +146,7 @@ export const createProtocolFlow = (
 		handlePeerMessage(link, text)
 	}
 
-	const handleLinkClose = (linkId: LinkId) => {
+	const onClose = (linkId: LinkId) => {
 		// Close callbacks arrive after many paths; look up the current link before acting.
 		const link = room.links.get(linkId)
 		if (link == null) return
@@ -199,5 +193,5 @@ export const createProtocolFlow = (
 		}
 	}
 
-	return { handleLinkClose, handleLinkMessage, handleLinkOpen }
+	return { onClose, onMessage, onOpen }
 }
