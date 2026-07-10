@@ -6,13 +6,14 @@
 	"packageManager": "bun@1.3.14",
 	"scripts": {
 		"dev": "vite",
-		"check": "biome check README.md package.json vite.config.ts spec src worker",
+		"check": "biome check README.md package.json vite.config.ts contracts src test worker",
 		"dev:beacon": "bunx wrangler dev --config worker/wrangler.toml",
 		"typecheck": "tsc",
 		"build": "vite build",
 		"deploy:beacon": "bunx wrangler deploy --config worker/wrangler.toml",
 		"preview": "vite preview --port 31337",
-		"sculpt": "vite --open /src/fixtures/index.html"
+		"sculpt": "vite --open /src/fixtures/index.html",
+		"test": "bun test"
 	},
 	"dependencies": {
 		"solid-js": "1"
