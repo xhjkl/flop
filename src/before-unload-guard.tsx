@@ -31,7 +31,6 @@ export const BeforeUnloadGuard = (props: { room: RoomHandle }) => {
 		// Browsers will not let us customize the text, so only ask when the interruption is real.
 		const warnBeforeUnload = (event: BeforeUnloadEvent) => {
 			event.preventDefault()
-			event.returnValue = ''
 		}
 
 		window.addEventListener('beforeunload', warnBeforeUnload)

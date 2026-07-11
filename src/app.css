@@ -492,6 +492,8 @@ textarea {
 }
 
 .connection-copy-block {
+	inline-size: 100%;
+	min-inline-size: 0;
 	min-block-size: 0;
 	display: grid;
 	grid-template-rows: auto minmax(0, 1fr);
@@ -506,6 +508,8 @@ textarea {
 	align-items: center;
 	justify-content: space-between;
 	gap: var(--space-field);
+	min-inline-size: 0;
+	overflow: hidden;
 	padding: var(--space-touch) var(--space-touch) var(--space-touch)
 		var(--space-field);
 	border-bottom: 1px solid var(--line-inverse);
@@ -513,7 +517,21 @@ textarea {
 	font-size: var(--text-small);
 }
 
+.connection-copy-inline-value {
+	flex: 1 1 0;
+	margin: 0;
+	min-inline-size: 0;
+	overflow-x: auto;
+	padding-block: var(--space-label);
+	white-space: pre;
+	color: var(--fg-inverse);
+	font-family: var(--font-code);
+	font-size: var(--text-caption);
+	line-height: var(--leading-copy);
+}
+
 .connection-copy-button {
+	flex: none;
 	padding: var(--space-label) var(--space-touch);
 	border-color: var(--line-inverse);
 	background-color: color-mix(in oklch, var(--chalk) 10%, transparent);
@@ -577,32 +595,24 @@ textarea {
 	line-height: var(--leading-copy);
 }
 
-.connection-copy-value-frame {
-	position: relative;
-	isolation: isolate;
+.connection-copy-body {
 	display: grid;
 	min-block-size: 0;
 	overflow: hidden;
 }
 
-.connection-copy-value-frame > * {
-	grid-area: 1 / 1;
-}
-
-.connection-copy-block.has-qr .connection-copy-value {
-	mix-blend-mode: difference;
+.connection-copy-body > .connection-copy-value {
+	inline-size: 100%;
 }
 
 .connection-copy-qr {
 	--connection-qr-margin: max(var(--space-field), 1rem);
-	z-index: 0;
 	align-self: stretch;
 	justify-self: stretch;
 	inline-size: calc(100% - 2 * var(--connection-qr-margin));
 	block-size: calc(100% - 2 * var(--connection-qr-margin));
 	margin: var(--connection-qr-margin);
 	pointer-events: none;
-	opacity: 0.82;
 	shape-rendering: crispEdges;
 }
 

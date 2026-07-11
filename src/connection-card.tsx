@@ -17,7 +17,7 @@ import {
 	type HostConnectionState,
 } from './state'
 import { createPulse } from './ui/pulse'
-import { QrBackdrop } from './ui/qr'
+import { QrCodeImage } from './ui/qr'
 import { encodeQrCode } from './ui/qr-code'
 
 export type HostInviteMode = 'code' | 'link'
@@ -63,12 +63,13 @@ const ShareTextBlock = (props: {
 	}
 
 	return (
-		<div
-			class="connection-copy-block"
-			classList={{ 'has-qr': qr() != null, 'is-empty': empty() }}
-		>
+		<div class="connection-copy-block" classList={{ 'is-empty': empty() }}>
 			<div class="connection-copy-head">
-				<span>{props.label}</span>
+				<Show when={qr()} fallback={<span>{props.label}</span>}>
+					<pre class="connection-copy-inline-value scrollbarless">
+						{props.value}
+					</pre>
+				</Show>
 				<button
 					type="button"
 					class="connection-copy-button"
@@ -79,12 +80,17 @@ const ShareTextBlock = (props: {
 					{actionLabel()}
 				</button>
 			</div>
-			{/* Codes are text memos. Show the whole thing; do not make users decode our UI. */}
-			<div class="connection-copy-value-frame">
-				<pre class="connection-copy-value scrollbarless">
-					{empty() ? props.placeholder : props.value}
-				</pre>
-				<Show when={qr()}>{(code) => <QrBackdrop code={code()} />}</Show>
+			<div class="connection-copy-body">
+				<Show
+					when={qr()}
+					fallback={
+						<pre class="connection-copy-value scrollbarless">
+							{empty() ? props.placeholder : props.value}
+						</pre>
+					}
+				>
+					{(code) => <QrCodeImage code={code()} />}
+				</Show>
 			</div>
 		</div>
 	)

@@ -1,7 +1,7 @@
 import type { QrCode } from './qr-code'
 
-/** Decorative QR layer; the surrounding copy block owns the actual text value. */
-export const QrBackdrop = (props: { code: QrCode }) => {
+/** Scannable QR rendering paired with an adjacent selectable text value. */
+export const QrCodeImage = (props: { code: QrCode }) => {
 	return (
 		<svg
 			class="connection-copy-qr"
