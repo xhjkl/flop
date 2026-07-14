@@ -18,6 +18,7 @@ import type {
 	PortraitFileState,
 } from './state'
 import { createPulse } from './ui/pulse'
+import { viewfinderObjectPosition } from './viewfinder'
 
 const SelfMediaStatusLabel = (props: { status: SelfMediaStatus }) => {
 	return (
@@ -57,6 +58,8 @@ const hasSelfMediaWarning = (status: SelfMediaStatus) => {
 	)
 }
 
+type VideoPointerEvent = PointerEvent & { currentTarget: HTMLVideoElement }
+
 const VideoStream = (props: {
 	active?: boolean
 	class: string
@@ -65,6 +68,37 @@ const VideoStream = (props: {
 	stream?: MediaStream | null
 }) => {
 	let video: HTMLVideoElement | null = null
+	let viewfinderPointer: number | null = null
+
+	/** Visible crop aligned with the held pointer. */
+	const moveViewfinder = (event: VideoPointerEvent) => {
+		if (event.pointerId !== viewfinderPointer) return
+
+		event.currentTarget.style.objectPosition = viewfinderObjectPosition(
+			event.clientX,
+			event.clientY,
+			event.currentTarget.getBoundingClientRect(),
+			props.mirrored === true,
+		)
+	}
+
+	const startViewfinder = (event: VideoPointerEvent) => {
+		if (!event.isPrimary || event.button !== 0 || viewfinderPointer != null) {
+			return
+		}
+
+		viewfinderPointer = event.pointerId
+		// Capture preserves the hold until release even when the pointer leaves the card.
+		event.currentTarget.setPointerCapture(event.pointerId)
+		moveViewfinder(event)
+	}
+
+	const stopViewfinder = (event: VideoPointerEvent) => {
+		if (event.pointerId !== viewfinderPointer) return
+
+		viewfinderPointer = null
+		event.currentTarget.style.removeProperty('object-position')
+	}
 
 	createEffect(() => {
 		const stream = props.stream ?? null
@@ -100,6 +134,11 @@ const VideoStream = (props: {
 			autoplay
 			muted={props.muted}
 			playsinline
+			onPointerDown={startViewfinder}
+			onPointerMove={moveViewfinder}
+			onPointerUp={stopViewfinder}
+			onPointerCancel={stopViewfinder}
+			onLostPointerCapture={stopViewfinder}
 		/>
 	)
 }

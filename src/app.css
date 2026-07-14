@@ -289,10 +289,15 @@ textarea {
 }
 
 .media-video {
-	min-inline-size: 100%;
-	min-block-size: 100%;
+	inline-size: 100%;
+	block-size: 100%;
+	min-inline-size: 0;
+	min-block-size: 0;
 	object-fit: cover;
+	object-position: 50% 50%;
 	background-color: var(--bg-deep);
+	user-select: none;
+	-webkit-touch-callout: none;
 }
 
 .media-video.is-mirrored {
