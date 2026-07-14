@@ -1,65 +1,64 @@
-import {
-	type Participant,
-	type ParticipantId,
-	participantIdToString,
-} from '../protocol'
-import { randomBytes } from '../random'
-import type { PortraitActivityState } from '../state'
+import type { ParticipantId } from '../protocol'
+import { randomHex } from '../random'
+import type { MediaPresence } from './activity/media'
+import type { LinkStatus } from './link'
 
-/** Solid store path key for a protocol participant id. */
-export type ParticipantKey = string
+/** File chip state, shared by outgoing progress and incoming downloads. */
+export type ParticipantFile = {
+	id: string
+	name: string
+	/** Bytes sent or received so far. */
+	transferredBytes: number
+	size: number
+	state: 'sending' | 'receiving' | 'ready' | 'error'
+	url: string | null
+}
 
-/** Roster identity plus the activity this browser has observed for that person. */
-export type RoomParticipant = {
-	activity: PortraitActivityState
-	id: ParticipantKey
-	participantId: ParticipantId
+/** Per-person social activity shown on the portrait card. */
+export type ParticipantActivity = {
+	blip: string | null
+	files: ParticipantFile[]
+}
+
+/** File state that should protect users from accidentally refreshing. */
+export const isBusyParticipantFile = (file: ParticipantFile) => {
+	return file.state === 'sending' || file.state === 'receiving'
+}
+
+/** Room member plus the activity this browser has observed for them. */
+export type ParticipantState = {
+	activity: ParticipantActivity
+	id: ParticipantId
+}
+
+/** Person facts plus transport state projected for the portrait strip. */
+export type ParticipantView = {
+	activity: ParticipantActivity
+	connectionState: LinkStatus
+	id: ParticipantId
+	mediaState: MediaPresence | null
+	mediaStream: MediaStream | null
 }
 
 /** New participant activity before any social packets arrive. */
-export const emptyParticipantActivity = (): PortraitActivityState => {
+export const emptyParticipantActivity = (): ParticipantActivity => {
 	return { blip: null, files: [] }
-}
-
-/** Store-safe participant key. */
-export const participantKey = (id: ParticipantId): ParticipantKey => {
-	// BigInt is good protocol state, but store paths need plain strings.
-	return participantIdToString(id)
 }
 
 /** Roster refresh merge that preserves locally observed activity. */
 export const mergeParticipant = (
-	participant: Participant,
-	existing?: RoomParticipant,
-): RoomParticipant => {
-	const id = participantKey(participant.id)
+	id: ParticipantId,
+	existing: ParticipantState | null = null,
+): ParticipantState => {
 	return {
 		// Roster refreshes should not erase what a person just said or sent.
 		activity: existing?.activity ?? emptyParticipantActivity(),
 		id,
-		participantId: participant.id,
-	}
-}
-
-/** Protocol roster entry stripped of local activity. */
-export const rosterParticipant = (
-	participant: RoomParticipant,
-): Participant => {
-	// Rosters are identity only. Activity stays local and social.
-	return {
-		id: participant.participantId,
 	}
 }
 
 /** Temporary room participant id. */
 export const randomParticipantId = (): ParticipantId => {
 	// Eight random bytes is plenty for a room-sized temporary identity.
-	const bytes = randomBytes(8)
-	let id = 0n
-
-	for (const byte of bytes) {
-		id = (id << 8n) | BigInt(byte)
-	}
-
-	return id
+	return randomHex(8) as ParticipantId
 }

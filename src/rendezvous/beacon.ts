@@ -1,16 +1,27 @@
 import {
+	type BeaconPeerId,
+	type BeaconPresence,
 	type ClientBeaconMessage,
 	decodeServerBeaconMessage,
+	type ExchangeId,
+	parseBeaconPeerId,
+	parseExchangeId,
 } from '../../contracts/beacon'
+import type {
+	AnswerDescription,
+	OfferDescription,
+} from '../../contracts/signal'
 import { bytesToBase64Url } from '../binary'
 import { log } from '../log'
 import { randomBase64Url } from '../random'
-import type { AnswerDescription, OfferDescription } from '../signal'
-import type { BeaconPresence, BeaconStatus } from './types'
 
-export type { BeaconPresence, BeaconStatus } from './types'
+export type { BeaconPresence } from '../../contracts/beacon'
 
-export type BeaconRendezvous = {
+/** Beacon socket lifecycle state projected into invite-link UI. */
+export type BeaconStatus = 'failed' | 'finding' | 'idle' | 'ready'
+
+/** Room-discovery socket; room contents remain on authenticated WebRTC links. */
+export type BeaconClient = {
 	close: () => void
 }
 
@@ -22,12 +33,12 @@ type CommonBeaconOptions = {
 
 type HostBeaconOptions = CommonBeaconOptions & {
 	createOffer: (
-		offerId: string,
-		beaconPeerId: string | null,
+		exchangeId: ExchangeId,
+		to: BeaconPeerId | null,
 	) => Promise<OfferDescription | null>
 	onAnswer: (
-		offerId: string,
-		beaconPeerId: string,
+		exchangeId: ExchangeId,
+		from: BeaconPeerId,
 		answer: AnswerDescription,
 	) => void
 	role: 'host'
@@ -36,7 +47,7 @@ type HostBeaconOptions = CommonBeaconOptions & {
 type GuestBeaconOptions = CommonBeaconOptions & {
 	onOffer: (
 		offer: OfferDescription,
-		beaconPeerId: string,
+		from: BeaconPeerId,
 		reply: (answer: AnswerDescription) => void,
 	) => void
 	role: 'guest'
@@ -44,7 +55,7 @@ type GuestBeaconOptions = CommonBeaconOptions & {
 
 type BeaconOptions = GuestBeaconOptions | HostBeaconOptions
 
-const OFFER_ID_BYTES = 16
+const EXCHANGE_ID_BYTES = 16
 const PEER_ID_BYTES = 16
 const RECONNECT_MAXIMUM_MS = 60_000
 const RECONNECT_MINIMUM_MS = 10_000
@@ -62,10 +73,6 @@ const decodeBeaconMessage = (data: unknown) => {
 	}
 }
 
-const beaconPresence = (message: BeaconPresence): BeaconPresence => {
-	return { guests: message.guests, hosts: message.hosts, peers: message.peers }
-}
-
 const beaconUrl = (discoveryId: Uint8Array) => {
 	const url = new URL(
 		`/-/${bytesToBase64Url(discoveryId)}`,
@@ -75,11 +82,10 @@ const beaconUrl = (discoveryId: Uint8Array) => {
 	return url.href
 }
 
-export const createBeaconRendezvous = (
-	options: BeaconOptions,
-): BeaconRendezvous => {
+export const createBeaconClient = (options: BeaconOptions): BeaconClient => {
 	const url = beaconUrl(options.discoveryId)
-	const peerId = randomBase64Url(PEER_ID_BYTES)
+	const peerId = parseBeaconPeerId(randomBase64Url(PEER_ID_BYTES))
+	if (peerId == null) throw new Error('Failed to create beacon peer id')
 	const timers = new Set<ReturnType<typeof setTimeout>>()
 	let closed = false
 	let currentStatus: BeaconStatus | null = null
@@ -132,25 +138,26 @@ export const createBeaconRendezvous = (
 		timers.add(timer)
 	}
 
-	const sendOffer = (beaconPeerId: string | null) => {
+	const sendOffer = (to: BeaconPeerId | null) => {
 		if (options.role !== 'host') return
 
-		const offerId = randomBase64Url(OFFER_ID_BYTES)
+		const exchangeId = parseExchangeId(randomBase64Url(EXCHANGE_ID_BYTES))
+		if (exchangeId == null) throw new Error('Failed to create exchange id')
 		void options
-			.createOffer(offerId, beaconPeerId)
+			.createOffer(exchangeId, to)
 			.then((offer) => {
 				if (closed || offer == null) return
 
 				log('info', 'beacon', 'offer.sent', {
-					beaconPeerId,
+					to,
 					role: options.role,
 					url,
 				})
 				send({
-					beaconPeerId,
-					offer,
-					offerId,
-					type: 'offer',
+					exchangeId,
+					signal: offer,
+					to,
+					type: 'signal',
 				})
 			})
 			.catch((error) => log('warn', 'beacon', 'offer.create.failed', { error }))
@@ -190,7 +197,7 @@ export const createBeaconRendezvous = (
 
 		switch (message.type) {
 			case 'ready': {
-				const presence = beaconPresence(message)
+				const presence = message.presence
 				log('info', 'beacon', 'ready', {
 					guests: presence.guests,
 					hosts: presence.hosts,
@@ -206,9 +213,9 @@ export const createBeaconRendezvous = (
 				return
 			}
 			case 'peer-joined': {
-				if (message.beaconPeerId === peerId) return
+				if (message.peer.id === peerId) return
 
-				const presence = beaconPresence(message)
+				const presence = message.presence
 				log('info', 'beacon', 'peer.joined', {
 					guests: presence.guests,
 					hosts: presence.hosts,
@@ -216,13 +223,13 @@ export const createBeaconRendezvous = (
 					url,
 				})
 				setPresence(presence)
-				if (options.role === 'host' && message.role === 'guest') {
-					sendOffer(message.beaconPeerId)
+				if (options.role === 'host' && message.peer.role === 'guest') {
+					sendOffer(message.peer.id)
 				}
 				return
 			}
 			case 'presence': {
-				const presence = beaconPresence(message)
+				const presence = message.presence
 				log('info', 'beacon', 'presence', {
 					guests: presence.guests,
 					hosts: presence.hosts,
@@ -232,22 +239,23 @@ export const createBeaconRendezvous = (
 				setPresence(presence)
 				return
 			}
-			case 'answer':
-				if (options.role !== 'host') return
-				log('info', 'beacon', 'answer.received', { url })
-				options.onAnswer(message.offerId, message.beaconPeerId, message.answer)
-				return
-			case 'offer':
-				if (options.role !== 'guest' || message.beaconPeerId === peerId) return
+			case 'signal':
+				if (message.signal.type === 'answer') {
+					if (options.role !== 'host') return
+					log('info', 'beacon', 'answer.received', { url })
+					options.onAnswer(message.exchangeId, message.from, message.signal)
+					return
+				}
+				if (options.role !== 'guest' || message.from === peerId) return
 
 				log('info', 'beacon', 'offer.received', { url })
-				options.onOffer(message.offer, message.beaconPeerId, (answer) => {
+				options.onOffer(message.signal, message.from, (answer) => {
 					log('info', 'beacon', 'answer.sent', { url })
 					send({
-						answer,
-						beaconPeerId: message.beaconPeerId,
-						offerId: message.offerId,
-						type: 'answer',
+						exchangeId: message.exchangeId,
+						signal: answer,
+						to: message.from,
+						type: 'signal',
 					})
 				})
 				return
@@ -279,7 +287,7 @@ export const createBeaconRendezvous = (
 			log('info', 'beacon', 'socket.open', { url })
 			reconnectAttempt = 0
 			send({
-				beaconPeerId: peerId,
+				id: peerId,
 				role: options.role,
 				type: 'join',
 			})

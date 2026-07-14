@@ -1,129 +1,122 @@
+import type { BeaconPeerId } from '../../contracts/beacon'
 import type { ParticipantId } from '../protocol'
-import type { PeerMediaState } from '../state'
-import type { Peer } from '../webrtc'
-import { type ParticipantKey, participantKey } from './participant'
+import type { RtcPeer } from '../webrtc'
+import type { MediaPresence } from './activity/media'
 
 /** Stable transport id minted before a remote participant is known. */
 export type LinkId = string
 
-/** Room role a WebRTC transport currently serves. */
-export type LinkRole = 'guest-rendezvous' | 'host-rendezvous' | 'mesh'
-/** Discovery path that created the transport. */
-export type LinkSource = 'beacon' | 'manual'
-/** Beacon secret proof state; manual links are trusted by copy-paste possession. */
-export type LinkAuthState = 'pending' | 'verified'
+/** Portrait-level transport state, intentionally smaller than WebRTC state. */
+export type LinkStatus = 'live' | 'waiting'
 
-/** Transport that may later become a participant once the room knows who is there. */
+export type AdmissionSide = 'guest' | 'host'
+export type AdmissionPath = 'beacon' | 'manual'
+export type BeaconAuthState = 'pending' | 'verified'
+
+/** What a transport means at this moment in the room lifecycle. */
+export type LinkPurpose =
+	| {
+			kind: 'admission'
+			side: AdmissionSide
+			via: 'manual'
+	  }
+	| {
+			auth: BeaconAuthState
+			kind: 'admission'
+			peerId: BeaconPeerId | null
+			side: AdmissionSide
+			via: 'beacon'
+	  }
+	| {
+			kind: 'participant'
+			participantId: ParticipantId
+			via: 'admission' | 'mesh'
+	  }
+
+/** Remote media facts that can arrive independently on the same transport. */
+export type RemoteMedia = {
+	state: MediaPresence | null
+	stream: MediaStream | null
+}
+
+/** WebRTC transport whose purpose changes once admission assigns an identity. */
 export type RoomLink = {
-	auth: LinkAuthState
-	authNonce: string | null
-	id: LinkId
-	/** Data channel ready for room packets. */
 	channelOpen: boolean
-	mediaState: PeerMediaState | null
-	mediaStream: MediaStream | null
-	peer: Peer
-	remoteId: ParticipantId | null
-	role: LinkRole
-	source: LinkSource
-	beaconPeerId: string | null
+	id: LinkId
+	media: RemoteMedia | null
+	purpose: LinkPurpose
+	rtc: RtcPeer
 }
 
-type ParticipantRoomLink = RoomLink & {
-	remoteId: ParticipantId
+type ParticipantLink = RoomLink & {
+	purpose: Extract<LinkPurpose, { kind: 'participant' }>
 }
 
-/** Rendezvous lanes are setup doors, not long-term mesh links. */
-const isRendezvousLink = (link: RoomLink) => {
-	return link.role === 'host-rendezvous' || link.role === 'guest-rendezvous'
+type AdmissionLink = RoomLink & {
+	purpose: Extract<LinkPurpose, { kind: 'admission' }>
 }
 
-/** Link that has crossed the room identity boundary. */
-export const isParticipantLink = (
+type BeaconAdmissionLink = RoomLink & {
+	purpose: Extract<LinkPurpose, { kind: 'admission'; via: 'beacon' }>
+}
+
+/** Link that crossed the hello/welcome identity boundary. */
+export const isParticipantLink = (link: RoomLink): link is ParticipantLink => {
+	return link.purpose.kind === 'participant'
+}
+
+/** Invite doorway still waiting for a room participant identity. */
+export const isAdmissionLink = (link: RoomLink): link is AdmissionLink => {
+	return link.purpose.kind === 'admission'
+}
+
+/** Invite-link doorway that must prove possession of the room secret. */
+export const isBeaconAdmissionLink = (
 	link: RoomLink,
-): link is ParticipantRoomLink => {
-	return link.remoteId != null
+): link is BeaconAdmissionLink => {
+	return link.purpose.kind === 'admission' && link.purpose.via === 'beacon'
 }
 
-/** Rendezvous link still waiting for a room participant identity. */
-const isUnadmittedRendezvousLink = (link: RoomLink) => {
-	return isRendezvousLink(link) && !isParticipantLink(link)
-}
-
-/** Invite-link candidate created through beacon discovery. */
-export const isBeaconLink = (link: RoomLink) => {
-	return link.source === 'beacon'
-}
-
-/** Copy-paste candidate created from manual invite/reply codes. */
-const isManualLink = (link: RoomLink) => {
-	return link.source === 'manual'
-}
-
-/** Link that passed either manual possession or beacon secret proof. */
+/** Beacon admission link ready for normal room packets. */
 export const isVerifiedLink = (link: RoomLink) => {
-	return link.auth === 'verified'
-}
-
-/** Host-side rendezvous doorway, before or after admission. */
-export const isHostRendezvousLink = (link: RoomLink) => {
-	return link.role === 'host-rendezvous'
-}
-
-/** Guest-side rendezvous doorway, before or after admission. */
-export const isGuestRendezvousLink = (link: RoomLink) => {
-	return link.role === 'guest-rendezvous'
+	return !isBeaconAdmissionLink(link) || link.purpose.auth === 'verified'
 }
 
 /** Anonymous beacon transport still competing to become a participant link. */
-export const isBeaconCandidate = (link: RoomLink, role?: LinkRole) => {
+export const isBeaconCandidate = (
+	link: RoomLink,
+	side?: AdmissionSide,
+): link is BeaconAdmissionLink => {
 	return (
-		isBeaconLink(link) &&
-		!isParticipantLink(link) &&
-		(role == null || link.role === role)
+		isBeaconAdmissionLink(link) && (side == null || link.purpose.side === side)
 	)
 }
 
-/** Manual host offer waiting for the guest's admitted hello. */
-export const isManualHostInviteLink = (link: RoomLink) => {
-	return (
-		isManualLink(link) && isHostRendezvousLink(link) && !isParticipantLink(link)
-	)
-}
-
-/** Manual guest answer waiting for host admission. */
-export const isManualGuestReplyLink = (link: RoomLink) => {
-	return (
-		isManualLink(link) &&
-		isGuestRendezvousLink(link) &&
-		!isParticipantLink(link)
-	)
-}
-
-/** Open invite/reply lane with no admitted participant yet. */
-export const findRendezvousLink = (
+/** Pending admission lookup by the domain fields that can actually coexist. */
+export const findAdmissionLink = (
 	links: Iterable<RoomLink>,
-	role?: LinkRole,
-	source?: LinkSource,
+	query: { side?: AdmissionSide; via?: AdmissionPath } = {},
 ) => {
 	for (const link of links) {
-		if (!isUnadmittedRendezvousLink(link)) continue
-		if (role != null && link.role !== role) continue
-		if (source != null && link.source !== source) continue
+		if (!isAdmissionLink(link)) continue
+		if (query.side != null && link.purpose.side !== query.side) continue
+		if (query.via != null && link.purpose.via !== query.via) continue
 		return link
 	}
 
 	return null
 }
 
-/** Participant link lookup across rendezvous-promoted and mesh links. */
+/** Participant link lookup across promoted admission and mesh transports. */
 export const findParticipantLink = (
 	links: Iterable<RoomLink>,
-	key: ParticipantKey,
+	participantId: ParticipantId,
 ) => {
-	// Participant ids are protocol values; keys are how Solid stores them.
 	for (const link of links) {
-		if (isParticipantLink(link) && participantKey(link.remoteId) === key) {
+		if (
+			isParticipantLink(link) &&
+			link.purpose.participantId === participantId
+		) {
 			return link
 		}
 	}
@@ -133,7 +126,6 @@ export const findParticipantLink = (
 
 /** Open links that crossed the hello/welcome identity boundary. */
 export const openParticipantLinks = (links: Iterable<RoomLink>) => {
-	// Broadcasts only go to links that made it past the hello/welcome line.
 	return [...links].filter(
 		(link) => link.channelOpen && isParticipantLink(link),
 	)

@@ -1,11 +1,11 @@
 import { For, Show } from 'solid-js'
 import { ConnectionCard, type HostInviteMode } from './connection-card'
 import { Daisy } from './daisy'
-import { PersonCard, Room } from './portraits'
+import { PersonCard, PortraitStrip } from './portraits'
 import type { RoomHandle } from './room'
+import type { RelayMetering } from './room/relay'
 import { RELAY_GRANT_BYTES, RELAY_GRANT_SECONDS } from './room/relay'
 import { SelfPortraitCard } from './self-portrait-card'
-import type { RelayMetering } from './state'
 
 export type RoomViewProps = {
 	room: RoomHandle
@@ -80,7 +80,7 @@ const RelayNoticeCard = (props: { metering: RelayMetering }) => {
 
 export const RoomView = (props: RoomViewProps) => {
 	return (
-		<Room themeSeed={props.room.state.themeSeed}>
+		<PortraitStrip themeSeed={props.room.state.themeSeed}>
 			<SelfPortraitCard
 				activity={props.room.selfActivity()}
 				blipComposer={props.room.state.blipComposer}
@@ -109,15 +109,15 @@ export const RoomView = (props: RoomViewProps) => {
 			</Show>
 			<Show
 				when={
-					props.room.state.connection.side !== 'guest' ||
-					props.room.state.connection.status !== 'connected'
+					props.room.state.entry.side !== 'guest' ||
+					props.room.state.entry.status !== 'connected'
 				}
 			>
 				<ConnectionCard
-					connection={props.room.state.connection}
+					entry={props.room.state.entry}
 					canClaimFindingInviteLink={props.room.canClaimFindingInviteLink()}
 					canJoinExistingRoom={
-						props.room.state.connection.side !== 'host' ||
+						props.room.state.entry.side !== 'host' ||
 						props.room.peers().length === 0
 					}
 					initialHostInviteMode={props.hostInviteMode}
@@ -134,6 +134,6 @@ export const RoomView = (props: RoomViewProps) => {
 					onTryRelay={props.room.actions.tryRelay}
 				/>
 			</Show>
-		</Room>
+		</PortraitStrip>
 	)
 }

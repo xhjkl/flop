@@ -1,19 +1,16 @@
+import type {
+	AnswerDescription,
+	OfferDescription,
+} from '../../contracts/signal'
 import { log } from '../log'
-import {
-	type Packet,
-	type ParticipantId,
-	participantIdToString,
-} from '../protocol'
+import type { Packet, ParticipantId } from '../protocol'
 import type { RoomLink } from './link'
-import type { ParticipantKey, RoomParticipant } from './participant'
 
-type MeshOfferPacket = Extract<Packet, { type: 'peer-offer' }>
-type MeshAnswerPacket = Extract<Packet, { type: 'peer-answer' }>
+type MeshSignalPacket = Extract<Packet, { type: 'peer-signal' }>
 
 /** Guest-to-guest mesh signaling carried through the host rendezvous link. */
 export type RoomMesh = {
-	acceptAnswer: (message: MeshAnswerPacket) => Promise<void>
-	acceptOffer: (message: MeshOfferPacket) => Promise<void>
+	acceptSignal: (message: MeshSignalPacket) => Promise<void>
 	startMissingOffers: () => void
 }
 
@@ -23,10 +20,9 @@ export const createRoomMesh = (options: {
 	createMeshLink: (participantId: ParticipantId) => RoomLink | null
 	hostParticipantId: () => ParticipantId | null
 	isSelfGuest: () => boolean
-	linkByParticipantKey: (key: ParticipantKey) => RoomLink | null
+	linkByParticipantId: (participantId: ParticipantId) => RoomLink | null
 	localParticipantId: () => ParticipantId | null
-	participantByKey: (key: ParticipantKey) => RoomParticipant | null
-	participantKeys: () => ParticipantKey[]
+	participantIds: () => ParticipantId[]
 	participantLink: (participantId: ParticipantId) => RoomLink | null
 	sendToHost: (message: Packet) => boolean
 }): RoomMesh => {
@@ -47,7 +43,7 @@ export const createRoomMesh = (options: {
 		if (link == null) return
 
 		try {
-			const signal = await link.peer.createOffer()
+			const signal = await link.rtc.createOffer()
 			if (options.participantLink(participantId) !== link) {
 				options.closeLink(link)
 				return
@@ -55,21 +51,21 @@ export const createRoomMesh = (options: {
 
 			if (
 				!options.sendToHost({
-					type: 'peer-offer',
+					type: 'peer-signal',
 					from: localParticipantId,
 					to: participantId,
 					signal,
 				})
 			) {
 				log('warn', 'room', 'mesh.offer.send.failed', {
-					participantId: participantIdToString(participantId),
+					participantId,
 				})
 				options.closeLink(link)
 			}
 		} catch (error) {
 			log('warn', 'room', 'mesh.offer.failed', {
 				error,
-				participantId: participantIdToString(participantId),
+				participantId,
 			})
 			options.closeLink(link)
 		}
@@ -87,24 +83,24 @@ export const createRoomMesh = (options: {
 			return
 		}
 
-		for (const key of options.participantKeys()) {
-			const participant = options.participantByKey(key)
-			if (participant == null) continue
-
+		for (const participantId of options.participantIds()) {
 			if (
-				participant.participantId === localParticipantId ||
-				participant.participantId === hostParticipantId ||
-				options.linkByParticipantKey(key) != null ||
-				localParticipantId < participant.participantId
+				participantId === localParticipantId ||
+				participantId === hostParticipantId ||
+				options.linkByParticipantId(participantId) != null ||
+				localParticipantId < participantId
 			) {
 				continue
 			}
 
-			void createOffer(participant.participantId)
+			void createOffer(participantId)
 		}
 	}
 
-	const acceptOffer = async (message: MeshOfferPacket) => {
+	const acceptOffer = async (
+		message: MeshSignalPacket,
+		signal: OfferDescription,
+	) => {
 		// The target guest answers, then the host carries that answer back.
 		const localParticipantId = options.localParticipantId()
 		if (!options.isSelfGuest() || localParticipantId == null) {
@@ -112,8 +108,8 @@ export const createRoomMesh = (options: {
 		}
 		if (message.to !== localParticipantId) {
 			log('warn', 'room', 'mesh.offer.wrong-target', {
-				from: participantIdToString(message.from),
-				to: participantIdToString(message.to),
+				from: message.from,
+				to: message.to,
 			})
 			return
 		}
@@ -125,7 +121,7 @@ export const createRoomMesh = (options: {
 		if (link == null) return
 
 		try {
-			const signal = await link.peer.createAnswer(message.signal)
+			const answer = await link.rtc.createAnswer(signal)
 			if (options.participantLink(message.from) !== link) {
 				options.closeLink(link)
 				return
@@ -133,34 +129,37 @@ export const createRoomMesh = (options: {
 
 			if (
 				!options.sendToHost({
-					type: 'peer-answer',
+					type: 'peer-signal',
 					from: localParticipantId,
 					to: message.from,
-					signal,
+					signal: answer,
 				})
 			) {
 				log('warn', 'room', 'mesh.answer.send.failed', {
-					participantId: participantIdToString(message.from),
+					participantId: message.from,
 				})
 				options.closeLink(link)
 			}
 		} catch (error) {
 			log('warn', 'room', 'mesh.answer.failed', {
 				error,
-				participantId: participantIdToString(message.from),
+				participantId: message.from,
 			})
 			options.closeLink(link)
 		}
 	}
 
-	const acceptAnswer = async (message: MeshAnswerPacket) => {
+	const acceptAnswer = async (
+		message: MeshSignalPacket,
+		signal: AnswerDescription,
+	) => {
 		// The dialing guest completes the direct edge here.
 		const localParticipantId = options.localParticipantId()
 		if (localParticipantId == null) return
 		if (message.to !== localParticipantId) {
 			log('warn', 'room', 'mesh.answer.wrong-target', {
-				from: participantIdToString(message.from),
-				to: participantIdToString(message.to),
+				from: message.from,
+				to: message.to,
 			})
 			return
 		}
@@ -168,21 +167,27 @@ export const createRoomMesh = (options: {
 		const link = options.participantLink(message.from)
 		if (link == null) {
 			log('warn', 'room', 'mesh.answer.missing-link', {
-				from: participantIdToString(message.from),
+				from: message.from,
 			})
 			return
 		}
 
 		try {
-			await link.peer.acceptAnswer(message.signal)
+			await link.rtc.acceptAnswer(signal)
 		} catch (error) {
 			log('warn', 'room', 'mesh.answer.accept.failed', {
 				error,
-				from: participantIdToString(message.from),
+				from: message.from,
 			})
 			options.closeLink(link)
 		}
 	}
 
-	return { acceptAnswer, acceptOffer, startMissingOffers }
+	const acceptSignal = (message: MeshSignalPacket) => {
+		return message.signal.type === 'offer'
+			? acceptOffer(message, message.signal)
+			: acceptAnswer(message, message.signal)
+	}
+
+	return { acceptSignal, startMissingOffers }
 }

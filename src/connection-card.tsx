@@ -7,15 +7,15 @@ import {
 	Switch,
 } from 'solid-js'
 import { Daisy } from './daisy'
+import {
+	type GuestJoinState,
+	guestFindingLinkEntry,
+	type HostInviteState,
+	type RoomEntryState,
+} from './room/entry/state'
 import { canShareText, shareText } from './room/invite'
 import { RELAY_FALLBACK_WAIT_SECONDS } from './room/relay'
-import { statusCopy } from './room/status-copy'
-import {
-	type ConnectionState,
-	type GuestConnectionState,
-	guestFindingLinkConnection,
-	type HostConnectionState,
-} from './state'
+import { entryIssueCopy, hostInviteLinkFailureCopy } from './ui/copy'
 import { createPulse } from './ui/pulse'
 import { QrCodeImage } from './ui/qr'
 import { encodeQrCode } from './ui/qr-code'
@@ -141,7 +141,7 @@ const PasteLine = (props: {
 }
 
 const HostInvitePane = (props: {
-	connection: HostConnectionState
+	entry: HostInviteState
 	canJoinExistingRoom: boolean
 	mode: HostInviteMode
 	onAcceptReply: (replyText?: string) => void
@@ -151,9 +151,9 @@ const HostInvitePane = (props: {
 	onSetReplyText: (replyText: string) => void
 }) => {
 	const busy = () =>
-		props.connection.status === 'creating-invite' ||
-		props.connection.status === 'accepting-reply'
-	const inviteLinkReady = () => props.connection.inviteLinkStatus === 'ready'
+		props.entry.status === 'creating-invite' ||
+		props.entry.status === 'accepting-reply'
+	const inviteLinkReady = () => props.entry.inviteLinkStatus === 'ready'
 
 	return (
 		<div
@@ -180,16 +180,16 @@ const HostInvitePane = (props: {
 								appear here automatically.
 							</p>
 						</Show>
-						<Show when={props.connection.inviteLinkStatus === 'failed'}>
-							<p class="connection-issue">{statusCopy.hostInviteLinkFailed}</p>
+						<Show when={props.entry.inviteLinkStatus === 'failed'}>
+							<p class="connection-issue">{hostInviteLinkFailureCopy}</p>
 						</Show>
 					</div>
 					<div class="connection-main">
 						<ShareTextBlock
 							label="invite link"
-							value={inviteLinkReady() ? props.connection.inviteLink : ''}
+							value={inviteLinkReady() ? props.entry.inviteLink : ''}
 							placeholder={
-								props.connection.inviteLinkStatus === 'failed'
+								props.entry.inviteLinkStatus === 'failed'
 									? 'invite link is unavailable'
 									: 'preparing invite link'
 							}
@@ -211,14 +211,16 @@ const HostInvitePane = (props: {
 							Use this invite code if the link does not bring them in. Send it,
 							then paste their reply code here.
 						</p>
-						<Show when={props.connection.issue}>
-							{(issue) => <p class="connection-issue">{issue()}</p>}
+						<Show when={props.entry.issue}>
+							{(issue) => (
+								<p class="connection-issue">{entryIssueCopy[issue()]}</p>
+							)}
 						</Show>
 					</div>
 					<div class="connection-main">
 						<ShareTextBlock
 							label="invite code"
-							value={props.connection.inviteCode}
+							value={props.entry.inviteCode}
 							placeholder="invite code is being created"
 							copyLabel="copy invite code"
 							shareLabel="share invite code"
@@ -228,7 +230,7 @@ const HostInvitePane = (props: {
 						/>
 						<PasteLine
 							label="paste their reply code here to let them in"
-							value={props.connection.replyText}
+							value={props.entry.replyText}
 							placeholder="paste reply code"
 							disabled={busy() || props.mode !== 'code'}
 							onChange={props.onSetReplyText}
@@ -250,7 +252,7 @@ const HostInvitePane = (props: {
 
 const GuestInvitePane = (props: {
 	canClaimFindingInviteLink: boolean
-	connection: GuestConnectionState
+	entry: GuestJoinState
 	onBecomeHost: () => void
 	onClaimInviteLinkAsHost: () => void
 	onCopyReplyCode: () => void
@@ -258,15 +260,14 @@ const GuestInvitePane = (props: {
 	onSetInviteText: (inviteText: string) => void
 	onTryRelay: () => void
 }) => {
-	const creating = () => props.connection.status === 'creating-reply'
-	const hasInviteField = () => props.connection.status !== 'finding-link'
-	const canCreate = () =>
-		creating() || props.connection.inviteText.trim() !== ''
+	const creating = () => props.entry.status === 'creating-reply'
+	const hasInviteField = () => props.entry.status !== 'finding-link'
+	const canCreate = () => creating() || props.entry.inviteText.trim() !== ''
 	const canClaimFindingLink = () =>
 		props.canClaimFindingInviteLink &&
-		props.connection.status === 'finding-link' &&
-		props.connection.issue == null &&
-		props.connection.inviteLinkPresence?.hosts === 0
+		props.entry.status === 'finding-link' &&
+		props.entry.issue == null &&
+		props.entry.inviteLinkPresence?.hosts === 0
 
 	return (
 		<>
@@ -274,9 +275,9 @@ const GuestInvitePane = (props: {
 			<Switch>
 				<Match
 					when={
-						props.connection.status === 'needs-invite' ||
-						props.connection.status === 'creating-reply' ||
-						props.connection.status === 'finding-link'
+						props.entry.status === 'needs-invite' ||
+						props.entry.status === 'creating-reply' ||
+						props.entry.status === 'finding-link'
 					}
 				>
 					<div
@@ -286,11 +287,11 @@ const GuestInvitePane = (props: {
 						}}
 					>
 						<Show
-							when={props.connection.status !== 'finding-link'}
+							when={props.entry.status !== 'finding-link'}
 							fallback={
 								<ShareTextBlock
 									label="invite link"
-									value={props.connection.inviteText}
+									value={props.entry.inviteText}
 									placeholder="finding host"
 									copyLabel="waiting"
 									disabled
@@ -299,7 +300,7 @@ const GuestInvitePane = (props: {
 						>
 							<PasteLine
 								label="paste invite link or invite code to create a reply code"
-								value={props.connection.inviteText}
+								value={props.entry.inviteText}
 								placeholder="paste invite link or invite code"
 								disabled={creating()}
 								onChange={props.onSetInviteText}
@@ -326,11 +327,11 @@ const GuestInvitePane = (props: {
 						</div>
 					</Show>
 				</Match>
-				<Match when={props.connection.status === 'reply-ready'}>
+				<Match when={props.entry.status === 'reply-ready'}>
 					<div class="connection-main connection-body">
 						<ShareTextBlock
 							label="reply code"
-							value={props.connection.replyCode}
+							value={props.entry.replyCode}
 							placeholder="reply code appears here"
 							copyLabel="copy reply code"
 							shareLabel="share reply code"
@@ -342,8 +343,8 @@ const GuestInvitePane = (props: {
 			</Switch>
 			<Show
 				when={
-					props.connection.status !== 'connected' &&
-					props.connection.status !== 'finding-link'
+					props.entry.status !== 'connected' &&
+					props.entry.status !== 'finding-link'
 				}
 			>
 				<ConnectionActionRail>
@@ -389,7 +390,7 @@ const FindingRelayControl = (props: {
 }
 
 export const ConnectionCard = (props: {
-	connection: ConnectionState
+	entry: RoomEntryState
 	canClaimFindingInviteLink: boolean
 	canJoinExistingRoom: boolean
 	initialHostInviteMode: HostInviteMode | null
@@ -405,46 +406,43 @@ export const ConnectionCard = (props: {
 	onSetReplyText: (replyText: string) => void
 	onTryRelay: () => void
 }) => {
-	const hostConnection = () =>
-		props.connection.side === 'host' ? props.connection : null
-	const guestConnection = () =>
-		props.connection.side === 'guest' ? props.connection : null
-	const findingLinkConnection = () => {
-		const connection = guestConnection()
-		return connection == null ? null : guestFindingLinkConnection(connection)
+	const hostInvite = () => (props.entry.side === 'host' ? props.entry : null)
+	const guestJoin = () => (props.entry.side === 'guest' ? props.entry : null)
+	const findingLinkEntry = () => {
+		const entry = guestJoin()
+		return entry == null ? null : guestFindingLinkEntry(entry)
 	}
 	const findingLinkHosts = () => {
-		return findingLinkConnection()?.inviteLinkPresence?.hosts ?? null
+		return findingLinkEntry()?.inviteLinkPresence?.hosts ?? null
 	}
 	const hasFindingLinkHost = () => (findingLinkHosts() ?? 0) > 0
 	const hasClaimableFindingLink = () => {
-		const connection = findingLinkConnection()
+		const entry = findingLinkEntry()
 		return (
 			props.canClaimFindingInviteLink &&
-			connection != null &&
-			connection.issue == null &&
-			connection.inviteLinkPresence?.hosts === 0
+			entry != null &&
+			entry.issue == null &&
+			entry.inviteLinkPresence?.hosts === 0
 		)
 	}
 	const hasReachableFindingLinkHost = () => {
-		const connection = guestConnection()
-		return connection?.issue == null && hasFindingLinkHost()
+		const entry = guestJoin()
+		return entry?.issue == null && hasFindingLinkHost()
 	}
 	const findingRelaySecondsLeft = () => {
-		const connection = findingLinkConnection()
-		if (connection == null) return null
+		const entry = findingLinkEntry()
+		if (entry == null) return null
 		if (!hasReachableFindingLinkHost()) return null
 
-		return connection.relayFallbackSecondsLeft
+		return entry.relayFallbackSecondsLeft
 	}
 	const hasFindingRelayControl = () => findingRelaySecondsLeft() != null
 	const hasConnectionCopy = () =>
-		props.connection.side !== 'host' && !hasFindingRelayControl()
+		props.entry.side !== 'host' && !hasFindingRelayControl()
 	const hasConnectionEntryLayout = () => {
-		const connection = guestConnection()
+		const entry = guestJoin()
 		return (
-			connection?.status === 'needs-invite' ||
-			connection?.status === 'creating-reply'
+			entry?.status === 'needs-invite' || entry?.status === 'creating-reply'
 		)
 	}
 	const [hostInviteMode, setHostInviteMode] = createSignal<HostInviteMode>(
@@ -469,7 +467,7 @@ export const ConnectionCard = (props: {
 								/>
 							</div>
 						</Match>
-						<Match when={props.connection.side === 'host'}>
+						<Match when={props.entry.side === 'host'}>
 							<div class="connection-mode-heading">
 								<strong>invite:</strong>
 								<button
@@ -489,13 +487,13 @@ export const ConnectionCard = (props: {
 								</button>
 							</div>
 						</Match>
-						<Match when={props.connection.side === 'closed'}>
+						<Match when={props.entry.side === 'closed'}>
 							<strong>room closed</strong>
 						</Match>
 						<Match
 							when={
-								props.connection.side === 'guest' &&
-								props.connection.status === 'connected'
+								props.entry.side === 'guest' &&
+								props.entry.status === 'connected'
 							}
 						>
 							<strong>connected</strong>
@@ -512,7 +510,7 @@ export const ConnectionCard = (props: {
 								</p>
 							}
 						>
-							<Match when={props.connection.side === 'closed'}>
+							<Match when={props.entry.side === 'closed'}>
 								<p>
 									This room is no longer live. Start a new room or join someone
 									else.
@@ -520,16 +518,16 @@ export const ConnectionCard = (props: {
 							</Match>
 							<Match
 								when={
-									props.connection.side === 'guest' &&
-									props.connection.status === 'connected'
+									props.entry.side === 'guest' &&
+									props.entry.status === 'connected'
 								}
 							>
 								<p>Connected directly.</p>
 							</Match>
 							<Match
 								when={
-									props.connection.side === 'guest' &&
-									props.connection.status === 'needs-invite'
+									props.entry.side === 'guest' &&
+									props.entry.status === 'needs-invite'
 								}
 							>
 								<p>
@@ -539,16 +537,16 @@ export const ConnectionCard = (props: {
 							</Match>
 							<Match
 								when={
-									props.connection.side === 'guest' &&
-									props.connection.status === 'creating-reply'
+									props.entry.side === 'guest' &&
+									props.entry.status === 'creating-reply'
 								}
 							>
 								<p>Creating a reply code. Keep this tab open.</p>
 							</Match>
 							<Match
 								when={
-									props.connection.side === 'guest' &&
-									props.connection.status === 'reply-ready'
+									props.entry.side === 'guest' &&
+									props.entry.status === 'reply-ready'
 								}
 							>
 								<p>
@@ -558,8 +556,8 @@ export const ConnectionCard = (props: {
 							</Match>
 							<Match
 								when={
-									props.connection.side === 'guest' &&
-									props.connection.status === 'finding-link' &&
+									props.entry.side === 'guest' &&
+									props.entry.status === 'finding-link' &&
 									hasClaimableFindingLink()
 								}
 							>
@@ -570,8 +568,8 @@ export const ConnectionCard = (props: {
 							</Match>
 							<Match
 								when={
-									props.connection.side === 'guest' &&
-									props.connection.status === 'finding-link' &&
+									props.entry.side === 'guest' &&
+									props.entry.status === 'finding-link' &&
 									hasReachableFindingLinkHost()
 								}
 							>
@@ -579,8 +577,8 @@ export const ConnectionCard = (props: {
 							</Match>
 							<Match
 								when={
-									props.connection.side === 'guest' &&
-									props.connection.status === 'finding-link'
+									props.entry.side === 'guest' &&
+									props.entry.status === 'finding-link'
 								}
 							>
 								<p>
@@ -589,18 +587,16 @@ export const ConnectionCard = (props: {
 								</p>
 							</Match>
 						</Switch>
-						<Show
-							when={
-								props.connection.side !== 'closed' && props.connection.issue
-							}
-						>
-							{(issue) => <p class="connection-issue">{issue()}</p>}
+						<Show when={props.entry.side !== 'closed' && props.entry.issue}>
+							{(issue) => (
+								<p class="connection-issue">{entryIssueCopy[issue()]}</p>
+							)}
 						</Show>
 					</div>
 				</Show>
 			</div>
 			<Switch>
-				<Match when={props.connection.side === 'closed'}>
+				<Match when={props.entry.side === 'closed'}>
 					<ConnectionActionRail>
 						<button type="button" onClick={props.onBecomeHost}>
 							start a new room
@@ -612,10 +608,10 @@ export const ConnectionCard = (props: {
 						</Show>
 					</ConnectionActionRail>
 				</Match>
-				<Match when={hostConnection()}>
-					{(connection) => (
+				<Match when={hostInvite()}>
+					{(entry) => (
 						<HostInvitePane
-							connection={connection()}
+							entry={entry()}
 							canJoinExistingRoom={props.canJoinExistingRoom}
 							mode={hostInviteMode()}
 							onAcceptReply={props.onAcceptReply}
@@ -626,11 +622,11 @@ export const ConnectionCard = (props: {
 						/>
 					)}
 				</Match>
-				<Match when={guestConnection()}>
-					{(connection) => (
+				<Match when={guestJoin()}>
+					{(entry) => (
 						<GuestInvitePane
 							canClaimFindingInviteLink={props.canClaimFindingInviteLink}
-							connection={connection()}
+							entry={entry()}
 							onBecomeHost={props.onBecomeHost}
 							onClaimInviteLinkAsHost={props.onClaimInviteLinkAsHost}
 							onCopyReplyCode={props.onCopyReplyCode}

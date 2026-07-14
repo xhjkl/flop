@@ -1,31 +1,26 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createRoot } from 'solid-js'
-import type { ParticipantId } from '../src/protocol'
-import { createBeaconFlow } from '../src/room/beacon-flow'
-import { createHostFlow } from '../src/room/host'
+import { type ParticipantId, parseParticipantId } from '../src/protocol'
+import { createBeaconFlow } from '../src/room/entry/beacon'
+import { createHostFlow } from '../src/room/entry/host'
 import { createRoomLifecycle } from '../src/room/lifecycle'
-import { createRoomRuntime } from '../src/room/runtime'
+import { createRoomSession } from '../src/room/session'
 
 test('failed welcome rolls back host admission before broadcasting', () => {
 	createRoot((dispose) => {
 		try {
-			const guestId = 2n
+			const guestId = parseParticipantId('0000000000000002')
+			assert.ok(guestId != null)
 			const removed: ParticipantId[] = []
 			let broadcasts = 0
-			const room = createRoomRuntime({
-				linkEvents: {
-					onClose: () => {},
-					onMessage: () => {},
-					onOpen: () => {},
-				},
-			})
-			const removeParticipant = room.removeParticipant
-			room.removeParticipant = (participantId) => {
+			const room = createRoomSession()
+			const removeParticipant = room.participants.remove
+			room.participants.remove = (participantId) => {
 				removed.push(participantId)
 				removeParticipant(participantId)
 			}
-			room.broadcastMembershipChange = () => broadcasts++
+			room.packets.broadcastMembershipChange = () => broadcasts++
 			const lifecycle = createRoomLifecycle(room)
 			const beacon = createBeaconFlow(room)
 			const flow = createHostFlow(room, lifecycle, beacon)

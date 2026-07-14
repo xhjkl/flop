@@ -1,30 +1,44 @@
 import { onCleanup, onMount } from 'solid-js'
 import { hostInviteFromAddressBar } from './room/address-bar'
-import { createBeaconFlow } from './room/beacon-flow'
-import { createGuestFlow } from './room/guest'
-import { createHostFlow } from './room/host'
+import { createBeaconFlow } from './room/entry/beacon'
+import { createGuestFlow } from './room/entry/guest'
+import { createHostFlow } from './room/entry/host'
+import type { GuestJoinState, HostInviteState } from './room/entry/state'
 import { copyText, readInviteFromHash } from './room/invite'
 import { createRoomLifecycle } from './room/lifecycle'
 import { createRoomLinkEvents } from './room/link-events'
-import { createRoomRuntime } from './room/runtime'
-import type { RoomActions } from './room/types'
-import type { GuestConnectionState, HostConnectionState } from './state'
+import { createRoomSession } from './room/session'
+
+/** UI verbs; host/guest ceremony stays inside the room implementation. */
+export type RoomActions = {
+	acceptReply: (replyText?: string) => void
+	becomeGuest: () => void
+	becomeHost: () => void
+	claimInviteLinkAsHost: () => void
+	copyInviteLink: () => void
+	copyInviteCode: () => void
+	copyReplyCode: () => void
+	createReply: (inviteText?: string) => void
+	dismissBlipIssue: () => void
+	enableSelfMedia: () => void
+	sendBlip: (text?: string) => void
+	sendFiles: (files: File[]) => void
+	setBlipText: (text: string) => void
+	setInviteText: (inviteText: string) => void
+	setReplyText: (replyText: string) => void
+	toggleCamera: () => void
+	toggleMicrophone: () => void
+	toggleScreen: () => void
+	tryRelay: () => void
+}
 
 export const createRoom = () => {
-	const room = createRoomRuntime({
-		linkEvents: {
-			// Links are created only after this synchronous assembly binds their events.
-			onClose: (linkId) => linkEvents.onClose(linkId),
-			onMessage: (linkId, text) => linkEvents.onMessage(linkId, text),
-			onOpen: (linkId) => linkEvents.onOpen(linkId),
-		},
-	})
+	const room = createRoomSession()
 	const lifecycle = createRoomLifecycle(room)
 	const beacon = createBeaconFlow(room)
 	const host = createHostFlow(room, lifecycle, beacon)
 	const guest = createGuestFlow(room, lifecycle, beacon, host)
-
-	const linkEvents = createRoomLinkEvents(room, lifecycle, host, guest)
+	room.links.bind(createRoomLinkEvents(room, lifecycle, host, guest))
 
 	onMount(() => {
 		// Shared URLs make guests; a tab-owned projection lets host refresh stay host.
@@ -51,16 +65,12 @@ export const createRoom = () => {
 
 	onCleanup(lifecycle.disposeRoom)
 
-	const hostText = (pick: (connection: HostConnectionState) => string) => {
-		return room.state.connection.side === 'host'
-			? pick(room.state.connection)
-			: ''
+	const hostText = (pick: (entry: HostInviteState) => string) => {
+		return room.ui.state.entry.side === 'host' ? pick(room.ui.state.entry) : ''
 	}
 
-	const guestText = (pick: (connection: GuestConnectionState) => string) => {
-		return room.state.connection.side === 'guest'
-			? pick(room.state.connection)
-			: ''
+	const guestText = (pick: (entry: GuestJoinState) => string) => {
+		return room.ui.state.entry.side === 'guest' ? pick(room.ui.state.entry) : ''
 	}
 
 	const actions: RoomActions = {
@@ -73,26 +83,26 @@ export const createRoom = () => {
 		copyInviteLink: () => void copyText(hostText((c) => c.inviteLink)),
 		copyReplyCode: () => void copyText(guestText((c) => c.replyCode)),
 		createReply: (inviteText?: string) => void guest.createReply(inviteText),
-		dismissBlipIssue: () => room.setState('blipComposer', 'issue', null),
+		dismissBlipIssue: () => room.ui.setState('blipComposer', 'issue', null),
 		enableSelfMedia: () => void room.media.enableSelfMedia(),
 		sendBlip: (text?: string) => room.blips.send(text),
-		sendFiles: (files: File[]) => void room.fileTransfers.sendFiles(files),
+		sendFiles: (files: File[]) => void room.files.sendFiles(files),
 		setBlipText: (text: string) => {
-			room.setState('blipComposer', 'text', text)
-			room.setState('blipComposer', 'issue', null)
+			room.ui.setState('blipComposer', 'text', text)
+			room.ui.setState('blipComposer', 'issue', null)
 		},
 		setInviteText: (inviteText: string) => {
-			if (room.state.connection.side !== 'guest') return
-			room.setState('connection', {
-				...room.state.connection,
+			if (room.ui.state.entry.side !== 'guest') return
+			room.ui.setState('entry', {
+				...room.ui.state.entry,
 				inviteText,
 				issue: null,
 			})
 		},
 		setReplyText: (replyText: string) => {
-			if (room.state.connection.side !== 'host') return
-			room.setState('connection', {
-				...room.state.connection,
+			if (room.ui.state.entry.side !== 'host') return
+			room.ui.setState('entry', {
+				...room.ui.state.entry,
 				issue: null,
 				replyText,
 			})
@@ -106,12 +116,12 @@ export const createRoom = () => {
 	return {
 		actions,
 		canClaimFindingInviteLink: guest.canClaimFindingInviteLink,
-		peers: room.peers,
-		selfActivity: room.selfActivity,
-		state: room.state,
+		peers: room.participants.views,
+		selfActivity: room.participants.selfActivity,
+		state: room.ui.state,
 	}
 }
 
 export type RoomHandle = ReturnType<typeof createRoom>
 export type { RoomState } from './room/initial-state'
-export type { RoomPeer } from './room/types'
+export type { ParticipantView } from './room/participant'

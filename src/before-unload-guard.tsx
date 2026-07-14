@@ -1,24 +1,24 @@
 import { createEffect, onCleanup } from 'solid-js'
 import type { RoomHandle } from './room'
-import { isBusyPortraitFile } from './state'
+import { isBusyParticipantFile } from './room/participant'
 
 const hasBusyFiles = (room: RoomHandle) => {
-	if (room.selfActivity().files.some(isBusyPortraitFile)) return true
+	if (room.selfActivity().files.some(isBusyParticipantFile)) return true
 
 	return room
 		.peers()
-		.some((peer) => peer.activity.files.some(isBusyPortraitFile))
+		.some((peer) => peer.activity.files.some(isBusyParticipantFile))
 }
 
 const shouldWarnBeforeUnload = (room: RoomHandle) => {
-	const connection = room.state.connection
+	const entry = room.state.entry
 
 	// A refresh is cheap until a real peer, code, or file is on the line.
 	return (
-		(connection.side === 'guest' &&
-			(connection.status === 'creating-reply' ||
-				connection.status === 'reply-ready' ||
-				connection.status === 'connected')) ||
+		(entry.side === 'guest' &&
+			(entry.status === 'creating-reply' ||
+				entry.status === 'reply-ready' ||
+				entry.status === 'connected')) ||
 		hasBusyFiles(room) ||
 		room.peers().some((peer) => peer.connectionState === 'live')
 	)

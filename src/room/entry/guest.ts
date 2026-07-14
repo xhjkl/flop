@@ -1,24 +1,17 @@
-import { log } from '../log'
-import {
-	type Packet,
-	type Participant,
-	type ParticipantId,
-	participantIdToString,
-} from '../protocol'
-import type { RoomSecret } from '../rendezvous/secret'
-import { decodeSignal, encodeSignal } from '../signal'
-import { guestFindingLinkConnection } from '../state'
-import type { BeaconFlow } from './beacon-flow'
+import { log } from '../../log'
+import { decodeSignal, encodeSignal } from '../../manual-signal-codec'
+import type { Packet, ParticipantId, Roster } from '../../protocol'
+import type { RoomSecret } from '../../rendezvous/secret'
+import { emptyBlipComposer, emptyGuestJoin } from '../initial-state'
+import { inviteFromInput, inviteLinkFromSecret } from '../invite'
+import type { RoomLifecycle } from '../lifecycle'
+import { isBeaconCandidate, isParticipantLink, type RoomLink } from '../link'
+import { RelayQuotaExceededError, requestRelayIceServers } from '../relay'
+import type { RoomSession } from '../session'
+import type { BeaconFlow } from './beacon'
 import type { HostFlow } from './host'
-import { emptyBlipComposer, emptyGuestConnection } from './initial-state'
-import { inviteFromInput, inviteLinkFromSecret } from './invite'
-import type { RoomLifecycle } from './lifecycle'
-import { isBeaconCandidate, type RoomLink } from './link'
 import { MANUAL_ADMISSION_TIMEOUT_MS, watchRendezvousAdmission } from './manual'
-import { participantKey } from './participant'
-import { RelayQuotaExceededError, requestRelayIceServers } from './relay'
-import type { RoomRuntime } from './runtime'
-import { statusCopy } from './status-copy'
+import { guestFindingLinkEntry } from './state'
 
 /** Guest-side invite consumption, welcome, and room roster transitions. */
 export type GuestFlow = {
@@ -32,105 +25,100 @@ export type GuestFlow = {
 }
 
 export const createGuestFlow = (
-	room: RoomRuntime,
+	room: RoomSession,
 	lifecycle: RoomLifecycle,
 	beacon: BeaconFlow,
 	host: HostFlow,
 ): GuestFlow => {
-	const applyRoster = (roster: Participant[]) => {
+	const applyRoster = (roster: Roster) => {
 		// If the host is gone from the roster, the room is gone for guests.
-		if (
-			room.hostParticipantId != null &&
-			!roster.some((p) => p.id === room.hostParticipantId)
-		) {
+		if (room.session.hostId != null && !roster.includes(room.session.hostId)) {
 			log('warn', 'room', 'roster.missing-host', {
-				hostId: participantIdToString(room.hostParticipantId),
+				hostId: room.session.hostId,
 			})
 			lifecycle.markRoomClosed()
 			return
 		}
 
-		room.replaceParticipants(roster)
+		room.participants.replace(roster)
 		room.mesh.startMissingOffers()
 	}
 
 	let relayRequest: Promise<void> | null = null
 
 	const closeGuestBeaconCandidates = () => {
-		for (const link of [...room.links.values()]) {
-			if (!isBeaconCandidate(link, 'guest-rendezvous')) continue
+		for (const link of [...room.links.records.values()]) {
+			if (!isBeaconCandidate(link, 'guest')) continue
 
-			room.closeLink(link)
+			room.links.close(link)
 		}
 	}
 
 	const findingInviteLinkSecret = () => {
-		return guestFindingLinkConnection(room.state.connection) == null
+		return guestFindingLinkEntry(room.ui.state.entry) == null
 			? null
-			: room.roomSecret
+			: room.session.inviteSecret
 	}
 
 	const stillFindingInviteLink = (secret: RoomSecret, version: number) => {
 		return (
-			room.isCurrentSignalingVersion(version) &&
-			room.roomSecret === secret &&
-			guestFindingLinkConnection(room.state.connection) != null
+			room.session.isCurrentSignalingGeneration(version) &&
+			room.session.inviteSecret === secret &&
+			guestFindingLinkEntry(room.ui.state.entry) != null
 		)
 	}
 
 	const removeGuestRosterParticipant = (participantId: ParticipantId) => {
 		// Roster leaves are host-approved; close any direct link we had.
-		if (participantId === room.hostParticipantId) {
+		if (participantId === room.session.hostId) {
 			lifecycle.markRoomClosed()
 			return
 		}
 
-		room.fileTransfers.abortIncomingFrom(participantId)
-		room.removeParticipant(participantId)
+		room.files.abortIncomingFrom(participantId)
+		room.participants.remove(participantId)
 	}
 
 	const handleGuestMessage = (link: RoomLink, message: Packet) => {
 		// Before welcome, the rendezvous link itself is the best sender hint.
-		const senderId = room.hostParticipantId ?? link.remoteId
-		if (senderId != null && room.handleCommonMessage(senderId, message)) return
+		const senderId =
+			room.session.hostId ??
+			(isParticipantLink(link) ? link.purpose.participantId : null)
+		if (senderId != null && room.packets.handleCommon(senderId, message)) return
 
 		switch (message.type) {
 			case 'welcome':
 				// Welcome is the handoff from paste-code UX into actual room membership.
-				room.localParticipantId = message.selfId
-				room.hostParticipantId = message.hostId
-				room.stopBeaconRendezvous()
-				room.setState('themeSeed', participantIdToString(message.hostId))
-				room.setLocalKey(participantKey(message.selfId))
-				room.replaceParticipants(message.roster)
+				room.session.selfId = message.selfId
+				room.session.hostId = message.hostId
+				room.session.stopBeacon()
+				room.ui.setState('themeSeed', message.hostId)
+				room.participants.replace(message.roster)
 				room.blips.applyPending()
-				if (!beacon.promoteRendezvousLink(link, message.hostId)) {
+				if (!beacon.promoteAdmissionLink(link, message.hostId)) {
 					log('error', 'room', 'guest.welcome.adopt-link.failed', {
-						hostId: participantIdToString(message.hostId),
+						hostId: message.hostId,
 						link,
 					})
 					lifecycle.markRoomClosed()
 					return
 				}
-				room.setState('connection', {
-					...(room.state.connection.side === 'guest'
-						? room.state.connection
-						: emptyGuestConnection()),
+				room.ui.setState('entry', {
+					...(room.ui.state.entry.side === 'guest'
+						? room.ui.state.entry
+						: emptyGuestJoin()),
 					issue: null,
 					status: 'connected',
 				})
 				room.blips.publishLocal()
-				room.publishLocalMediaState()
+				room.packets.publishLocalMediaState()
 				room.mesh.startMissingOffers()
 				break
 			case 'roster':
 				applyRoster(message.roster)
 				break
-			case 'peer-offer':
-				void room.mesh.acceptOffer(message)
-				break
-			case 'peer-answer':
-				void room.mesh.acceptAnswer(message)
+			case 'peer-signal':
+				void room.mesh.acceptSignal(message)
 				break
 			case 'peer-left':
 				removeGuestRosterParticipant(message.id)
@@ -147,15 +135,15 @@ export const createGuestFlow = (
 
 	const joinRoomWithInviteLink = (secret: RoomSecret) => {
 		// Opening an invite link makes the guest wait for the host, no reply code needed.
-		const version = room.nextSignalingVersion()
+		const version = room.session.nextSignalingGeneration()
 		lifecycle.resetBeforeJoining({ keepPendingBlip: true })
-		room.roomSecret = secret
-		room.setState('connection', {
-			...emptyGuestConnection(),
+		room.session.inviteSecret = secret
+		room.ui.setState('entry', {
+			...emptyGuestJoin(),
 			inviteText: inviteLinkFromSecret(secret),
 			status: 'finding-link',
 		})
-		void beacon.startBeaconRendezvous(secret, 'guest', version)
+		void beacon.startBeaconClient(secret, 'guest', version)
 	}
 
 	const tryRelay = () => {
@@ -164,39 +152,39 @@ export const createGuestFlow = (
 		relayRequest = (async () => {
 			const secret = findingInviteLinkSecret()
 			if (secret == null) return
-			const startingVersion = room.signalingVersion
+			const startingVersion = room.session.signalingGeneration
 
 			try {
 				const iceServers = await requestRelayIceServers()
 				if (!stillFindingInviteLink(secret, startingVersion)) return
 
-				const version = room.nextSignalingVersion()
+				const version = room.session.nextSignalingGeneration()
 				closeGuestBeaconCandidates()
 				room.relay.start(iceServers, () =>
 					lifecycle.markRoomClosed({ keepRelayMetering: true }),
 				)
-				const connection = guestFindingLinkConnection(room.state.connection)
-				if (connection == null) return
+				const entry = guestFindingLinkEntry(room.ui.state.entry)
+				if (entry == null) return
 
-				room.setState('connection', {
-					...connection,
+				room.ui.setState('entry', {
+					...entry,
 					issue: null,
 					relayFallbackSecondsLeft: null,
 				})
-				void beacon.startBeaconRendezvous(secret, 'guest', version)
+				void beacon.startBeaconClient(secret, 'guest', version)
 			} catch (error) {
 				log('warn', 'room', 'relay.start.failed', { error })
 				if (!stillFindingInviteLink(secret, startingVersion)) return
 
-				const connection = guestFindingLinkConnection(room.state.connection)
-				if (connection == null) return
+				const entry = guestFindingLinkEntry(room.ui.state.entry)
+				if (entry == null) return
 
-				room.setState('connection', {
-					...connection,
+				room.ui.setState('entry', {
+					...entry,
 					issue:
 						error instanceof RelayQuotaExceededError
-							? statusCopy.relayQuotaExceeded
-							: statusCopy.relayUnavailable,
+							? 'relay-quota-exceeded'
+							: 'relay-unavailable',
 					relayFallbackSecondsLeft: null,
 				})
 			}
@@ -209,19 +197,19 @@ export const createGuestFlow = (
 
 	const canClaimFindingInviteLink = () => {
 		// Claiming is safe only after presence confirms the secret has no host.
-		const connection = guestFindingLinkConnection(room.state.connection)
+		const entry = guestFindingLinkEntry(room.ui.state.entry)
 		return (
-			room.roomSecret != null &&
-			connection != null &&
-			connection.issue == null &&
-			connection.inviteLinkPresence?.hosts === 0
+			room.session.inviteSecret != null &&
+			entry != null &&
+			entry.issue == null &&
+			entry.inviteLinkPresence?.hosts === 0
 		)
 	}
 
 	const claimInviteLinkAsHost = () => {
 		if (!canClaimFindingInviteLink()) return
 
-		const secret = room.roomSecret
+		const secret = room.session.inviteSecret
 		if (secret == null) return
 
 		void host.startInviteAsHost({
@@ -233,10 +221,10 @@ export const createGuestFlow = (
 
 	const becomeGuest = () => {
 		// Switching sides abandons host identity and any old invites.
-		room.nextSignalingVersion()
+		room.session.nextSignalingGeneration()
 		lifecycle.resetBeforeJoining()
-		room.setState('connection', emptyGuestConnection())
-		room.setState('blipComposer', emptyBlipComposer())
+		room.ui.setState('entry', emptyGuestJoin())
+		room.ui.setState('blipComposer', emptyBlipComposer())
 	}
 
 	const watchReplyAdmission = (link: RoomLink, version: number) => {
@@ -244,22 +232,22 @@ export const createGuestFlow = (
 			delayMs: MANUAL_ADMISSION_TIMEOUT_MS,
 			link,
 			linkStillCurrent: (candidate) =>
-				room.links.get(candidate.id) === candidate,
+				room.links.records.get(candidate.id) === candidate,
 			stillWaiting: () =>
-				room.state.connection.side === 'guest' &&
-				room.state.connection.status === 'reply-ready',
+				room.ui.state.entry.side === 'guest' &&
+				room.ui.state.entry.status === 'reply-ready',
 			version,
-			versionStillCurrent: room.isCurrentSignalingVersion,
+			versionStillCurrent: room.session.isCurrentSignalingGeneration,
 			onTimeout: () => {
 				log('warn', 'room', 'manual.admission.waiting', {
 					link,
 					nextStep: 'resend-reply-or-fresh-invite',
 				})
-				if (room.state.connection.side !== 'guest') return
+				if (room.ui.state.entry.side !== 'guest') return
 
-				room.setState('connection', {
-					...room.state.connection,
-					issue: statusCopy.replyStillWaiting,
+				room.ui.setState('entry', {
+					...room.ui.state.entry,
+					issue: 'reply-still-waiting',
 				})
 			},
 		})
@@ -269,8 +257,8 @@ export const createGuestFlow = (
 		// Guest paste decides the path: invite link or manual answer code.
 		const inviteInput = (
 			inviteText ??
-			(room.state.connection.side === 'guest'
-				? room.state.connection.inviteText
+			(room.ui.state.entry.side === 'guest'
+				? room.ui.state.entry.inviteText
 				: '')
 		).trim()
 		const invite = inviteFromInput(inviteInput)
@@ -280,35 +268,39 @@ export const createGuestFlow = (
 			return
 		}
 
-		const version = room.nextSignalingVersion()
+		const version = room.session.nextSignalingGeneration()
 		let nextLink: RoomLink | null = null
 
 		try {
 			lifecycle.resetBeforeJoining({ keepPendingBlip: true })
-			room.setState('connection', {
-				...emptyGuestConnection(),
+			room.ui.setState('entry', {
+				...emptyGuestJoin(),
 				inviteText: inviteInput,
 				status: 'creating-reply',
 			})
 
-			nextLink = room.createLink('guest-rendezvous', { source: 'manual' })
+			nextLink = room.links.create({
+				kind: 'admission',
+				side: 'guest',
+				via: 'manual',
+			})
 			// Manual reply turns the host's offer into an answer they can paste back.
 			const offer = await decodeSignal(invite.code)
 			if (offer.type !== 'offer') {
 				throw new Error('Invite code did not contain an offer')
 			}
-			const answer = await nextLink.peer.createAnswer(offer)
+			const answer = await nextLink.rtc.createAnswer(offer)
 			const replyCode = await encodeSignal(answer)
 			if (
-				!room.isCurrentSignalingVersion(version) ||
-				room.currentRendezvousLink('guest-rendezvous', 'manual') !== nextLink
+				!room.session.isCurrentSignalingGeneration(version) ||
+				room.links.pending({ side: 'guest', via: 'manual' }) !== nextLink
 			) {
-				room.closeLink(nextLink)
+				room.links.close(nextLink)
 				return
 			}
 
-			room.setState('connection', {
-				...emptyGuestConnection(),
+			room.ui.setState('entry', {
+				...emptyGuestJoin(),
 				inviteText: inviteInput,
 				replyCode,
 				status: 'reply-ready',
@@ -316,13 +308,13 @@ export const createGuestFlow = (
 			watchReplyAdmission(nextLink, version)
 		} catch (error) {
 			log('warn', 'room', 'reply.create.failed', { error })
-			if (nextLink != null) room.closeLink(nextLink)
-			if (!room.isCurrentSignalingVersion(version)) return
-			room.closeAllLinks()
-			room.setState('connection', {
-				...emptyGuestConnection(),
+			if (nextLink != null) room.links.close(nextLink)
+			if (!room.session.isCurrentSignalingGeneration(version)) return
+			room.links.closeAll()
+			room.ui.setState('entry', {
+				...emptyGuestJoin(),
 				inviteText: inviteInput,
-				issue: statusCopy.inviteFailed,
+				issue: 'invite-invalid',
 			})
 		}
 	}

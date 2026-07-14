@@ -1,60 +1,52 @@
-import {
-	type AnswerDescription,
-	isAnswerDescription,
-	isOfferDescription,
-	type OfferDescription,
-} from './signal'
+import { isSignalDescription, type SignalDescription } from './signal'
 
 /** Side a rendezvous socket serves before WebRTC admission. */
 export type BeaconRole = 'guest' | 'host'
+
+/** Public socket identity scoped to one discovery room. */
+export type BeaconPeerId = string & {
+	readonly BeaconPeerId: unique symbol
+}
+
+/** Correlation id shared by both halves of one SDP exchange. */
+export type ExchangeId = string & {
+	readonly ExchangeId: unique symbol
+}
 
 /** Room presence summary with no room identity or content. */
 export type BeaconPresence = {
 	guests: number
 	hosts: number
-	peers: number
+}
+
+/** Beacon peer projected only where join or leave identity matters. */
+export type BeaconPeer = {
+	id: BeaconPeerId
+	role: BeaconRole
 }
 
 export type ClientBeaconMessage =
-	| { beaconPeerId: string; role: BeaconRole; type: 'join' }
+	| { id: BeaconPeerId; role: BeaconRole; type: 'join' }
 	| {
-			beaconPeerId: string | null
-			offer: OfferDescription
-			offerId: string
-			type: 'offer'
+			exchangeId: ExchangeId
+			signal: SignalDescription
+			to: BeaconPeerId | null
+			type: 'signal'
 	  }
-	| {
-			answer: AnswerDescription
-			beaconPeerId: string
-			offerId: string
-			type: 'answer'
-	  }
-
-type PresenceFields = BeaconPresence & {
-	type: 'presence'
-	leftPeerId: string | null
-	leftRole: BeaconRole | null
-}
 
 export type ServerBeaconMessage =
-	| (BeaconPresence & { beaconPeerId: string; type: 'ready' })
-	| (BeaconPresence & {
-			beaconPeerId: string
-			role: BeaconRole
-			type: 'peer-joined'
-	  })
-	| PresenceFields
+	| { presence: BeaconPresence; selfId: BeaconPeerId; type: 'ready' }
+	| { peer: BeaconPeer; presence: BeaconPresence; type: 'peer-joined' }
 	| {
-			beaconPeerId: string
-			offer: OfferDescription
-			offerId: string
-			type: 'offer'
+			left: BeaconPeer | null
+			presence: BeaconPresence
+			type: 'presence'
 	  }
 	| {
-			answer: AnswerDescription
-			beaconPeerId: string
-			offerId: string
-			type: 'answer'
+			exchangeId: ExchangeId
+			from: BeaconPeerId
+			signal: SignalDescription
+			type: 'signal'
 	  }
 	| { reason: string; type: 'error' }
 
@@ -62,27 +54,29 @@ export type ClientBeaconJoinMessage = Extract<
 	ClientBeaconMessage,
 	{ type: 'join' }
 >
-export type ClientBeaconOfferMessage = Extract<
+export type ClientBeaconSignalMessage = Extract<
 	ClientBeaconMessage,
-	{ type: 'offer' }
+	{ type: 'signal' }
 >
-export type ClientBeaconAnswerMessage = Extract<
-	ClientBeaconMessage,
-	{ type: 'answer' }
->
-export type ServerBeaconOfferMessage = Extract<
+export type ServerBeaconSignalMessage = Extract<
 	ServerBeaconMessage,
-	{ type: 'offer' }
->
-export type ServerBeaconAnswerMessage = Extract<
-	ServerBeaconMessage,
-	{ type: 'answer' }
+	{ type: 'signal' }
 >
 
 const BEACON_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
 
 export const isBeaconId = (value: unknown): value is string => {
 	return typeof value === 'string' && BEACON_ID_PATTERN.test(value)
+}
+
+/** Validate a socket peer id crossing the beacon contract. */
+export const parseBeaconPeerId = (value: unknown): BeaconPeerId | null => {
+	return isBeaconId(value) ? (value as BeaconPeerId) : null
+}
+
+/** Validate an SDP exchange id crossing the beacon contract. */
+export const parseExchangeId = (value: unknown): ExchangeId | null => {
+	return isBeaconId(value) ? (value as ExchangeId) : null
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -99,13 +93,20 @@ const count = (value: unknown) => {
 		: null
 }
 
-const presence = (message: Record<string, unknown>): BeaconPresence | null => {
-	const guests = count(message.guests)
-	const hosts = count(message.hosts)
-	const peers = count(message.peers)
-	return guests == null || hosts == null || peers == null
-		? null
-		: { guests, hosts, peers }
+const presence = (value: unknown): BeaconPresence | null => {
+	if (!isRecord(value)) return null
+
+	const guests = count(value.guests)
+	const hosts = count(value.hosts)
+	return guests == null || hosts == null ? null : { guests, hosts }
+}
+
+const peer = (value: unknown): BeaconPeer | null => {
+	if (!isRecord(value)) return null
+
+	const id = parseBeaconPeerId(value.id)
+	const peerRole = role(value.role)
+	return id == null || peerRole == null ? null : { id, role: peerRole }
 }
 
 /** Client message accepted by the rendezvous Worker. */
@@ -113,42 +114,24 @@ export const decodeClientBeaconMessage = (
 	value: unknown,
 ): ClientBeaconMessage | null => {
 	if (!isRecord(value)) return null
-	const message = value
 
-	switch (message.type) {
+	switch (value.type) {
 		case 'join': {
-			const messageRole = role(message.role)
-			return !isBeaconId(message.beaconPeerId) || messageRole == null
+			const id = parseBeaconPeerId(value.id)
+			const messageRole = role(value.role)
+			return id == null || messageRole == null
 				? null
-				: {
-						beaconPeerId: message.beaconPeerId,
-						role: messageRole,
-						type: 'join',
-					}
+				: { id, role: messageRole, type: 'join' }
 		}
-		case 'offer':
-			return (message.beaconPeerId !== null &&
-				!isBeaconId(message.beaconPeerId)) ||
-				!isBeaconId(message.offerId) ||
-				!isOfferDescription(message.offer)
+		case 'signal': {
+			const exchangeId = parseExchangeId(value.exchangeId)
+			const to = value.to === null ? null : parseBeaconPeerId(value.to)
+			return exchangeId == null ||
+				(value.to !== null && to == null) ||
+				!isSignalDescription(value.signal)
 				? null
-				: {
-						beaconPeerId: message.beaconPeerId,
-						offer: message.offer,
-						offerId: message.offerId,
-						type: 'offer',
-					}
-		case 'answer':
-			return !isBeaconId(message.beaconPeerId) ||
-				!isBeaconId(message.offerId) ||
-				!isAnswerDescription(message.answer)
-				? null
-				: {
-						answer: message.answer,
-						beaconPeerId: message.beaconPeerId,
-						offerId: message.offerId,
-						type: 'answer',
-					}
+				: { exchangeId, signal: value.signal, to, type: 'signal' }
+		}
 		default:
 			return null
 	}
@@ -159,77 +142,45 @@ export const decodeServerBeaconMessage = (
 	value: unknown,
 ): ServerBeaconMessage | null => {
 	if (!isRecord(value)) return null
-	const message = value
 
-	switch (message.type) {
+	switch (value.type) {
 		case 'ready': {
-			const messagePresence = presence(message)
-			return !isBeaconId(message.beaconPeerId) || messagePresence == null
+			const selfId = parseBeaconPeerId(value.selfId)
+			const messagePresence = presence(value.presence)
+			return selfId == null || messagePresence == null
 				? null
-				: {
-						beaconPeerId: message.beaconPeerId,
-						...messagePresence,
-						type: 'ready',
-					}
+				: { presence: messagePresence, selfId, type: 'ready' }
 		}
 		case 'peer-joined': {
-			const messagePresence = presence(message)
-			const messageRole = role(message.role)
-			return !isBeaconId(message.beaconPeerId) ||
-				messagePresence == null ||
-				messageRole == null
+			const messagePeer = peer(value.peer)
+			const messagePresence = presence(value.presence)
+			return messagePeer == null || messagePresence == null
 				? null
 				: {
-						beaconPeerId: message.beaconPeerId,
-						...messagePresence,
-						role: messageRole,
+						peer: messagePeer,
+						presence: messagePresence,
 						type: 'peer-joined',
 					}
 		}
 		case 'presence': {
-			const messagePresence = presence(message)
-			if (
-				messagePresence == null ||
-				(message.leftPeerId !== null && !isBeaconId(message.leftPeerId))
-			) {
-				return null
-			}
-
-			const leftRole = message.leftRole === null ? null : role(message.leftRole)
-			if (leftRole == null && message.leftRole !== null) return null
-
-			return {
-				...messagePresence,
-				leftPeerId: message.leftPeerId,
-				leftRole,
-				type: 'presence',
-			}
+			const messagePresence = presence(value.presence)
+			const left = value.left === null ? null : peer(value.left)
+			return messagePresence == null || (value.left !== null && left == null)
+				? null
+				: { left, presence: messagePresence, type: 'presence' }
 		}
-		case 'offer':
-			return !isBeaconId(message.beaconPeerId) ||
-				!isBeaconId(message.offerId) ||
-				!isOfferDescription(message.offer)
+		case 'signal': {
+			const exchangeId = parseExchangeId(value.exchangeId)
+			const from = parseBeaconPeerId(value.from)
+			return exchangeId == null ||
+				from == null ||
+				!isSignalDescription(value.signal)
 				? null
-				: {
-						beaconPeerId: message.beaconPeerId,
-						offer: message.offer,
-						offerId: message.offerId,
-						type: 'offer',
-					}
-		case 'answer':
-			return !isBeaconId(message.beaconPeerId) ||
-				!isBeaconId(message.offerId) ||
-				!isAnswerDescription(message.answer)
-				? null
-				: {
-						answer: message.answer,
-						beaconPeerId: message.beaconPeerId,
-						offerId: message.offerId,
-						type: 'answer',
-					}
+				: { exchangeId, from, signal: value.signal, type: 'signal' }
+		}
 		case 'error':
-			return typeof message.reason === 'string'
-				? { reason: message.reason, type: 'error' }
+			return typeof value.reason === 'string'
+				? { reason: value.reason, type: 'error' }
 				: null
 		default:
 			return null

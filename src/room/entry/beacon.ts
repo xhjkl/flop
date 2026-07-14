@@ -1,51 +1,53 @@
-import { log } from '../log'
-import { type ParticipantId, participantIdToString } from '../protocol'
+import type { BeaconPeerId, ExchangeId } from '../../../contracts/beacon'
+import type {
+	AnswerDescription,
+	OfferDescription,
+} from '../../../contracts/signal'
+import { log } from '../../log'
+import type { ParticipantId } from '../../protocol'
 import {
 	type BeaconPresence,
 	type BeaconStatus,
-	createBeaconRendezvous,
-} from '../rendezvous/beacon'
-import { deriveRoomKeys } from '../rendezvous/crypto'
-import type { RoomSecret } from '../rendezvous/secret'
-import type { AnswerDescription, OfferDescription } from '../signal'
-import { guestFindingLinkConnection } from '../state'
+	createBeaconClient,
+} from '../../rendezvous/beacon'
+import { deriveRoomKeys } from '../../rendezvous/crypto'
+import type { RoomSecret } from '../../rendezvous/secret'
 import {
+	type AdmissionSide,
+	isBeaconAdmissionLink,
 	isBeaconCandidate,
-	isBeaconLink,
 	isVerifiedLink,
-	type LinkRole,
 	type RoomLink,
-} from './link'
-import { createRelayFallbackTimer } from './relay'
-import type { RoomRuntime } from './runtime'
-import { statusCopy } from './status-copy'
+} from '../link'
+import { createRelayFallbackTimer } from '../relay'
+import type { RoomSession } from '../session'
+import { guestFindingLinkEntry } from './state'
 
 const BEACON_CANDIDATE_LIMIT = 12
 const BEACON_CANDIDATE_TTL_MS = 45_000
 
 /** Invite-link discovery and secret proof candidates. */
 export type BeaconFlow = {
-	promoteRendezvousLink: (
+	promoteAdmissionLink: (
 		link: RoomLink,
 		participantId: ParticipantId,
 	) => boolean
-	startBeaconRendezvous: (
+	startBeaconClient: (
 		secret: RoomSecret,
 		role: 'guest' | 'host',
 		version: number,
 	) => Promise<void>
 }
 
-export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
-	const findingLinkConnection = () =>
-		guestFindingLinkConnection(room.state.connection)
+export const createBeaconFlow = (room: RoomSession): BeaconFlow => {
+	const findingLinkEntry = () => guestFindingLinkEntry(room.ui.state.entry)
 
 	const setGuestRelayFallbackSeconds = (seconds: number | null) => {
-		const connection = findingLinkConnection()
-		if (connection == null) return
+		const entry = findingLinkEntry()
+		if (entry == null) return
 
-		room.setState('connection', {
-			...connection,
+		room.ui.setState('entry', {
+			...entry,
 			relayFallbackSecondsLeft: seconds,
 		})
 	}
@@ -53,37 +55,37 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 	const relayFallback = createRelayFallbackTimer({
 		active: room.relay.active,
 		currentSecondsLeft: () =>
-			findingLinkConnection()?.relayFallbackSecondsLeft ?? null,
-		finding: () => findingLinkConnection() != null,
+			findingLinkEntry()?.relayFallbackSecondsLeft ?? null,
+		finding: () => findingLinkEntry() != null,
 		setSecondsLeft: setGuestRelayFallbackSeconds,
 	})
 
-	const beaconCandidates = (role: LinkRole) => {
+	const beaconCandidates = (side: AdmissionSide) => {
 		// Candidate order is insertion order; oldest loses when the budget is full.
-		return [...room.links.values()].filter((link) =>
-			isBeaconCandidate(link, role),
+		return [...room.links.records.values()].filter((link) =>
+			isBeaconCandidate(link, side),
 		)
 	}
 
-	const candidateBudgetAllows = (role: LinkRole) => {
-		return beaconCandidates(role).length < BEACON_CANDIDATE_LIMIT
+	const candidateBudgetAllows = (side: AdmissionSide) => {
+		return beaconCandidates(side).length < BEACON_CANDIDATE_LIMIT
 	}
 
 	const expireBeaconCandidate = (link: RoomLink, reason: string) => {
 		// Dead candidates should disappear quietly from the portrait projection.
-		if (room.links.get(link.id) !== link) return
+		if (room.links.records.get(link.id) !== link) return
 		if (!isBeaconCandidate(link)) return
 
 		log('info', 'room', 'beacon.candidate.expired', {
 			link,
 			reason,
 		})
-		room.closeLink(link)
+		room.links.close(link)
 	}
 
-	const pruneBeaconCandidateBudget = (role: LinkRole) => {
-		while (!candidateBudgetAllows(role)) {
-			const oldest = beaconCandidates(role)[0]
+	const pruneBeaconCandidateBudget = (side: AdmissionSide) => {
+		while (!candidateBudgetAllows(side)) {
+			const oldest = beaconCandidates(side)[0]
 			if (oldest == null) return
 
 			expireBeaconCandidate(oldest, 'budget')
@@ -91,21 +93,29 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 	}
 
 	const createBeaconCandidate = (
-		role: LinkRole,
-		options: { beaconPeerId?: string | null; offerId?: string | null } = {},
+		side: AdmissionSide,
+		options: {
+			peerId?: BeaconPeerId | null
+			exchangeId?: ExchangeId | null
+		} = {},
 	) => {
 		// Beacon offers are speculative. Keep only a small bench of hopeful links.
-		pruneBeaconCandidateBudget(role)
-		if (!candidateBudgetAllows(role)) {
-			log('warn', 'room', 'beacon.candidate.budget-full', { role })
+		pruneBeaconCandidateBudget(side)
+		if (!candidateBudgetAllows(side)) {
+			log('warn', 'room', 'beacon.candidate.budget-full', { side })
 			return null
 		}
 
-		const link = room.createLink(role, {
-			beaconPeerId: options.beaconPeerId ?? null,
-			source: 'beacon',
+		const link = room.links.create({
+			auth: 'pending',
+			kind: 'admission',
+			peerId: options.peerId ?? null,
+			side,
+			via: 'beacon',
 		})
-		if (options.offerId != null) room.beaconOffers.set(options.offerId, link)
+		if (options.exchangeId != null) {
+			room.links.exchanges.set(options.exchangeId, link)
+		}
 
 		setTimeout(() => {
 			expireBeaconCandidate(link, 'timeout')
@@ -113,37 +123,37 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 		return link
 	}
 
-	const promoteRendezvousLink = (
+	const promoteAdmissionLink = (
 		link: RoomLink,
 		participantId: ParticipantId,
 	) => {
 		// Beacon discovery earns a room seat only after auth proves the secret.
-		if (isBeaconLink(link) && !isVerifiedLink(link)) {
+		if (isBeaconAdmissionLink(link) && !isVerifiedLink(link)) {
 			log('warn', 'room', 'beacon.candidate.promote.before-auth', {
 				link,
-				participantId: participantIdToString(participantId),
+				participantId,
 			})
-			room.closeLink(link)
+			room.links.close(link)
 			return false
 		}
 
-		if (!room.adoptLink(link, participantId)) return false
-
-		room.closeSiblingRendezvousLinks(link)
+		// Admission purpose carries the path needed to retire sibling candidates.
+		room.links.closeSiblingAdmissions(link)
+		if (!room.links.adopt(link, participantId)) return false
 		return true
 	}
 
 	const verifiedBeaconLinkByPeer = (
-		role: LinkRole,
-		beaconPeerId: string,
+		side: AdmissionSide,
+		peerId: BeaconPeerId,
 		except: RoomLink | null = null,
 	) => {
 		// One verified beacon link per beacon peer is enough.
-		for (const link of room.links.values()) {
+		for (const link of room.links.records.values()) {
 			if (link === except) continue
-			if (link.role !== role) continue
-			if (!isBeaconLink(link)) continue
-			if (link.beaconPeerId !== beaconPeerId) continue
+			if (!isBeaconAdmissionLink(link)) continue
+			if (link.purpose.side !== side) continue
+			if (link.purpose.peerId !== peerId) continue
 			if (isVerifiedLink(link)) return link
 		}
 
@@ -152,10 +162,10 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 
 	const setHostAutoStatus = (status: BeaconStatus) => {
 		// Beacon status is only visible on the host invite link pane.
-		if (room.state.connection.side !== 'host') return
+		if (room.ui.state.entry.side !== 'host') return
 
-		room.setState('connection', {
-			...room.state.connection,
+		room.ui.setState('entry', {
+			...room.ui.state.entry,
 			inviteLinkStatus: status,
 		})
 	}
@@ -175,14 +185,14 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 
 	const setGuestInviteLinkPresence = (presence: BeaconPresence) => {
 		// Presence turns "waiting" into either connecting or claimable.
-		const connection = findingLinkConnection()
-		if (connection == null) {
+		const entry = findingLinkEntry()
+		if (entry == null) {
 			relayFallback.stop()
 			return
 		}
 
-		room.setState('connection', {
-			...connection,
+		room.ui.setState('entry', {
+			...entry,
 			issue: null,
 			inviteLinkPresence: presence,
 		})
@@ -195,32 +205,35 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 
 	const usesGuestRendezvous = () => {
 		// Invite-link guests start identity-less, then become normal guests on welcome.
-		return room.localParticipantId == null || room.isSelfGuest()
+		return room.session.selfId == null || room.session.isGuest()
 	}
 
-	const beaconRendezvousRole = (): LinkRole | null => {
+	const beaconAdmissionSide = (): AdmissionSide | null => {
 		// The beacon path mirrors the manual host/guest doorway.
-		if (room.isSelfHost()) return 'host-rendezvous'
-		if (usesGuestRendezvous()) return 'guest-rendezvous'
+		if (room.session.isHost()) return 'host'
+		if (usesGuestRendezvous()) return 'guest'
 
 		return null
 	}
 
 	const createBeaconOffer = async (
-		offerId: string,
-		beaconPeerId: string | null,
+		exchangeId: ExchangeId,
+		to: BeaconPeerId | null,
 	) => {
 		// Beacon offers are speculative; they may never become room members.
-		const role = beaconRendezvousRole()
-		if (role == null) return null
+		const side = beaconAdmissionSide()
+		if (side == null) return null
 
-		const link = createBeaconCandidate(role, { beaconPeerId, offerId })
+		const link = createBeaconCandidate(side, {
+			peerId: to,
+			exchangeId,
+		})
 		if (link == null) return null
 
 		try {
-			const offer = await link.peer.createOffer()
-			if (room.beaconOffers.get(offerId) !== link) {
-				room.closeLink(link)
+			const offer = await link.rtc.createOffer()
+			if (room.links.exchanges.get(exchangeId) !== link) {
+				room.links.close(link)
 				return null
 			}
 
@@ -229,42 +242,43 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 			log('warn', 'room', 'beacon.offer.create.failed', {
 				error,
 				link,
-				offerId,
+				exchangeId,
 			})
-			room.closeLink(link)
+			room.links.close(link)
 			return null
 		}
 	}
 
 	const acceptBeaconAnswer = (
-		offerId: string,
-		beaconPeerId: string,
+		exchangeId: ExchangeId,
+		from: BeaconPeerId,
 		answer: AnswerDescription,
 	) => {
 		// An answer names the beacon peer that responded to our speculative offer.
-		const link = room.beaconOffers.get(offerId)
+		const link = room.links.exchanges.get(exchangeId)
 		if (link == null) {
-			log('warn', 'room', 'beacon.answer.missing-offer', { offerId })
+			log('warn', 'room', 'beacon.answer.missing-offer', { exchangeId })
 			return
 		}
 
-		const existing = verifiedBeaconLinkByPeer(link.role, beaconPeerId, link)
+		if (!isBeaconAdmissionLink(link)) return
+		const existing = verifiedBeaconLinkByPeer(link.purpose.side, from, link)
 		if (existing != null) {
 			log('info', 'room', 'beacon.answer.ignored.verified-peer', {
 				existing,
 				link,
 			})
-			room.closeLink(link)
+			room.links.close(link)
 			return
 		}
 
-		link.beaconPeerId = beaconPeerId
-		room.notifyLinksChanged()
+		link.purpose.peerId = from
+		room.links.notifyChanged()
 		log('info', 'room', 'beacon.answer.accept.start', { link })
-		void link.peer
+		void link.rtc
 			.acceptAnswer(answer)
 			.then(() => {
-				if (room.links.get(link.id) !== link) return
+				if (room.links.records.get(link.id) !== link) return
 
 				log('info', 'room', 'beacon.answer.accept.done', { link })
 			})
@@ -272,42 +286,42 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 				log('warn', 'room', 'beacon.answer.accept.failed', {
 					error,
 					link,
-					offerId,
+					exchangeId,
 				})
-				room.closeLink(link)
+				room.links.close(link)
 			})
 	}
 
 	const answerBeaconOffer = (
 		offer: OfferDescription,
-		beaconPeerId: string,
+		from: BeaconPeerId,
 		reply: (answer: AnswerDescription) => void,
 	) => {
 		// A beacon offer is worth answering only while we know this room secret.
-		const role = beaconRendezvousRole()
-		if (room.roomKeys == null || role == null) {
+		const side = beaconAdmissionSide()
+		if (room.session.keys == null || side == null) {
 			log('warn', 'room', 'beacon.offer.unexpected', {
-				hasRoomKeys: room.roomKeys != null,
-				role,
+				hasRoomKeys: room.session.keys != null,
+				side,
 			})
 			return
 		}
-		const existing = verifiedBeaconLinkByPeer(role, beaconPeerId)
+		const existing = verifiedBeaconLinkByPeer(side, from)
 		if (existing != null) {
 			log('info', 'room', 'beacon.offer.ignored.verified-peer', {
 				existing,
-				role,
+				side,
 			})
 			return
 		}
 
-		const link = createBeaconCandidate(role, { beaconPeerId })
+		const link = createBeaconCandidate(side, { peerId: from })
 		if (link == null) return
 
-		void link.peer
+		void link.rtc
 			.createAnswer(offer)
 			.then((answer) => {
-				if (room.links.get(link.id) !== link) return
+				if (room.links.records.get(link.id) !== link) return
 
 				log('info', 'room', 'beacon.offer.answer.sent', { link })
 				reply(answer)
@@ -317,11 +331,11 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 					error,
 					link,
 				})
-				room.closeLink(link)
+				room.links.close(link)
 			})
 	}
 
-	const startBeaconRendezvous = async (
+	const startBeaconClient = async (
 		secret: RoomSecret,
 		role: 'guest' | 'host',
 		version: number,
@@ -330,20 +344,21 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 		relayFallback.stop()
 		const attemptCurrent = () => {
 			return (
-				room.isCurrentSignalingVersion(version) && room.roomSecret === secret
+				room.session.isCurrentSignalingGeneration(version) &&
+				room.session.inviteSecret === secret
 			)
 		}
 		try {
 			const keys = await deriveRoomKeys(secret)
 			if (!attemptCurrent()) return
 
-			room.roomKeys = keys
-			room.beaconRendezvous?.close()
+			room.session.keys = keys
+			room.session.beaconClient?.close()
 			if (role === 'host') {
-				for (const link of new Set(room.beaconOffers.values())) {
-					room.closeLink(link)
+				for (const link of new Set(room.links.exchanges.values())) {
+					room.links.close(link)
 				}
-				room.beaconOffers.clear()
+				room.links.exchanges.clear()
 			}
 
 			const onPresence = (presence: BeaconPresence) => {
@@ -368,14 +383,14 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 							role,
 						})
 					}
-				} else if (status === 'failed' && findingLinkConnection() != null) {
+				} else if (status === 'failed' && findingLinkEntry() != null) {
 					log('warn', 'room', 'invite.link.unreachable', {
 						nextStep: 'ask-for-code-or-wait',
 						role,
 					})
-					room.setState('connection', {
-						...room.state.connection,
-						issue: statusCopy.inviteLinkUnreachable,
+					room.ui.setState('entry', {
+						...room.ui.state.entry,
+						issue: 'discovery-unreachable',
 					})
 				}
 			}
@@ -384,15 +399,15 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 				onPresence,
 				onStatus,
 			}
-			room.beaconRendezvous =
+			room.session.beaconClient =
 				role === 'host'
-					? createBeaconRendezvous({
+					? createBeaconClient({
 							...commonOptions,
 							createOffer: createBeaconOffer,
 							onAnswer: acceptBeaconAnswer,
 							role,
 						})
-					: createBeaconRendezvous({
+					: createBeaconClient({
 							...commonOptions,
 							onOffer: answerBeaconOffer,
 							role,
@@ -406,14 +421,14 @@ export const createBeaconFlow = (room: RoomRuntime): BeaconFlow => {
 				role,
 			})
 			if (role === 'host') setHostAutoStatus('failed')
-			else if (room.state.connection.side === 'guest') {
-				room.setState('connection', {
-					...room.state.connection,
-					issue: statusCopy.inviteLinkUnreachable,
+			else if (room.ui.state.entry.side === 'guest') {
+				room.ui.setState('entry', {
+					...room.ui.state.entry,
+					issue: 'discovery-unreachable',
 				})
 			}
 		}
 	}
 
-	return { promoteRendezvousLink, startBeaconRendezvous }
+	return { promoteAdmissionLink, startBeaconClient }
 }

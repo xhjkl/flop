@@ -1,0 +1,346 @@
+/* Register hue so room color changes glide instead of snapping. */
+@property --h {
+	syntax: "<number>";
+	inherits: true;
+	initial-value: 194;
+}
+
+:root {
+	--h: 194;
+	--font-body:
+		"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif;
+	--font-code:
+		ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono",
+		monospace;
+	--text-caption: 0.8125rem;
+	--text-small: 0.875rem;
+	--text-body: 1rem;
+	--leading-tight: 1.2;
+	--leading-copy: 1.25;
+	--space-label: 0.35rem;
+	--space-touch: 0.5rem;
+	--space-field: 0.75rem;
+	--space-card: 0.875rem;
+	--space-page: 1rem;
+	--space-roomy: 1.5rem;
+	--radius-card: 0.5rem;
+	--radius-control: 0.5rem;
+	--radius-pill: 999px;
+	--control-pill-block: 2.125rem;
+	--portrait-min-inline: 17rem;
+	--portrait-max-inline: 34rem;
+	--portrait-height-chrome: 8rem;
+	--portrait-inline-ratio: 0.95;
+	--overlay-inline: 15rem;
+	--action-inline: 18rem;
+	--copy-inline: 24rem;
+	--motion-fast: 120ms ease;
+	--motion-tap: 180ms ease;
+	--motion-pop: 520ms ease;
+	--motion-theme: 680ms ease;
+	--glass-blur: blur(14px);
+
+	color: var(--fg);
+	background: var(--bg-deep);
+	font-family: var(--font-body);
+}
+
+:root,
+.portrait-app {
+	--h-contrast: calc(var(--h) + 168);
+	--h-glow: calc(var(--h) + 18);
+	--room: oklch(0.72 0.17 var(--h));
+	--room-loud: oklch(0.8 0.2 var(--h));
+	--room-soft: oklch(0.58 0.12 var(--h));
+	--wall: oklch(0.28 0.09 var(--h));
+	--wall-deep: oklch(0.15 0.055 var(--h));
+	--paper: var(--room);
+	--paper-lift: color-mix(in oklch, var(--paper) 88%, white);
+	--pit: oklch(0.16 0.055 var(--h));
+	--ink: oklch(0.13 0.025 var(--h));
+	--ink-soft: color-mix(in oklch, var(--ink) 68%, var(--paper));
+	--chalk: oklch(0.94 0.025 var(--h));
+	--chalk-soft: oklch(0.78 0.04 var(--h));
+	--bg: var(--wall);
+	--bg-deep: var(--pit);
+	--surface: var(--paper);
+	--surface-strong: var(--paper-lift);
+	--surface-glow: transparent;
+	--fg: var(--ink);
+	--fg-strong: var(--ink);
+	--muted: var(--ink-soft);
+	--fg-inverse: var(--chalk);
+	--muted-inverse: var(--chalk-soft);
+	--line: color-mix(in oklch, var(--ink) 42%, var(--paper));
+	--line-strong: color-mix(in oklch, var(--ink) 72%, var(--paper));
+	--line-card: oklch(0.96 0.035 var(--h) / 0.36);
+	--line-card-live: color-mix(in oklch, var(--ok) 58%, transparent);
+	--line-card-warn: color-mix(in oklch, var(--warn) 62%, transparent);
+	--line-glass: oklch(0.92 0.04 var(--h) / 0.26);
+	--line-soft: color-mix(in oklch, var(--ink) 26%, transparent);
+	--line-inverse: oklch(0.92 0.04 var(--h) / 0.3);
+	--accent: var(--ink);
+	--accent-soft: color-mix(in oklch, var(--ink) 8%, transparent);
+	--accent-ink: var(--paper);
+	--ok: oklch(0.76 0.16 150);
+	--warn: oklch(0.78 0.18 32);
+	--surface-field: color-mix(in oklch, var(--paper) 82%, white);
+	--surface-code: var(--pit);
+	--surface-glass: oklch(0.15 0.04 var(--h) / 0.84);
+	--surface-glass-strong: oklch(0.12 0.04 var(--h) / 0.9);
+	--surface-hover: color-mix(in oklch, var(--ink) 8%, transparent);
+	--surface-pop: color-mix(in oklch, var(--room-loud) 36%, transparent);
+	--line-live: color-mix(in oklch, var(--ink) 70%, var(--ok));
+	--line-warn: color-mix(in oklch, var(--ink) 56%, var(--warn));
+	--shadow-card-outer: 0 1rem 2.4rem oklch(0 0 0 / 0.14);
+	--shadow-card:
+		inset 0 1px 0 oklch(1 0 0 / 0.38), inset 0 0 0 1px oklch(1 0 0 / 0.08),
+		var(--shadow-card-outer);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+	inline-size: 100%;
+	min-block-size: 100%;
+}
+
+body {
+	margin: 0;
+	overflow: hidden;
+	background: var(--bg-deep);
+}
+
+button,
+input,
+textarea,
+video {
+	font: inherit;
+	color: inherit;
+}
+
+button {
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-control);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, white 18%, transparent),
+			transparent 58%
+		),
+		var(--accent-soft);
+	padding: var(--space-field) var(--space-card);
+	cursor: pointer;
+	color: var(--fg-strong);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 22%, transparent),
+		0 2px 0 color-mix(in oklch, var(--line-strong) 76%, transparent);
+	transition:
+		background-color var(--motion-tap),
+		border-color var(--motion-tap),
+		box-shadow var(--motion-tap),
+		color var(--motion-tap),
+		transform var(--motion-fast);
+}
+
+button:hover:not(:disabled),
+button:focus-visible {
+	border-color: var(--accent);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, white 24%, transparent),
+			transparent 54%
+		),
+		color-mix(in oklch, var(--ink) 12%, transparent);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 28%, transparent),
+		0 3px 0 color-mix(in oklch, var(--line-strong) 82%, transparent);
+	transform: translateY(-1px);
+}
+
+button:active:not(:disabled) {
+	box-shadow:
+		inset 0 1px 2px color-mix(in oklch, black 20%, transparent),
+		0 0 0 transparent;
+	transform: translateY(1px);
+}
+
+button:disabled {
+	opacity: 0.45;
+	cursor: default;
+	box-shadow: none;
+}
+
+input,
+textarea {
+	inline-size: 100%;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-control);
+	background-color: var(--surface-field);
+}
+
+input::placeholder,
+textarea::placeholder {
+	color: color-mix(in oklch, var(--ink) 58%, var(--paper));
+}
+
+input {
+	padding: var(--space-field) var(--space-card);
+}
+
+textarea {
+	block-size: 100%;
+	min-block-size: 0;
+	resize: none;
+	padding: var(--space-card);
+}
+
+.portrait-app {
+	position: relative;
+	inline-size: 100%;
+	block-size: 100dvh;
+	min-inline-size: 0;
+	display: grid;
+	grid-template-rows: minmax(0, 1fr);
+	overflow: hidden;
+	padding: var(--space-page);
+	color: var(--fg);
+	background-color: var(--bg);
+	transition: --h var(--motion-theme);
+}
+
+.portrait-strip {
+	--portrait-inline: clamp(
+		var(--portrait-min-inline),
+		calc(
+			(100dvh - var(--portrait-height-chrome)) *
+			var(--portrait-inline-ratio)
+		),
+		var(--portrait-max-inline)
+	);
+
+	inline-size: 100%;
+	max-inline-size: 100%;
+	min-inline-size: 0;
+	min-block-size: 0;
+	display: grid;
+	grid-auto-flow: column;
+	grid-auto-columns: var(--portrait-inline);
+	grid-template-rows: minmax(0, 1fr);
+	gap: var(--space-card);
+	overflow-x: auto;
+	overflow-y: hidden;
+	scroll-snap-type: x mandatory;
+}
+
+.scrollbarless {
+	scrollbar-width: none;
+}
+
+.scrollbarless::-webkit-scrollbar {
+	display: none;
+}
+
+.portrait-card {
+	min-inline-size: 0;
+	min-block-size: 0;
+	block-size: 100%;
+	display: grid;
+	overflow: hidden;
+	scroll-snap-align: start;
+	border: 1px solid var(--line-card);
+	border-radius: var(--radius-card);
+	background: var(--surface);
+	background-clip: padding-box;
+	box-shadow: var(--shadow-card);
+}
+
+.portrait-face {
+	--face-bg: color-mix(
+		in srgb,
+		hsl(var(--card-h) 38% 32%) 14%,
+		var(--surface-strong)
+	);
+	--face-fg: var(--fg-strong);
+
+	position: relative;
+	display: grid;
+	place-items: center;
+	padding: var(--space-page);
+	background:
+		linear-gradient(180deg, hsl(var(--card-h) 38% 40% / 0.18), transparent 72%),
+		linear-gradient(145deg, var(--surface-glow), transparent 56%),
+		var(--face-bg);
+}
+
+.portrait-face.has-video {
+	overflow: hidden;
+	padding: 0;
+	background: var(--bg-deep);
+}
+
+.person-face.is-empty {
+	background: hsl(var(--card-h) 42% 34%);
+}
+
+.media-video {
+	inline-size: 100%;
+	block-size: 100%;
+	min-inline-size: 0;
+	min-block-size: 0;
+	object-fit: cover;
+	object-position: 50% 50%;
+	background-color: var(--bg-deep);
+	user-select: none;
+	-webkit-touch-callout: none;
+}
+
+.media-video.is-mirrored {
+	transform: scaleX(-1);
+}
+
+.media-video.is-hidden {
+	display: none;
+}
+
+.utility-card {
+	grid-template-rows: auto minmax(0, 1fr) auto;
+	gap: var(--space-card);
+	padding: var(--space-card);
+	background:
+		linear-gradient(155deg, var(--surface-glow), transparent 62%),
+		var(--surface-strong);
+}
+
+.utility-card p {
+	margin: 0;
+	color: var(--muted);
+	line-height: var(--leading-copy);
+}
+
+.utility-header {
+	display: grid;
+	gap: var(--space-label);
+}
+
+.card-actions {
+	display: grid;
+	align-content: end;
+	gap: var(--space-label);
+}
+
+.utility-header strong {
+	overflow-wrap: anywhere;
+	text-transform: lowercase;
+}
+
+.utility-header small {
+	color: var(--muted);
+	font-size: var(--text-caption);
+	text-transform: lowercase;
+}

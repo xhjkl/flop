@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
-import { Room } from '../portraits'
+import { PortraitStrip } from '../portraits'
 import { getFixture, uiFixtures } from './fixtures'
 import '../app.css'
 import './fixtures.css'
@@ -51,7 +51,7 @@ const FixturesApp = () => {
 			<Show
 				keyed
 				when={activeFixture()}
-				fallback={<Room themeSeed="fixtures-idle" />}
+				fallback={<PortraitStrip themeSeed="fixtures-idle" />}
 			>
 				{(fixture) => fixture.render()}
 			</Show>

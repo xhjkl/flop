@@ -1,0 +1,197 @@
+.portrait-activity {
+	display: grid;
+	gap: var(--space-touch);
+}
+
+.glass-pill {
+	min-block-size: var(--control-pill-block);
+	border: 1px solid var(--line-glass);
+	border-radius: var(--radius-pill);
+	background: var(--surface-glass);
+	padding: var(--space-touch) var(--space-field);
+	color: var(--fg-inverse);
+	line-height: var(--leading-tight);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 18%, transparent),
+		inset 0 -1px 0 color-mix(in oklch, black 26%, transparent),
+		0 1px 0 color-mix(in oklch, black 18%, transparent);
+}
+
+.file-chip {
+	position: relative;
+	isolation: isolate;
+	overflow: hidden;
+	display: flex;
+	align-items: center;
+	text-decoration: none;
+	font-size: var(--text-caption);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.file-chip i {
+	position: absolute;
+	z-index: -1;
+	inset-block: 0;
+	inset-inline-start: 0;
+	inline-size: var(--progress);
+	background: var(--surface-pop);
+}
+
+.file-chip span {
+	color: inherit;
+}
+
+.file-chip.is-error {
+	border-color: var(--line-warn);
+	color: var(--warn);
+}
+
+.portrait-blip {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	margin: 0;
+	text-align: center;
+	font-size: var(--text-small);
+	line-height: var(--leading-copy);
+	backdrop-filter: var(--glass-blur);
+	cursor: text;
+	transition:
+		border-color var(--motion-tap),
+		box-shadow var(--motion-tap),
+		transform var(--motion-fast);
+}
+
+.portrait-blip:hover {
+	border-color: color-mix(in oklch, var(--fg-inverse) 58%, transparent);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 24%, transparent),
+		inset 0 -1px 0 color-mix(in oklch, black 28%, transparent),
+		0 2px 0 color-mix(in oklch, black 20%, transparent);
+	transform: translateY(-1px);
+}
+
+.blip-composer-input::placeholder {
+	color: var(--muted-inverse);
+}
+
+.blip-composer {
+	display: grid;
+	gap: var(--space-touch);
+}
+
+.blip-issue {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: var(--space-touch);
+	inline-size: 100%;
+	min-block-size: var(--control-pill-block);
+	border: 1px solid color-mix(in oklch, var(--chalk) 38%, var(--room-loud));
+	border-radius: var(--radius-control);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, white 12%, transparent),
+			transparent 62%
+		),
+		color-mix(in oklch, var(--surface-glass-strong) 88%, black);
+	padding: var(--space-touch) var(--space-field);
+	color: var(--fg-inverse);
+	text-align: start;
+	font-size: var(--text-small);
+	line-height: var(--leading-copy);
+	backdrop-filter: var(--glass-blur);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 16%, transparent),
+		inset 0 -1px 0 color-mix(in oklch, black 30%, transparent),
+		0 2px 0 color-mix(in oklch, var(--ink) 42%, transparent);
+}
+
+.blip-issue:hover,
+.blip-issue:focus-visible {
+	border-color: color-mix(in oklch, var(--chalk) 62%, var(--room-loud));
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, white 16%, transparent),
+			transparent 58%
+		),
+		var(--surface-glass-strong);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 22%, transparent),
+		inset 0 -1px 0 color-mix(in oklch, black 34%, transparent),
+		0 3px 0 color-mix(in oklch, var(--ink) 46%, transparent);
+}
+
+.blip-issue-mark,
+.blip-issue-dismiss {
+	display: inline-grid;
+	place-items: center;
+	flex: none;
+	inline-size: 1.25rem;
+	block-size: 1.25rem;
+	border-radius: 50%;
+}
+
+.blip-issue-mark {
+	border: 1px solid color-mix(in oklch, var(--chalk) 34%, transparent);
+	color: var(--chalk);
+	font-size: var(--text-caption);
+	font-style: italic;
+}
+
+.blip-issue-text {
+	min-inline-size: 0;
+	overflow-wrap: anywhere;
+}
+
+.blip-issue-dismiss {
+	background: color-mix(in oklch, var(--chalk) 16%, transparent);
+	color: var(--chalk);
+	font-size: var(--text-small);
+	line-height: 1;
+}
+
+.blip-composer-input {
+	block-size: auto;
+	max-block-size: 5rem;
+	min-inline-size: 0;
+	color: var(--muted-inverse);
+	resize: none;
+	text-align: center;
+	font-size: var(--text-caption);
+	overflow: auto;
+	backdrop-filter: var(--glass-blur);
+	transition:
+		background-color var(--motion-tap),
+		border-color var(--motion-tap),
+		color var(--motion-tap),
+		transform 160ms ease;
+}
+
+.blip-composer-input.is-editing {
+	border-color: var(--fg-inverse);
+	background: var(--surface-glass-strong);
+	color: var(--fg-inverse);
+}
+
+.blip-composer-input.is-committed {
+	background-color: var(--surface-pop);
+	color: var(--fg-inverse);
+	transform: scale(1.03);
+	animation: pulse-pop var(--motion-pop);
+}
+
+.person-activity-shell {
+	position: absolute;
+	z-index: 1;
+	inset-block-end: var(--space-page);
+	inset-inline-start: 50%;
+	inline-size: min(calc(100% - (var(--space-page) * 2)), var(--overlay-inline));
+	display: grid;
+	gap: var(--space-touch);
+	transform: translateX(-50%);
+	pointer-events: auto;
+}

@@ -4,7 +4,7 @@ import { createRoot } from 'solid-js'
 import { deriveRoomKeys } from '../src/rendezvous/crypto'
 import { randomRoomSecret } from '../src/rendezvous/secret'
 import { createRoomLifecycle } from '../src/room/lifecycle'
-import { createRoomRuntime } from '../src/room/runtime'
+import { createRoomSession } from '../src/room/session'
 
 test('disposing a room invalidates pending signaling work', async () => {
 	const roomSecret = randomRoomSecret()
@@ -13,23 +13,17 @@ test('disposing a room invalidates pending signaling work', async () => {
 	createRoot((dispose) => {
 		try {
 			let beaconStops = 0
-			const room = createRoomRuntime({
-				linkEvents: {
-					onClose: () => {},
-					onMessage: () => {},
-					onOpen: () => {},
-				},
-			})
-			room.signalingVersion = 4
-			room.roomSecret = roomSecret
-			room.roomKeys = roomKeys
-			room.stopBeaconRendezvous = () => beaconStops++
+			const room = createRoomSession()
+			room.session.signalingGeneration = 4
+			room.session.inviteSecret = roomSecret
+			room.session.keys = roomKeys
+			room.session.stopBeacon = () => beaconStops++
 
 			createRoomLifecycle(room).disposeRoom()
 
-			assert.equal(room.signalingVersion, 5)
-			assert.equal(room.roomSecret, null)
-			assert.equal(room.roomKeys, null)
+			assert.equal(room.session.signalingGeneration, 5)
+			assert.equal(room.session.inviteSecret, null)
+			assert.equal(room.session.keys, null)
 			assert.equal(beaconStops, 1)
 		} finally {
 			dispose()

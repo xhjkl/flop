@@ -1,7 +1,8 @@
 import { Match, Switch } from 'solid-js'
 import { SelfMediaCard } from './portraits'
+import type { BlipComposerState } from './room/activity/blip'
+import type { ParticipantActivity } from './room/participant'
 import type { SelfMedia, SelfMediaStatus } from './self-media'
-import type { BlipComposerState, PortraitActivityState } from './state'
 
 const mediaFailureTitle = (status: SelfMediaStatus) => {
 	switch (status) {
@@ -17,7 +18,7 @@ const mediaFailureTitle = (status: SelfMediaStatus) => {
 }
 
 type SelfPortraitCardProps = {
-	activity: PortraitActivityState
+	activity: ParticipantActivity
 	blipComposer: BlipComposerState
 	media: SelfMedia
 	onDismissBlipIssue: () => void

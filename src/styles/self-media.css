@@ -1,0 +1,213 @@
+.self-card {
+	position: relative;
+	background: var(--surface-strong);
+}
+
+.self-card.has-preview {
+	background: var(--bg-deep);
+}
+
+.self-card-body {
+	display: grid;
+	align-content: center;
+	justify-items: center;
+	gap: var(--space-roomy);
+	padding: var(--space-roomy);
+	min-block-size: 0;
+}
+
+.self-copy-shell {
+	display: grid;
+	gap: var(--space-card);
+}
+
+.self-card-copy {
+	display: grid;
+	gap: var(--space-field);
+	align-content: start;
+}
+
+.self-card-copy p {
+	margin: 0;
+	color: var(--fg);
+}
+
+.self-card.is-live {
+	border-color: var(--line-card-live);
+	grid-template-rows: minmax(0, 1fr);
+}
+
+.self-card.is-setup .self-copy-shell {
+	inline-size: min(100%, var(--copy-inline));
+	justify-items: center;
+	text-align: center;
+}
+
+.self-card.is-setup .utility-header {
+	justify-items: center;
+}
+
+.self-card.is-setup :is(.card-actions, .blip-composer, .portrait-activity) {
+	inline-size: min(100%, var(--action-inline));
+}
+
+.self-card.is-setup .card-actions {
+	align-content: start;
+}
+
+.self-card.is-setup .card-actions button {
+	inline-size: 100%;
+}
+
+.self-card.is-warning {
+	border-color: var(--line-card-warn);
+}
+
+.self-portrait-face {
+	padding: 0;
+	overflow: hidden;
+	background:
+		linear-gradient(180deg, hsl(var(--h-glow) 64% 74% / 0.12), transparent 72%),
+		var(--bg-deep);
+}
+
+.self-card.is-setup:not(.has-preview) {
+	grid-template-rows: auto;
+}
+
+.self-card.has-preview .self-portrait-face {
+	position: absolute;
+	inset: 0;
+}
+
+.self-live-shell {
+	inline-size: 100%;
+	display: grid;
+	gap: var(--space-touch);
+	justify-items: stretch;
+}
+
+.self-card.is-live .self-live-shell {
+	position: absolute;
+	inset-block-end: var(--space-page);
+	inset-inline-end: var(--space-page);
+	inline-size: min(calc(100% - (var(--space-page) * 2)), var(--overlay-inline));
+	pointer-events: auto;
+}
+
+.self-live-shell .portrait-activity {
+	justify-self: stretch;
+}
+
+.self-screen-control {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--space-touch);
+	justify-self: stretch;
+}
+
+.self-live-controls {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--space-touch);
+}
+
+.self-toggle {
+	--toggle-track-inline: 2.5rem;
+	--toggle-track-block: 1.5rem;
+	--toggle-knob-size: 1.25rem;
+	--toggle-knob-inset: 0.125rem;
+	--toggle-knob-travel: calc(
+		var(--toggle-track-inline) -
+		var(--toggle-knob-size) -
+		(var(--toggle-knob-inset) * 2)
+	);
+
+	display: inline-flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-touch);
+	min-inline-size: 0;
+	padding: var(--space-label) var(--space-touch);
+	border: 1px solid var(--line-soft);
+	border-radius: var(--radius-pill);
+	background: var(--surface-glass-strong);
+	color: var(--fg-inverse);
+	backdrop-filter: var(--glass-blur);
+	box-shadow:
+		inset 0 1px 0 color-mix(in oklch, white 18%, transparent),
+		inset 0 -1px 0 color-mix(in oklch, black 28%, transparent);
+}
+
+.self-screen-control .self-toggle {
+	grid-column: 2;
+	inline-size: 100%;
+}
+
+.self-toggle-label {
+	font-size: var(--text-caption);
+	text-transform: lowercase;
+}
+
+.self-toggle-switch {
+	position: relative;
+	inline-size: var(--toggle-track-inline);
+	block-size: var(--toggle-track-block);
+	border-radius: var(--radius-pill);
+	background: color-mix(in oklch, var(--chalk) 16%, transparent);
+	transition:
+		background-color var(--motion-tap),
+		box-shadow var(--motion-tap);
+}
+
+.self-toggle-knob {
+	position: absolute;
+	inset-block-start: var(--toggle-knob-inset);
+	inset-inline-start: var(--toggle-knob-inset);
+	inline-size: var(--toggle-knob-size);
+	block-size: var(--toggle-knob-size);
+	border-radius: 50%;
+	background: var(--fg-inverse);
+	transition:
+		background-color var(--motion-tap),
+		transform var(--motion-fast);
+}
+
+.self-toggle[aria-pressed="true"] .self-toggle-switch {
+	background: var(--room-loud);
+	box-shadow: 0 0 0.75rem color-mix(in oklch, var(--room-loud) 24%, transparent);
+}
+
+.self-toggle[aria-pressed="true"] .self-toggle-knob {
+	transform: translateX(var(--toggle-knob-travel));
+	background: var(--ink);
+}
+
+.person-card.is-live {
+	border-color: var(--line-card-live);
+}
+
+@media (orientation: portrait), (max-width: 720px) {
+	.portrait-app {
+		padding: var(--space-field);
+	}
+
+	.portrait-strip {
+		--portrait-size: calc(100vw - (var(--space-field) * 2));
+
+		grid-auto-flow: row;
+		grid-auto-columns: auto;
+		grid-auto-rows: var(--portrait-size);
+		grid-template-columns: minmax(0, var(--portrait-size));
+		grid-template-rows: none;
+		place-content: start center;
+		overflow-x: hidden;
+		overflow-y: auto;
+		scroll-snap-type: y mandatory;
+	}
+
+	.portrait-card {
+		inline-size: 100%;
+		block-size: 100%;
+	}
+}

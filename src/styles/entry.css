@@ -1,0 +1,382 @@
+.relay-notice-card {
+	grid-template-rows: auto auto minmax(0, 1fr);
+	border-color: color-mix(in oklch, var(--room-loud) 36%, var(--line-card));
+}
+
+.relay-meters {
+	display: grid;
+	grid-template-columns: repeat(2, max-content);
+	align-items: end;
+	align-self: center;
+	justify-self: center;
+	gap: var(--space-field);
+}
+
+.relay-meter {
+	display: grid;
+	justify-items: center;
+	gap: var(--space-label);
+	min-inline-size: 0;
+	color: var(--muted);
+	font-size: var(--text-caption);
+	text-transform: lowercase;
+}
+
+.connection-mode-heading {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-label);
+}
+
+.connection-mode-heading button {
+	border: 0;
+	background: transparent;
+	padding: 0;
+	color: color-mix(in oklch, var(--ink) 46%, transparent);
+	box-shadow: none;
+	text-decoration: none;
+	transition:
+		color var(--motion-tap),
+		transform var(--motion-fast);
+}
+
+.connection-mode-heading button[aria-pressed="true"] {
+	color: var(--fg-strong);
+}
+
+.connection-mode-heading button:hover:not(:disabled),
+.connection-mode-heading button:focus-visible {
+	background: transparent;
+	box-shadow: none;
+	color: var(--fg-strong);
+	transform: translateY(-1px);
+}
+
+.connection-mode-heading button:active:not(:disabled) {
+	box-shadow: none;
+	transform: translateY(0);
+}
+
+.connection-mode-heading span {
+	color: var(--muted);
+}
+
+.connection-finding-header {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-rows: auto auto;
+	align-items: center;
+	column-gap: var(--space-field);
+	row-gap: var(--space-label);
+}
+
+.connection-finding-header strong,
+.connection-finding-header p {
+	grid-column: 1;
+	min-inline-size: 0;
+}
+
+.relay-notice-card :where(p),
+.connection-card :where(p) {
+	color: var(--fg);
+}
+
+.connection-card {
+	grid-template-rows: auto minmax(0, 1fr) auto;
+	gap: clamp(var(--space-touch), 1.6dvh, var(--space-card));
+}
+
+.connection-card.is-entry {
+	grid-template-rows: auto;
+	align-content: center;
+	gap: var(--space-roomy);
+}
+
+.connection-top {
+	display: grid;
+	gap: inherit;
+}
+
+.connection-copy,
+.connection-main,
+.connection-mode-pane {
+	display: grid;
+	gap: var(--space-field);
+}
+
+.connection-issue {
+	border: 1px solid var(--line-warn);
+	border-radius: var(--radius-control);
+	background: color-mix(in oklch, var(--warn) 18%, var(--paper));
+	padding: var(--space-touch) var(--space-field);
+	color: color-mix(in oklch, var(--ink) 78%, var(--warn));
+}
+
+.connection-main {
+	min-block-size: 0;
+	grid-template-rows: minmax(0, 1fr) auto;
+	overflow: hidden;
+}
+
+.connection-body.is-field {
+	grid-template-rows: auto;
+	overflow: visible;
+}
+
+.connection-mode-frame {
+	min-block-size: 0;
+	overflow: hidden;
+}
+
+.connection-mode-rail {
+	inline-size: 200%;
+	block-size: 100%;
+	min-block-size: 0;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-template-rows: minmax(0, 1fr);
+	transition: transform var(--motion-tap);
+}
+
+.connection-mode-frame.is-code .connection-mode-rail {
+	transform: translateX(-50%);
+}
+
+.connection-mode-pane {
+	grid-template-rows: auto minmax(0, 1fr) auto;
+	min-inline-size: 0;
+	min-block-size: 0;
+}
+
+.connection-copy-block {
+	inline-size: 100%;
+	min-inline-size: 0;
+	min-block-size: 0;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	overflow: hidden;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-card);
+	background: var(--surface-code);
+}
+
+.connection-copy-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-field);
+	min-inline-size: 0;
+	overflow: hidden;
+	padding: var(--space-touch) var(--space-touch) var(--space-touch)
+		var(--space-field);
+	border-bottom: 1px solid var(--line-inverse);
+	color: var(--muted-inverse);
+	font-size: var(--text-small);
+}
+
+.connection-copy-inline-value {
+	flex: 1 1 0;
+	margin: 0;
+	min-inline-size: 0;
+	overflow-x: auto;
+	padding-block: var(--space-label);
+	white-space: pre;
+	color: var(--fg-inverse);
+	font-family: var(--font-code);
+	font-size: var(--text-caption);
+	line-height: var(--leading-copy);
+}
+
+.connection-copy-button {
+	flex: none;
+	padding: var(--space-label) var(--space-touch);
+	border-color: var(--line-inverse);
+	background-color: color-mix(in oklch, var(--chalk) 10%, transparent);
+	color: var(--fg-inverse);
+	font-size: var(--text-caption);
+	transition:
+		background-color var(--motion-tap),
+		border-color var(--motion-tap),
+		color var(--motion-tap),
+		transform 160ms ease;
+}
+
+.connection-copy-button:hover:not(:disabled),
+.connection-copy-button:focus-visible {
+	border-color: var(--fg-inverse);
+	background:
+		linear-gradient(
+			180deg,
+			color-mix(in oklch, white 18%, transparent),
+			transparent 58%
+		),
+		color-mix(in oklch, var(--chalk) 16%, transparent);
+	color: var(--fg-inverse);
+}
+
+.connection-copy-button.is-copied {
+	background-color: var(--surface-pop);
+	color: var(--fg-inverse);
+	transform: scale(1.03);
+	animation: pulse-pop var(--motion-pop);
+}
+
+@keyframes pulse-pop {
+	0% {
+		transform: scale(1);
+	}
+
+	45% {
+		transform: scale(1.06);
+	}
+
+	100% {
+		transform: scale(1.03);
+	}
+}
+
+.connection-copy-value {
+	/* Invite and reply codes should feel like plain old text you can copy anywhere. */
+	position: relative;
+	z-index: 1;
+	margin: 0;
+	min-block-size: 0;
+	overflow: auto;
+	padding: var(--space-field);
+	white-space: pre-wrap;
+	overflow-wrap: normal;
+	word-break: break-all;
+	color: var(--fg-inverse);
+	font-family: var(--font-code);
+	font-size: var(--text-caption);
+	line-height: var(--leading-copy);
+}
+
+.connection-copy-body {
+	display: grid;
+	min-block-size: 0;
+	overflow: hidden;
+}
+
+.connection-copy-body > .connection-copy-value {
+	inline-size: 100%;
+}
+
+.connection-copy-qr {
+	--connection-qr-margin: max(var(--space-field), 1rem);
+	align-self: stretch;
+	justify-self: stretch;
+	inline-size: calc(100% - 2 * var(--connection-qr-margin));
+	block-size: calc(100% - 2 * var(--connection-qr-margin));
+	margin: var(--connection-qr-margin);
+	pointer-events: none;
+	shape-rendering: crispEdges;
+}
+
+.connection-copy-qr-paper {
+	fill: var(--fg-inverse);
+}
+
+.connection-copy-qr-ink {
+	fill: var(--surface-code);
+}
+
+.connection-copy-block.is-empty .connection-copy-value {
+	display: grid;
+	place-items: center;
+	color: var(--muted-inverse);
+	text-align: center;
+}
+
+.connection-paste-line {
+	display: grid;
+	gap: var(--space-label);
+	color: var(--muted);
+	font-size: var(--text-small);
+}
+
+.connection-side-switch {
+	display: grid;
+	padding-block-start: var(--space-roomy);
+}
+
+.connection-card.is-entry .connection-side-switch {
+	padding-block-start: 0;
+}
+
+.connection-side-switch button {
+	inline-size: 100%;
+	border-color: var(--line);
+	background: transparent;
+	color: var(--muted);
+	padding-inline: var(--space-field);
+}
+
+.connection-body {
+	grid-row: 2;
+}
+
+.connection-action {
+	grid-row: 3;
+}
+
+.connection-card.is-entry .connection-body,
+.connection-card.is-entry .connection-action {
+	grid-row: auto;
+}
+
+.daisy {
+	inline-size: 2.75rem;
+	block-size: 2.75rem;
+	color: var(--fg-strong);
+	overflow: visible;
+}
+
+.daisy-track,
+.daisy-segment {
+	fill: none;
+	stroke-width: 3;
+	transform: rotate(-90deg);
+	transform-origin: 50% 50%;
+}
+
+.daisy-track {
+	stroke: color-mix(in oklch, var(--ink) 18%, transparent);
+}
+
+.daisy-segment {
+	stroke: currentColor;
+	stroke-linecap: round;
+	stroke-dasharray: 1;
+	stroke-dashoffset: calc(1 - var(--daisy-fill));
+}
+
+.daisy-value {
+	fill: currentColor;
+	font-family: var(--font-code);
+	font-size: var(--daisy-value-size, 0.58rem);
+	font-weight: 620;
+	letter-spacing: 0;
+	text-anchor: middle;
+	dominant-baseline: central;
+}
+
+.relay-meter .daisy {
+	inline-size: 3.25rem;
+	block-size: 3.25rem;
+}
+
+.connection-finding-header .daisy {
+	grid-column: 2;
+	grid-row: 1 / span 2;
+}
+
+.connection-relay-button {
+	grid-column: 2;
+	grid-row: 1 / span 2;
+	align-self: center;
+	white-space: nowrap;
+	padding: var(--space-label) var(--space-touch);
+	font-size: var(--text-caption);
+}

@@ -9,14 +9,12 @@ import {
 	Switch,
 } from 'solid-js'
 import { hueFromSeed, themeHueFromSeed } from './hue'
+import type { BlipComposerState } from './room/activity/blip'
+import type { MediaPresence } from './room/activity/media'
+import type { LinkStatus } from './room/link'
+import type { ParticipantActivity, ParticipantFile } from './room/participant'
 import type { SelfMedia, SelfMediaStatus } from './self-media'
-import type {
-	BlipComposerState,
-	PeerConnectionState,
-	PeerMediaState,
-	PortraitActivityState,
-	PortraitFileState,
-} from './state'
+import { transferIssueCopy } from './ui/copy'
 import { createPulse } from './ui/pulse'
 import { viewfinderObjectPosition } from './viewfinder'
 
@@ -143,7 +141,7 @@ const VideoStream = (props: {
 	)
 }
 
-export const Room = (props: {
+export const PortraitStrip = (props: {
 	themeSeed?: string | null
 	children?: JSX.Element
 }) => {
@@ -160,7 +158,7 @@ export const Room = (props: {
 	)
 }
 
-const fileChipLabel = (file: PortraitFileState) => {
+const fileChipLabel = (file: ParticipantFile) => {
 	switch (file.state) {
 		case 'sending':
 			return `sending ${file.name}`
@@ -173,14 +171,14 @@ const fileChipLabel = (file: PortraitFileState) => {
 	}
 }
 
-const fileProgress = (file: PortraitFileState) => {
+const fileProgress = (file: ParticipantFile) => {
 	if (file.state !== 'sending' && file.state !== 'receiving') return 100
 	if (file.size <= 0) return 100
 
 	return Math.min(100, Math.round((file.transferredBytes / file.size) * 100))
 }
 
-const FileChip = (props: { file: PortraitFileState }) => {
+const FileChip = (props: { file: ParticipantFile }) => {
 	const body = () => (
 		<>
 			<span>{fileChipLabel(props.file)}</span>
@@ -220,7 +218,7 @@ const FileChip = (props: { file: PortraitFileState }) => {
 }
 
 const PortraitActivity = (props: {
-	activity: PortraitActivityState
+	activity: ParticipantActivity
 	showBlip?: boolean
 }) => {
 	const blip = () =>
@@ -293,22 +291,25 @@ const BlipComposer = (props: {
 		<Show when={visible()}>
 			<form class="blip-composer" onSubmit={submit}>
 				<Show when={props.composer.issue}>
-					{(issue) => (
-						<button
-							type="button"
-							class="blip-issue"
-							aria-label={`Dismiss notice: ${issue()}`}
-							onClick={props.onDismissIssue}
-						>
-							<span class="blip-issue-mark" aria-hidden="true">
-								i
-							</span>
-							<span class="blip-issue-text">{issue()}</span>
-							<span class="blip-issue-dismiss" aria-hidden="true">
-								×
-							</span>
-						</button>
-					)}
+					{(issue) => {
+						const copy = () => transferIssueCopy[issue()]
+						return (
+							<button
+								type="button"
+								class="blip-issue"
+								aria-label={`Dismiss notice: ${copy()}`}
+								onClick={props.onDismissIssue}
+							>
+								<span class="blip-issue-mark" aria-hidden="true">
+									i
+								</span>
+								<span class="blip-issue-text">{copy()}</span>
+								<span class="blip-issue-dismiss" aria-hidden="true">
+									×
+								</span>
+							</button>
+						)
+					}}
 				</Show>
 				<Show
 					when={
@@ -346,11 +347,11 @@ const BlipComposer = (props: {
 }
 
 export const PersonCard = (props: {
-	activity: PortraitActivityState
+	activity: ParticipantActivity
 	colorSeed: string
-	mediaState?: PeerMediaState | null
+	mediaState?: MediaPresence | null
 	mediaStream?: MediaStream | null
-	connectionState: PeerConnectionState
+	connectionState: LinkStatus
 }) => {
 	const videoActive = () =>
 		props.mediaStream != null &&
@@ -385,7 +386,7 @@ export const PersonCard = (props: {
 }
 
 export const SelfMediaCard = (props: {
-	activity: PortraitActivityState
+	activity: ParticipantActivity
 	canBlip: boolean
 	blipComposer: BlipComposerState
 	media: SelfMedia

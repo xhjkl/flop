@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { decodePacket, encodePacket, type Packet } from '../src/protocol'
+import {
+	decodePacket,
+	encodePacket,
+	type Packet,
+	parseParticipantId,
+} from '../src/protocol'
 
 describe('room packet contract', () => {
 	test('keeps hexadecimal file ids as file ids', () => {
@@ -24,25 +29,29 @@ describe('room packet contract', () => {
 		)
 	})
 
-	test('rejects an answer carried as a peer offer', () => {
+	test('accepts either SDP direction in one peer signal envelope', () => {
 		assert.equal(
 			decodePacket(
 				JSON.stringify({
 					from: '0000000000000001',
 					signal: { sdp: 'answer-sdp', type: 'answer' },
 					to: '0000000000000002',
-					type: 'peer-offer',
+					type: 'peer-signal',
 				}),
-			),
-			null,
+			)?.type,
+			'peer-signal',
 		)
 	})
 
 	test('round trips canonical participant ids', () => {
+		const hostId = parseParticipantId('0000000000000001')
+		const selfId = parseParticipantId('0000000000000002')
+		assert.ok(hostId != null)
+		assert.ok(selfId != null)
 		const packet: Packet = {
-			hostId: 1n,
-			roster: [{ id: 1n }, { id: 2n }],
-			selfId: 2n,
+			hostId,
+			roster: [hostId, selfId],
+			selfId,
 			type: 'welcome',
 		}
 

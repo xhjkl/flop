@@ -1,7 +1,15 @@
-import { encodePacket, type Packet, type ParticipantId } from '../protocol'
-import type { Peer } from '../webrtc'
-import type { RoomLink } from './link'
-import type { RoomParticipant } from './participant'
+import { encodePacket, type Packet, type ParticipantId } from '../../protocol'
+import type { RtcPeer } from '../../webrtc'
+import type { RoomLink } from '../link'
+import type { ParticipantState } from '../participant'
+
+export type TransferIssue = 'no-peers' | 'partial-delivery' | 'stopped'
+
+/** Local composer state for blips and transfer feedback. */
+export type BlipComposerState = {
+	issue: TransferIssue | null
+	text: string
+}
 
 /** Local blip state that can exist before the guest has a room identity. */
 export type RoomBlips = {
@@ -9,7 +17,7 @@ export type RoomBlips = {
 	clearPending: () => void
 	localBlip: () => string | null
 	publishLocal: () => number
-	sendLocalToPeer: (peer: Peer) => boolean
+	sendLocalToPeer: (peer: RtcPeer) => boolean
 	send: (text?: string) => void
 }
 
@@ -20,9 +28,9 @@ export const createRoomBlips = (options: {
 	openParticipantLinks: () => RoomLink[]
 	participantById: (
 		participantId: ParticipantId | null,
-	) => RoomParticipant | null
+	) => ParticipantState | null
 	sendToLinks: (links: RoomLink[], packet: Packet) => number
-	setBlipIssue: (issue: string | null) => void
+	setBlipIssue: (issue: TransferIssue | null) => void
 	setComposerText: (text: string) => void
 	setParticipantBlip: (participantId: ParticipantId, text: string) => void
 }): RoomBlips => {
@@ -49,7 +57,7 @@ export const createRoomBlips = (options: {
 		pendingLocalBlip = null
 	}
 
-	const sendLocalToPeer = (peer: Peer) => {
+	const sendLocalToPeer = (peer: RtcPeer) => {
 		// New links should see the current blip without waiting for the next edit.
 		const blip = localBlip()
 		if (blip == null) return false

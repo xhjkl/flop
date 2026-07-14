@@ -7,12 +7,18 @@ import {
 	stopMediaStream,
 	stopSelfMedia,
 	withOutboundSelfMediaStream,
-} from '../self-media'
-import type { PeerMediaState } from '../state'
-import type { Peer } from '../webrtc'
+} from '../../self-media'
+import type { RtcPeer } from '../../webrtc'
+
+/** Media presence another participant can render without permission details. */
+export type MediaPresence = {
+	cameraEnabled: boolean
+	microphoneEnabled: boolean
+	screenEnabled: boolean
+}
 
 /** Public media presence, stripped down to what another portrait can render. */
-export const selfMediaState = (media: SelfMedia): PeerMediaState => {
+export const selfMediaState = (media: SelfMedia): MediaPresence => {
 	// Peers care about what we are actually sending, not permission details.
 	return {
 		cameraEnabled:
@@ -40,8 +46,8 @@ export type RoomMediaController = {
 /** Device lifecycle controller wired to the room's peer set and Solid store. */
 export const createRoomMediaController = (options: {
 	getSelfMedia: () => SelfMedia
-	linkedPeers: () => Peer[]
-	publishLocalMediaState: (mediaState?: PeerMediaState) => number
+	linkedPeers: () => RtcPeer[]
+	publishLocalMediaState: (mediaState?: MediaPresence) => number
 	setSelfMedia: (selfMedia: SelfMedia) => void
 	setSelfMediaField: <Key extends keyof SelfMedia>(
 		key: Key,

@@ -1,20 +1,39 @@
-import { base64ToBytes, bytesToBase64 } from '../binary'
-import { log } from '../log'
-import {
-	type Packet,
-	type ParticipantId,
-	participantIdToString,
-} from '../protocol'
-import type { PortraitFileState } from '../state'
-import {
-	createIncomingFileTransfer,
-	FILE_BUFFER_LOW_BYTES,
-	FILE_CHUNK_BYTES,
-	type IncomingFileTransfer,
-	randomTransferId,
-} from './file-transfer'
-import type { RoomLink } from './link'
-import { blipIssueCopy } from './status-copy'
+import { base64ToBytes, bytesToBase64 } from '../../binary'
+import { log } from '../../log'
+import type { Packet, ParticipantId } from '../../protocol'
+import { randomHex } from '../../random'
+import type { RoomLink } from '../link'
+import type { ParticipantFile } from '../participant'
+import type { TransferIssue } from './blip'
+
+type IncomingFileTransfer = {
+	chunks: ArrayBuffer[]
+	from: ParticipantId
+	mime: string
+	name: string
+	transferredBytes: number
+	size: number
+}
+
+/** Chunk and buffer sizes keep large drops responsive without flooding channels. */
+const FILE_CHUNK_BYTES = 16 * 1024
+const FILE_BUFFER_LOW_BYTES = 512 * 1024
+
+const createIncomingFileTransfer = (
+	from: ParticipantId,
+	message: Extract<Packet, { type: 'file-start' }>,
+): IncomingFileTransfer => {
+	return {
+		chunks: [],
+		from,
+		mime: message.mime,
+		name: message.name,
+		transferredBytes: 0,
+		size: message.size,
+	}
+}
+
+const randomTransferId = () => randomHex(12)
 
 /** File transfers bridge packet chunks and the portrait activity chips people see. */
 export type RoomFileTransfers = {
@@ -35,10 +54,10 @@ export const createRoomFileTransfers = (options: {
 	localParticipantId: () => ParticipantId | null
 	markLocalSendingFilesError: () => void
 	sendToLinks: (links: RoomLink[], packet: Packet) => number
-	setBlipIssue: (issue: string | null) => void
+	setBlipIssue: (issue: TransferIssue | null) => void
 	upsertParticipantFile: (
 		participantId: ParticipantId,
-		nextFile: PortraitFileState,
+		nextFile: ParticipantFile,
 	) => void
 }): RoomFileTransfers => {
 	const incomingFiles = new Map<string, IncomingFileTransfer>()
@@ -212,15 +231,13 @@ export const createRoomFileTransfers = (options: {
 				url: null,
 			})
 			await Promise.all(
-				peers.map((link) =>
-					link.peer.waitForBufferBelow(FILE_BUFFER_LOW_BYTES),
-				),
+				peers.map((link) => link.rtc.waitForBufferBelow(FILE_BUFFER_LOW_BYTES)),
 			)
 		}
 
 		sendFilePacket({ id, type: 'file-end' }, 'file.end.partial-send')
 		if (partiallyDelivered) {
-			options.setBlipIssue(blipIssueCopy.filePartialDelivery)
+			options.setBlipIssue('partial-delivery')
 		}
 		options.upsertParticipantFile(localParticipantId, {
 			id,
@@ -238,7 +255,7 @@ export const createRoomFileTransfers = (options: {
 
 		const peers = options.openParticipantLinks()
 		if (peers.length === 0) {
-			options.setBlipIssue(blipIssueCopy.fileNoPeers)
+			options.setBlipIssue('no-peers')
 			return
 		}
 
@@ -249,7 +266,7 @@ export const createRoomFileTransfers = (options: {
 		} catch (error) {
 			log('warn', 'room', 'file.send.failed', { error })
 			options.markLocalSendingFilesError()
-			options.setBlipIssue(blipIssueCopy.fileStopped)
+			options.setBlipIssue('stopped')
 		}
 	}
 
@@ -259,7 +276,7 @@ export const createRoomFileTransfers = (options: {
 
 			log('warn', 'room', 'file.receive.aborted', {
 				id,
-				participantId: participantIdToString(participantId),
+				participantId,
 				reason: 'peer-left',
 			})
 			markIncomingError(id, transfer)

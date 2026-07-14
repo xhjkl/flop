@@ -1,16 +1,16 @@
 import type { JSX } from 'solid-js'
 import type { HostInviteMode } from '../connection-card'
-import type { RoomPeer, RoomState } from '../room'
-import { blipIssueCopy, statusCopy } from '../room/status-copy'
+import { parseParticipantId } from '../protocol'
+import type { ParticipantView, RoomState } from '../room'
+import type {
+	ClosedEntryState,
+	GuestJoinState,
+	HostInviteState,
+} from '../room/entry/state'
+import type { ParticipantActivity } from '../room/participant'
+import type { RelayMetering } from '../room/relay'
 import { RoomView, type RoomViewProps } from '../room-view'
 import type { SelfMedia } from '../self-media'
-import type {
-	ClosedConnectionState,
-	GuestConnectionState,
-	HostConnectionState,
-	PortraitActivityState,
-	RelayMetering,
-} from '../state'
 
 export type UiFixture = {
 	id: string
@@ -24,9 +24,15 @@ const SAMPLE_INVITE_CODE = `https://flop.local/#${encodeURIComponent(SAMPLE_OFFE
 const SAMPLE_INVITE_LINK = 'https://flop.local/#ybybybybybybybybybybybybyb'
 const SAMPLE_REPLY =
 	'v=0\no=- 0 0 IN IP4 127.0.0.1\ns=flop-reply\nt=0 0\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel'
-const HOST_ID = '48b6a1e2c59d730f'
-const OLEG_ID = '79df2a4c038be116'
-const NADIA_ID = 'b05e9d8328aa41c7'
+const fixtureParticipantId = (value: string) => {
+	const id = parseParticipantId(value)
+	if (id == null) throw new Error(`Invalid fixture participant id: ${value}`)
+	return id
+}
+
+const HOST_ID = fixtureParticipantId('48b6a1e2c59d730f')
+const OLEG_ID = fixtureParticipantId('79df2a4c038be116')
+const NADIA_ID = fixtureParticipantId('b05e9d8328aa41c7')
 
 const noop = () => {}
 const noopFiles = (_files: File[]) => {}
@@ -55,7 +61,7 @@ const fixtureActions: RoomViewProps['room']['actions'] = {
 	tryRelay: noop,
 }
 
-const emptyActivity: PortraitActivityState = { blip: null, files: [] }
+const emptyActivity: ParticipantActivity = { blip: null, files: [] }
 const emptyComposer = { issue: null, text: '' }
 
 const selfMedia = (overrides: Partial<SelfMedia> = {}): SelfMedia => {
@@ -87,9 +93,9 @@ const liveSelfMedia = (overrides: Partial<SelfMedia> = {}) => {
 	})
 }
 
-const hostConnection = (
-	overrides: Partial<Omit<HostConnectionState, 'side'>> = {},
-): HostConnectionState => {
+const hostInvite = (
+	overrides: Partial<Omit<HostInviteState, 'side'>> = {},
+): HostInviteState => {
 	return {
 		side: 'host',
 		status: 'invite-ready',
@@ -102,9 +108,9 @@ const hostConnection = (
 	}
 }
 
-const guestConnection = (
-	overrides: Partial<Omit<GuestConnectionState, 'side'>> = {},
-): GuestConnectionState => {
+const guestJoin = (
+	overrides: Partial<Omit<GuestJoinState, 'side'>> = {},
+): GuestJoinState => {
 	return {
 		side: 'guest',
 		status: 'needs-invite',
@@ -117,9 +123,9 @@ const guestConnection = (
 	}
 }
 
-const closedConnection = (
-	overrides: Partial<Omit<ClosedConnectionState, 'side'>> = {},
-): ClosedConnectionState => {
+const closedEntry = (
+	overrides: Partial<Omit<ClosedEntryState, 'side'>> = {},
+): ClosedEntryState => {
 	return {
 		side: 'closed',
 		issue: null,
@@ -137,12 +143,12 @@ const fixture = (id: string, title: string, view: RoomViewProps): UiFixture => {
 
 const room = (
 	props: {
-		connection: RoomState['connection']
+		entry: RoomState['entry']
 		themeSeed: string
 		hostInviteMode?: HostInviteMode
-		peers?: RoomPeer[]
+		peers?: ParticipantView[]
 		relayMetering?: RelayMetering | null
-		selfActivity?: PortraitActivityState
+		selfActivity?: ParticipantActivity
 		selfMedia?: SelfMedia
 		canClaimFindingInviteLink?: boolean
 	} & Partial<Pick<RoomState, 'blipComposer'>>,
@@ -156,7 +162,7 @@ const room = (
 			selfActivity: () => props.selfActivity ?? emptyActivity,
 			state: {
 				blipComposer: props.blipComposer ?? emptyComposer,
-				connection: props.connection,
+				entry: props.entry,
 				relayMetering: props.relayMetering ?? null,
 				selfMedia: props.selfMedia ?? selfMedia(),
 				themeSeed: props.themeSeed,
@@ -171,7 +177,7 @@ export const uiFixtures: UiFixture[] = [
 		'Welcome host',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
-			connection: hostConnection(),
+			entry: hostInvite(),
 		}),
 	),
 	fixture(
@@ -180,7 +186,7 @@ export const uiFixtures: UiFixture[] = [
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			selfMedia: selfMedia({ status: 'requesting' }),
-			connection: hostConnection({
+			entry: hostInvite({
 				status: 'creating-invite',
 				inviteLink: '',
 				inviteLinkStatus: 'idle',
@@ -198,7 +204,7 @@ export const uiFixtures: UiFixture[] = [
 				issue:
 					'Camera or microphone access was denied. Allow access in your browser, then try again.',
 			}),
-			connection: hostConnection(),
+			entry: hostInvite(),
 		}),
 	),
 	fixture(
@@ -207,7 +213,7 @@ export const uiFixtures: UiFixture[] = [
 		room({
 			themeSeed: SAMPLE_INVITE_CODE,
 			hostInviteMode: 'code',
-			connection: hostConnection(),
+			entry: hostInvite(),
 		}),
 	),
 	fixture(
@@ -215,7 +221,7 @@ export const uiFixtures: UiFixture[] = [
 		'Guest needs invite',
 		room({
 			themeSeed: 'guest-needs-invite',
-			connection: guestConnection(),
+			entry: guestJoin(),
 		}),
 	),
 	fixture(
@@ -232,7 +238,7 @@ export const uiFixtures: UiFixture[] = [
 					connectionState: 'waiting',
 				},
 			],
-			connection: guestConnection({
+			entry: guestJoin({
 				status: 'reply-ready',
 				inviteText: SAMPLE_OFFER,
 				replyCode: SAMPLE_REPLY,
@@ -253,10 +259,10 @@ export const uiFixtures: UiFixture[] = [
 					connectionState: 'waiting',
 				},
 			],
-			connection: guestConnection({
+			entry: guestJoin({
 				status: 'finding-link',
 				inviteText: SAMPLE_INVITE_LINK,
-				inviteLinkPresence: { guests: 1, hosts: 1, peers: 1 },
+				inviteLinkPresence: { guests: 1, hosts: 1 },
 				relayFallbackSecondsLeft: 5,
 			}),
 		}),
@@ -275,10 +281,10 @@ export const uiFixtures: UiFixture[] = [
 					connectionState: 'waiting',
 				},
 			],
-			connection: guestConnection({
+			entry: guestJoin({
 				status: 'finding-link',
 				inviteText: SAMPLE_INVITE_LINK,
-				inviteLinkPresence: { guests: 1, hosts: 1, peers: 2 },
+				inviteLinkPresence: { guests: 1, hosts: 1 },
 				relayFallbackSecondsLeft: 0,
 			}),
 		}),
@@ -297,11 +303,11 @@ export const uiFixtures: UiFixture[] = [
 					connectionState: 'waiting',
 				},
 			],
-			connection: guestConnection({
+			entry: guestJoin({
 				status: 'finding-link',
 				inviteText: SAMPLE_INVITE_LINK,
-				inviteLinkPresence: { guests: 1, hosts: 1, peers: 2 },
-				issue: statusCopy.relayQuotaExceeded,
+				inviteLinkPresence: { guests: 1, hosts: 1 },
+				issue: 'relay-quota-exceeded',
 			}),
 		}),
 	),
@@ -311,10 +317,10 @@ export const uiFixtures: UiFixture[] = [
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			canClaimFindingInviteLink: true,
-			connection: guestConnection({
+			entry: guestJoin({
 				status: 'finding-link',
 				inviteText: SAMPLE_INVITE_LINK,
-				inviteLinkPresence: { guests: 0, hosts: 0, peers: 0 },
+				inviteLinkPresence: { guests: 0, hosts: 0 },
 			}),
 		}),
 	),
@@ -323,11 +329,11 @@ export const uiFixtures: UiFixture[] = [
 		'Guest link service failed with host present',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
-			connection: guestConnection({
+			entry: guestJoin({
 				status: 'finding-link',
 				inviteText: SAMPLE_INVITE_LINK,
-				inviteLinkPresence: { guests: 1, hosts: 1, peers: 2 },
-				issue: statusCopy.inviteLinkUnreachable,
+				inviteLinkPresence: { guests: 1, hosts: 1 },
+				issue: 'discovery-unreachable',
 			}),
 		}),
 	),
@@ -351,7 +357,7 @@ export const uiFixtures: UiFixture[] = [
 			},
 			selfMedia: liveSelfMedia({ cameraEnabled: true }),
 			blipComposer: {
-				issue: blipIssueCopy.fileStopped,
+				issue: 'stopped',
 				text: '',
 			},
 			peers: [
@@ -363,7 +369,7 @@ export const uiFixtures: UiFixture[] = [
 					connectionState: 'waiting',
 				},
 			],
-			connection: hostConnection(),
+			entry: hostInvite(),
 		}),
 	),
 	fixture(
@@ -425,7 +431,7 @@ export const uiFixtures: UiFixture[] = [
 					connectionState: 'live',
 				},
 			],
-			connection: hostConnection(),
+			entry: hostInvite(),
 		}),
 	),
 	fixture(
@@ -448,7 +454,7 @@ export const uiFixtures: UiFixture[] = [
 					connectionState: 'live',
 				},
 			],
-			connection: guestConnection({
+			entry: guestJoin({
 				status: 'connected',
 				inviteText: SAMPLE_OFFER,
 				replyCode: SAMPLE_REPLY,
@@ -460,7 +466,7 @@ export const uiFixtures: UiFixture[] = [
 		'Closed room',
 		room({
 			themeSeed: 'closed-room',
-			connection: closedConnection(),
+			entry: closedEntry(),
 		}),
 	),
 	fixture(
@@ -468,12 +474,12 @@ export const uiFixtures: UiFixture[] = [
 		'Error screen',
 		room({
 			themeSeed: 'error-screen',
-			connection: hostConnection({
+			entry: hostInvite({
 				status: 'creating-invite',
 				inviteLink: '',
 				inviteLinkStatus: 'failed',
 				inviteCode: '',
-				issue: 'Could not create an invite link or invite code.',
+				issue: 'invite-creation-failed',
 			}),
 		}),
 	),

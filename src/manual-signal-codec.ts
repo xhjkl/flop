@@ -5,15 +5,6 @@ import {
 	bytesToBase64Url,
 } from './binary'
 
-export {
-	type AnswerDescription,
-	isAnswerDescription,
-	isOfferDescription,
-	isSignalDescription,
-	type OfferDescription,
-	type SignalDescription,
-} from '../contracts/signal'
-
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 

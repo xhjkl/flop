@@ -1,65 +1,60 @@
 import { log } from '../log'
 import { decodePacket, encodePacket, type ParticipantId } from '../protocol'
-import type { Peer } from '../webrtc'
-import type { GuestFlow } from './guest'
-import type { HostFlow } from './host'
-import { emptyGuestConnection } from './initial-state'
+import type { RtcPeer } from '../webrtc'
+import type { GuestFlow } from './entry/guest'
+import type { HostFlow } from './entry/host'
+import { emptyGuestJoin } from './initial-state'
 import type { RoomLifecycle } from './lifecycle'
 import {
-	isBeaconCandidate,
-	isBeaconLink,
-	isGuestRendezvousLink,
-	isHostRendezvousLink,
-	isManualGuestReplyLink,
-	isManualHostInviteLink,
+	isAdmissionLink,
+	isBeaconAdmissionLink,
 	isParticipantLink,
 	isVerifiedLink,
 	type LinkId,
 	type RoomLink,
 } from './link'
-import { participantKey } from './participant'
-import type { RoomLinkEvents, RoomRuntime } from './runtime'
-import { statusCopy } from './status-copy'
+import type { RoomLinkEvents, RoomSession } from './session'
 
 /** Link callbacks that turn WebRTC events into room protocol consequences. */
 export const createRoomLinkEvents = (
-	room: RoomRuntime,
+	room: RoomSession,
 	lifecycle: RoomLifecycle,
 	host: HostFlow,
 	guest: GuestFlow,
 ): RoomLinkEvents => {
 	const removeParticipantLink = (
 		participantId: ParticipantId,
-		options: { peer?: Peer | null } = {},
+		options: { rtc?: RtcPeer | null } = {},
 	) => {
 		// Link loss can mean "one guest left" or "the whole room ended."
-		const key = participantKey(participantId)
-		const link = room.participantLink(participantId)
+		const link = room.links.forParticipant(participantId)
 		if (link == null) return
-		if (options.peer != null && link.peer !== options.peer) return
+		if (options.rtc != null && link.rtc !== options.rtc) return
 
-		room.fileTransfers.abortIncomingFrom(participantId)
-		room.removeLink(link)
+		room.files.abortIncomingFrom(participantId)
+		room.links.remove(link)
 
-		if (room.isSelfGuest() && participantId === room.hostParticipantId) {
+		if (room.session.isGuest() && participantId === room.session.hostId) {
 			lifecycle.markRoomClosed()
 			return
 		}
 
-		if (room.isSelfGuest()) {
+		if (room.session.isGuest()) {
 			room.mesh.startMissingOffers()
 			return
 		}
 
 		// Guests can come and go. A guest only loses the room when the host disappears.
-		if (room.isSelfHost()) {
-			room.setParticipantKeys((keys) => keys.filter((item) => item !== key))
-			room.setParticipants(key, undefined)
-			room.broadcastMembershipChange({ left: participantId })
+		if (room.session.isHost()) {
+			room.participants.setIds((ids) =>
+				ids.filter((item) => item !== participantId),
+			)
+			room.participants.setRecords(participantId, void null)
+			room.packets.broadcastMembershipChange({ left: participantId })
 
 			if (
-				room.openParticipantLinkCount() === 0 &&
-				room.currentRendezvousLink('host-rendezvous', 'manual') == null
+				room.links.countOpenParticipants() === 0 &&
+				room.links.pending({ side: 'host', via: 'manual' }) == null
 			) {
 				void host.startInviteAsHost({ resetPeers: false })
 			}
@@ -68,32 +63,28 @@ export const createRoomLinkEvents = (
 
 	const onOpen = (linkId: LinkId) => {
 		// Open transport is not always room membership; beacon auth may still be pending.
-		const link = room.links.get(linkId)
+		const link = room.links.records.get(linkId)
 		if (link == null) return
 
 		link.channelOpen = true
-		room.notifyLinksChanged()
+		room.links.notifyChanged()
 		log('info', 'room', 'link.open', { link })
 
-		if (isBeaconLink(link) && !isVerifiedLink(link)) {
-			if (isHostRendezvousLink(link)) room.beaconAuth.sendChallenge(link)
-			else if (!isGuestRendezvousLink(link)) {
-				log('error', 'room', 'auth.unexpected-beacon-link-role', { link })
-				room.closeLink(link)
-			}
+		if (isBeaconAdmissionLink(link) && !isVerifiedLink(link)) {
+			if (link.purpose.side === 'host') room.auth.sendChallenge(link)
 			return
 		}
 
-		if (isGuestRendezvousLink(link)) {
+		if (isAdmissionLink(link) && link.purpose.side === 'guest') {
 			// Guests say hello first; hosts answer with welcome and identity.
-			link.peer.trySend(encodePacket({ type: 'hello' }))
+			link.rtc.trySend(encodePacket({ type: 'hello' }))
 			return
 		}
 
 		if (isParticipantLink(link)) {
 			// Reconnected or mesh links should receive the current self presence.
-			room.blips.sendLocalToPeer(link.peer)
-			room.sendLocalMediaStateToPeer(link.peer)
+			room.blips.sendLocalToPeer(link.rtc)
+			room.packets.sendLocalMediaStateToRtc(link.rtc)
 		}
 	}
 
@@ -106,8 +97,8 @@ export const createRoomLinkEvents = (
 			})
 			return
 		}
-		if (room.beaconAuth.handleAuthPacket(link, message)) return
-		if (isBeaconLink(link) && !isVerifiedLink(link)) {
+		if (room.auth.handleAuthPacket(link, message)) return
+		if (isBeaconAdmissionLink(link) && !isVerifiedLink(link)) {
 			// Beacon-discovered transports are only candidates until they prove the room secret.
 			log('warn', 'room', 'packet.before-auth', {
 				link,
@@ -116,31 +107,32 @@ export const createRoomLinkEvents = (
 			return
 		}
 
-		switch (link.role) {
-			case 'host-rendezvous':
-				host.handleHostRendezvousMessage(link, message)
-				break
-			case 'guest-rendezvous':
-				guest.handleGuestMessage(link, message)
-				break
-			case 'mesh':
-				// Mesh packets are only meaningful after the link is tied to a participant.
-				if (!isParticipantLink(link)) {
-					log('warn', 'room', 'mesh.message.missing-remote', {
-						link,
-						type: message.type,
-					})
+		switch (link.purpose.kind) {
+			case 'admission':
+				if (link.purpose.side === 'host') {
+					host.handleHostRendezvousMessage(link, message)
+				} else {
+					guest.handleGuestMessage(link, message)
+				}
+				return
+			case 'participant':
+				if (link.purpose.via === 'admission') {
+					// Admission links keep carrying host-owned setup packets after identity lands.
+					if (room.session.isHost()) {
+						host.handleHostRendezvousMessage(link, message)
+					} else {
+						guest.handleGuestMessage(link, message)
+					}
 					return
 				}
-
-				room.handleCommonMessage(link.remoteId, message)
-				break
+				room.packets.handleCommon(link.purpose.participantId, message)
+				return
 		}
 	}
 
 	const onMessage = (linkId: LinkId, text: string) => {
 		// Every incoming string becomes either auth, setup, or common room activity.
-		const link = room.links.get(linkId)
+		const link = room.links.records.get(linkId)
 		if (link == null) return
 
 		handlePeerMessage(link, text)
@@ -148,31 +140,39 @@ export const createRoomLinkEvents = (
 
 	const onClose = (linkId: LinkId) => {
 		// Close callbacks arrive after many paths; look up the current link before acting.
-		const link = room.links.get(linkId)
+		const link = room.links.records.get(linkId)
 		if (link == null) return
 
 		log('info', 'room', 'link.close', { link })
 		if (isParticipantLink(link)) {
-			removeParticipantLink(link.remoteId, { peer: link.peer })
+			removeParticipantLink(link.purpose.participantId, { rtc: link.rtc })
 			return
 		}
+		if (!isAdmissionLink(link)) return
 
-		room.removeLink(link)
-		if (isManualHostInviteLink(link) && room.isSelfHost()) {
+		const purpose = link.purpose
+		room.links.remove(link)
+		if (
+			purpose.side === 'host' &&
+			purpose.via === 'manual' &&
+			room.session.isHost()
+		) {
 			// A closed manual host invite should be replaced so the host stays joinable.
 			void host.startInviteAsHost({ resetPeers: false })
 		} else if (
-			isBeaconCandidate(link, 'guest-rendezvous') &&
-			room.localParticipantId == null
+			purpose.side === 'guest' &&
+			purpose.via === 'beacon' &&
+			room.session.selfId == null
 		) {
 			return
 		} else if (
-			isManualGuestReplyLink(link) &&
-			room.localParticipantId == null
+			purpose.side === 'guest' &&
+			purpose.via === 'manual' &&
+			room.session.selfId == null
 		) {
 			const inviteText =
-				room.state.connection.side === 'guest'
-					? room.state.connection.inviteText
+				room.ui.state.entry.side === 'guest'
+					? room.ui.state.entry.inviteText
 					: ''
 			log('warn', 'room', 'webrtc.direct.failed', {
 				link,
@@ -181,13 +181,13 @@ export const createRoomLinkEvents = (
 			log('warn', 'room', 'manual.reply.direct-connection.failed', {
 				nextStep: 'fresh-reply-or-network-change',
 			})
-			room.closeAllLinks()
-			room.setState('connection', {
-				...emptyGuestConnection(),
+			room.links.closeAll()
+			room.ui.setState('entry', {
+				...emptyGuestJoin(),
 				inviteText,
-				issue: statusCopy.directConnectionFailed,
+				issue: 'direct-connection-failed',
 			})
-		} else if (isGuestRendezvousLink(link)) {
+		} else if (purpose.side === 'guest') {
 			// Losing the host rendezvous before membership means the guest is done here.
 			lifecycle.markRoomClosed()
 		}

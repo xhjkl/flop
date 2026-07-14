@@ -1,17 +1,15 @@
 import {
-	type AnswerDescription,
-	isAnswerDescription,
-	isOfferDescription,
-	type OfferDescription,
-} from './signal'
+	isSignalDescription,
+	type SignalDescription,
+} from '../contracts/signal'
 
-/** Ephemeral room identity carried as fixed-width hex at the JSON edge. */
-export type ParticipantId = bigint
-
-/** Roster entry owned by the host and intentionally free of activity state. */
-export type Participant = {
-	id: ParticipantId
+/** Ephemeral room identity whose lexical order is also its mesh dialing order. */
+export type ParticipantId = string & {
+	readonly ParticipantId: unique symbol
 }
+
+/** Host-owned room membership in stable presentation order. */
+export type Roster = ParticipantId[]
 
 /** Tiny room protocol: the host introduces people, then peers carry their own words and bytes. */
 export type Packet =
@@ -42,42 +40,22 @@ export type Packet =
 	| {
 			type: 'welcome'
 			hostId: ParticipantId
-			roster: Participant[]
+			roster: Roster
 			selfId: ParticipantId
 	  }
-	| { type: 'roster'; roster: Participant[] }
+	| { type: 'roster'; roster: Roster }
 	| {
-			type: 'peer-offer'
+			type: 'peer-signal'
 			from: ParticipantId
-			signal: OfferDescription
-			to: ParticipantId
-	  }
-	| {
-			type: 'peer-answer'
-			from: ParticipantId
-			signal: AnswerDescription
+			signal: SignalDescription
 			to: ParticipantId
 	  }
 	| { type: 'peer-left'; id: ParticipantId }
 
-/** Fixed-width hex participant id used by logs, store keys, and JSON packets. */
-export const participantIdToString = (id: ParticipantId) => {
-	// BigInt is nicer inside the app; fixed hex is nicer at the JSON edge.
-	return id.toString(16).padStart(16, '0')
-}
-
-const parseParticipantId = (value: string): ParticipantId | null => {
+/** Validate a participant id crossing a protocol or test boundary. */
+export const parseParticipantId = (value: string): ParticipantId | null => {
 	if (!/^[0-9a-f]{16}$/.test(value)) return null
-
-	try {
-		return BigInt(`0x${value}`)
-	} catch {
-		return null
-	}
-}
-
-const encodeRoomValue = (_key: string, value: unknown) => {
-	return typeof value === 'bigint' ? participantIdToString(value) : value
+	return value as ParticipantId
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -88,22 +66,15 @@ const decodeParticipantId = (value: unknown) => {
 	return typeof value === 'string' ? parseParticipantId(value) : null
 }
 
-const decodeParticipant = (value: unknown): Participant | null => {
-	if (!isRecord(value)) return null
-
-	const id = decodeParticipantId(value.id)
-	return id == null ? null : { id }
-}
-
-const decodeRoster = (value: unknown): Participant[] | null => {
+const decodeRoster = (value: unknown): Roster | null => {
 	if (!Array.isArray(value)) return null
 
-	const roster: Participant[] = []
-	for (const valueParticipant of value) {
-		const participant = decodeParticipant(valueParticipant)
-		if (participant == null) return null
+	const roster: Roster = []
+	for (const valueParticipantId of value) {
+		const participantId = decodeParticipantId(valueParticipantId)
+		if (participantId == null) return null
 
-		roster.push(participant)
+		roster.push(participantId)
 	}
 
 	return roster
@@ -115,7 +86,7 @@ const isFileSize = (value: unknown): value is number => {
 
 /** Packet encoder for the room data-channel protocol. */
 export const encodePacket = (message: Packet) => {
-	return JSON.stringify(message, encodeRoomValue)
+	return JSON.stringify(message)
 }
 
 /** Packet decoder that rejects malformed or unknown room messages. */
@@ -202,19 +173,12 @@ export const decodePacket = (text: string): Packet | null => {
 			const roster = decodeRoster(message.roster)
 			return roster == null ? null : { roster, type: 'roster' }
 		}
-		case 'peer-offer': {
+		case 'peer-signal': {
 			const from = decodeParticipantId(message.from)
 			const to = decodeParticipantId(message.to)
-			return from == null || to == null || !isOfferDescription(message.signal)
+			return from == null || to == null || !isSignalDescription(message.signal)
 				? null
-				: { from, signal: message.signal, to, type: 'peer-offer' }
-		}
-		case 'peer-answer': {
-			const from = decodeParticipantId(message.from)
-			const to = decodeParticipantId(message.to)
-			return from == null || to == null || !isAnswerDescription(message.signal)
-				? null
-				: { from, signal: message.signal, to, type: 'peer-answer' }
+				: { from, signal: message.signal, to, type: 'peer-signal' }
 		}
 		case 'peer-left': {
 			const id = decodeParticipantId(message.id)

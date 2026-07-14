@@ -1,4 +1,4 @@
-import type { RoomLink } from './link'
+import { isParticipantLink, type RoomLink } from '../link'
 
 /** Manual copy-paste admission should feel stuck before users give up. */
 export const MANUAL_ADMISSION_TIMEOUT_MS = 60_000
@@ -16,7 +16,7 @@ export const watchRendezvousAdmission = (options: {
 	setTimeout(() => {
 		if (!options.versionStillCurrent(options.version)) return
 		if (!options.linkStillCurrent(options.link)) return
-		if (options.link.remoteId != null) return
+		if (isParticipantLink(options.link)) return
 		if (!options.stillWaiting()) return
 
 		options.onTimeout()

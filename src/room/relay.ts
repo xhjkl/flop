@@ -4,13 +4,18 @@ import {
 	RELAY_PATH,
 	RELAY_REQUEST_HEADER,
 } from '../../contracts/relay'
-import type { RelayMetering } from '../state'
 import type { LinkId, RoomLink } from './link'
 
 export { RELAY_GRANT_BYTES, RELAY_GRANT_SECONDS } from '../../contracts/relay'
 export const RELAY_FALLBACK_WAIT_SECONDS = 8
 
 const RELAY_STATS_INTERVAL_MS = 3000
+
+/** Shared TURN usage remaining for a relayed room. */
+export type RelayMetering = {
+	bytesLeft: number
+	secondsLeft: number
+}
 
 /** Relay mint refusal after the shared free allowance has been spent. */
 export class RelayQuotaExceededError extends Error {
@@ -28,7 +33,7 @@ type RelayPeerOptions = {
 /** Link surface needed to aggregate TURN usage. */
 type RelayStatsLink = {
 	id: LinkId
-	peer: Pick<RoomLink['peer'], 'relayStats'>
+	rtc: Pick<RoomLink['rtc'], 'relayStats'>
 }
 
 export type RoomRelay = {
@@ -131,7 +136,7 @@ export const createRoomRelay = (options: {
 	) => {
 		await Promise.all(
 			[...options.links.values()].map(async (link) => {
-				const stats = await link.peer.relayStats().catch((error: unknown) => {
+				const stats = await link.rtc.relayStats().catch((error: unknown) => {
 					if (session === generation) options.onStatsError(error, link)
 					return null
 				})

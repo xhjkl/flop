@@ -1,5 +1,5 @@
+import type { AnswerDescription, OfferDescription } from '../contracts/signal'
 import { log } from './log'
-import type { AnswerDescription, OfferDescription } from './signal'
 import {
 	acceptRoomDataChannel,
 	bindChannel,
@@ -15,8 +15,8 @@ import {
 	waitForIce,
 } from './webrtc/ice'
 
-// The room wants one simple peer: one text lane, optional camera/mic.
-export type Peer = {
+/** One WebRTC transport: a text lane plus optional camera and microphone tracks. */
+export type RtcPeer = {
 	createOffer: () => Promise<OfferDescription>
 	acceptAnswer: (answer: AnswerDescription) => Promise<void>
 	createAnswer: (offer: OfferDescription) => Promise<AnswerDescription>
@@ -74,7 +74,7 @@ const completeLocalDescription = async (pc: RTCPeerConnection) => {
 	return description
 }
 
-export const createPeer = (options: PeerOptions = {}): Peer => {
+export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
 	// The wrapper collapses three browser surfaces into one room primitive:
 	// SDP for setup, data channel for packets, transceivers for optional media.
 	const configuration: RTCConfiguration = {

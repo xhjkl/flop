@@ -1,9 +1,9 @@
 import { reconcile } from 'solid-js/store'
 import type { RoomSecret } from '../rendezvous/secret'
 import { clearProjectedHostInvite } from './address-bar'
-import { closedConnection } from './initial-state'
+import { closedEntry } from './initial-state'
 import { mergeParticipant, randomParticipantId } from './participant'
-import type { RoomRuntime } from './runtime'
+import type { RoomSession } from './session'
 
 /** Room-level resets and teardown, separated from invite and packet decisions. */
 export type RoomLifecycle = {
@@ -13,57 +13,55 @@ export type RoomLifecycle = {
 	resetBeforeJoining: (options?: { keepPendingBlip?: boolean }) => void
 }
 
-export const createRoomLifecycle = (room: RoomRuntime): RoomLifecycle => {
+export const createRoomLifecycle = (room: RoomSession): RoomLifecycle => {
 	const cancelSignaling = () => {
 		// Retire every async invite owner before tearing down the resources it can touch.
-		room.nextSignalingVersion()
-		room.roomSecret = null
-		room.roomKeys = null
-		room.stopBeaconRendezvous()
+		room.session.nextSignalingGeneration()
+		room.session.inviteSecret = null
+		room.session.keys = null
+		room.session.stopBeacon()
 	}
 
 	const clearPeerParticipants = () => {
 		// When a room ends, keep only the self card's history.
-		const local = room.localKey()
-		const self = local == null ? null : room.participants[local]
+		const local = room.session.selfId
+		const self = local == null ? null : room.participants.records[local]
 		const participants = local != null && self != null ? { [local]: self } : {}
 
-		room.setParticipants(reconcile(participants))
-		room.setParticipantKeys(local == null ? [] : [local])
+		room.participants.setRecords(reconcile(participants))
+		room.participants.setIds(local == null ? [] : [local])
 	}
 
 	const resetAsHost = (options: { secret?: RoomSecret | null } = {}) => {
 		// Starting fresh as host makes a new room identity and color.
 		room.relay.clear()
-		room.stopBeaconRendezvous()
+		room.session.stopBeacon()
 		room.blips.clearPending()
-		room.roomSecret = options.secret ?? null
-		room.roomKeys = null
-		room.localParticipantId = randomParticipantId()
-		room.hostParticipantId = room.localParticipantId
-		room.closeAllLinks()
+		room.session.inviteSecret = options.secret ?? null
+		room.session.keys = null
+		room.session.selfId = randomParticipantId()
+		room.session.hostId = room.session.selfId
+		room.links.closeAll()
 
-		const host = mergeParticipant({ id: room.localParticipantId })
-		room.setParticipants(reconcile({ [host.id]: host }))
-		room.setParticipantKeys([host.id])
-		room.setLocalKey(host.id)
-		room.setState('themeSeed', host.id)
+		const host = mergeParticipant(room.session.selfId)
+		room.participants.setRecords(reconcile({ [host.id]: host }))
+		room.participants.setIds([host.id])
+		room.ui.setState('themeSeed', host.id)
 	}
 
 	const resetBeforeJoining = (options: { keepPendingBlip?: boolean } = {}) => {
 		// Before welcome, a guest has no durable identity in this room.
 		clearProjectedHostInvite()
 		room.relay.clear()
-		room.stopBeaconRendezvous()
+		room.session.stopBeacon()
 		if (!options.keepPendingBlip) room.blips.clearPending()
-		room.roomSecret = null
-		room.roomKeys = null
-		room.localParticipantId = null
-		room.hostParticipantId = null
-		room.closeAllLinks()
-		room.setParticipants(reconcile({}))
-		room.setParticipantKeys([])
-		room.setLocalKey(null)
+		room.session.inviteSecret = null
+		room.session.keys = null
+		room.session.selfId = null
+		room.session.hostId = null
+		room.links.closeAll()
+		room.participants.setRecords(reconcile({}))
+		room.participants.setIds([])
 	}
 
 	const markRoomClosed = (options: { keepRelayMetering?: boolean } = {}) => {
@@ -71,17 +69,17 @@ export const createRoomLifecycle = (room: RoomRuntime): RoomLifecycle => {
 		clearProjectedHostInvite()
 		cancelSignaling()
 		room.relay.clear({ keepMetering: options.keepRelayMetering ?? false })
-		room.closeAllLinks()
+		room.links.closeAll()
 		clearPeerParticipants()
-		room.setState('connection', closedConnection())
+		room.ui.setState('entry', closedEntry())
 	}
 
 	const disposeRoom = () => {
 		// Tear down browser resources in the opposite order people see them.
 		cancelSignaling()
 		room.relay.clear()
-		room.closeAllLinks()
-		room.fileTransfers.disposeFileUrls()
+		room.links.closeAll()
+		room.files.disposeFileUrls()
 		room.media.disposeSelfMedia()
 	}
 

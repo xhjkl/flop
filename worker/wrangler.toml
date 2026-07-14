@@ -10,7 +10,7 @@ RELAY_ENABLED = "true"
 
 [[durable_objects.bindings]]
 name = "ROOMS"
-class_name = "FlopRoom"
+class_name = "RendezvousRoom"
 
 [[durable_objects.bindings]]
 name = "RELAY_GATE"
@@ -23,3 +23,7 @@ new_sqlite_classes = ["FlopRoom"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["RelayGate"]
+
+[[migrations]]
+tag = "v3"
+renamed_classes = [{ from = "FlopRoom", to = "RendezvousRoom" }]

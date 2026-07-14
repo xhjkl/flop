@@ -1,22 +1,23 @@
-import { log } from '../log'
-import {
-	type Packet,
-	type ParticipantId,
-	participantIdToString,
-} from '../protocol'
-import { randomRoomSecret } from '../rendezvous/secret'
-import { decodeSignal, encodeSignal } from '../signal'
-import { projectHostInvite } from './address-bar'
-import type { BeaconFlow } from './beacon-flow'
-import { emptyBlipComposer, emptyHostConnection } from './initial-state'
-import { inviteCodeFromSignal, inviteLinkFromSecret } from './invite'
-import type { RoomLifecycle } from './lifecycle'
-import type { RoomLink } from './link'
+import { log } from '../../log'
+import { decodeSignal, encodeSignal } from '../../manual-signal-codec'
+import type { Packet, ParticipantId } from '../../protocol'
+import { type RoomSecret, randomRoomSecret } from '../../rendezvous/secret'
+import { projectHostInvite } from '../address-bar'
+import { emptyBlipComposer, emptyHostInvite } from '../initial-state'
+import { inviteCodeFromSignal, inviteLinkFromSecret } from '../invite'
+import type { RoomLifecycle } from '../lifecycle'
+import { isParticipantLink, type RoomLink } from '../link'
+import { mergeParticipant } from '../participant'
+import type { RoomSession } from '../session'
+import type { BeaconFlow } from './beacon'
 import { MANUAL_ADMISSION_TIMEOUT_MS, watchRendezvousAdmission } from './manual'
-import { mergeParticipant } from './participant'
-import type { RoomRuntime } from './runtime'
-import { statusCopy } from './status-copy'
-import type { StartHostOptions } from './types'
+
+/** Host invite start can mint a room or claim an existing link secret. */
+export type StartHostOptions = {
+	claimed?: boolean
+	resetPeers?: boolean
+	secret?: RoomSecret | null
+}
 
 /** Host-side invite, admission, and manual reply transitions. */
 export type HostFlow = {
@@ -27,68 +28,67 @@ export type HostFlow = {
 }
 
 export const createHostFlow = (
-	room: RoomRuntime,
+	room: RoomSession,
 	lifecycle: RoomLifecycle,
 	beacon: BeaconFlow,
 ): HostFlow => {
 	const sendHostWelcome = (participantId: ParticipantId) => {
 		// Welcome gives the guest its id, host id, and first full roster.
-		if (room.localParticipantId == null) {
+		if (room.session.selfId == null) {
 			log('error', 'room', 'welcome.missing-local-host-id', {
-				participantId: participantIdToString(participantId),
+				participantId,
 			})
 			return false
 		}
-		const sent = room.sendToParticipant(participantId, {
-			hostId: room.localParticipantId,
-			roster: room.roomRoster(),
+		const sent = room.packets.sendToParticipant(participantId, {
+			hostId: room.session.selfId,
+			roster: room.participants.roster(),
 			selfId: participantId,
 			type: 'welcome',
 		})
 		if (!sent) {
 			log('warn', 'room', 'welcome.send.failed', {
-				participantId: participantIdToString(participantId),
+				participantId,
 			})
 			return false
 		}
-		const link = room.participantLink(participantId)
+		const link = room.links.forParticipant(participantId)
 		if (link != null) {
-			room.blips.sendLocalToPeer(link.peer)
-			room.sendLocalMediaStateToPeer(link.peer)
+			room.blips.sendLocalToPeer(link.rtc)
+			room.packets.sendLocalMediaStateToRtc(link.rtc)
 		}
 		return true
 	}
 
 	const handleHostPacket = (participantId: ParticipantId, message: Packet) => {
 		// Hosts accept room activity and broker mesh setup.
-		if (room.handleCommonMessage(participantId, message)) return true
+		if (room.packets.handleCommon(participantId, message)) return true
 		switch (message.type) {
 			case 'hello':
 				if (!sendHostWelcome(participantId)) {
-					room.removeParticipant(participantId)
+					room.participants.remove(participantId)
 					return false
 				}
-				room.broadcastMembershipChange()
+				room.packets.broadcastMembershipChange()
 				break
-			case 'peer-offer':
-			case 'peer-answer':
+			case 'peer-signal':
 				// The host introduces guests; it should not become the long-term transport.
-				if (message.to === room.localParticipantId) {
+				if (message.to === room.session.selfId) {
 					log('warn', 'room', 'mesh.signal.addressed-to-host', {
-						from: participantIdToString(participantId),
+						from: participantId,
 						type: message.type,
 					})
 					return true
 				}
 				if (
-					!room.sendToParticipant(message.to, {
+					!room.packets.sendToParticipant(message.to, {
 						...message,
 						from: participantId,
 					})
 				) {
 					log('warn', 'room', 'mesh.signal.forward.failed', {
-						from: participantIdToString(participantId),
-						to: participantIdToString(message.to),
+						from: participantId,
+						to: message.to,
 						type: message.type,
 					})
 				}
@@ -108,45 +108,44 @@ export const createHostFlow = (
 
 	const admitHostRendezvous = (link: RoomLink) => {
 		// The first hello on a host rendezvous claims a participant slot.
-		const existingId = link.remoteId
-		if (existingId != null) {
-			return { fresh: false, participantId: existingId }
+		if (isParticipantLink(link)) {
+			return { fresh: false, participantId: link.purpose.participantId }
 		}
 
-		const participant = room.assignGuestParticipant()
-		const person = mergeParticipant(participant)
-		room.setParticipants(person.id, person)
-		room.setParticipantKeys((keys) =>
-			keys.includes(person.id) ? keys : [...keys, person.id],
+		const participantId = room.participants.allocateId()
+		const person = mergeParticipant(participantId)
+		room.participants.setRecords(person.id, person)
+		room.participants.setIds((ids) =>
+			ids.includes(person.id) ? ids : [...ids, person.id],
 		)
-		if (!beacon.promoteRendezvousLink(link, participant.id)) {
+		if (!beacon.promoteAdmissionLink(link, participantId)) {
 			log('error', 'room', 'host.admit.adopt-link.failed', {
 				link,
-				participantId: participantIdToString(participant.id),
+				participantId,
 			})
-			room.removeParticipant(participant.id)
+			room.participants.remove(participantId)
 			return null
 		}
 
-		if (room.state.connection.side === 'host') {
-			room.setState('connection', {
-				...room.state.connection,
+		if (room.ui.state.entry.side === 'host') {
+			room.ui.setState('entry', {
+				...room.ui.state.entry,
 				issue: null,
 				replyText: '',
 			})
 		}
 		log('info', 'room', 'host.admit', {
 			link,
-			participantId: participantIdToString(participant.id),
+			participantId,
 		})
-		return { fresh: true, participantId: participant.id }
+		return { fresh: true, participantId }
 	}
 
 	const startInviteAsHost = async (
 		options: StartHostOptions = { resetPeers: true },
 	) => {
 		// Invite flow: every host room prepares the link path and the code path.
-		const version = room.nextSignalingVersion()
+		const version = room.session.nextSignalingGeneration()
 		const resetPeers = options.resetPeers ?? true
 		let nextLink: RoomLink | null = null
 
@@ -154,67 +153,67 @@ export const createHostFlow = (
 			if (resetPeers) {
 				// A full host restart means a new room, not a new invite for old peers.
 				lifecycle.resetAsHost({ secret: options.secret ?? null })
-				room.setState('blipComposer', emptyBlipComposer())
-			} else if (
-				room.localParticipantId == null ||
-				room.hostParticipantId == null
-			) {
+				room.ui.setState('blipComposer', emptyBlipComposer())
+			} else if (room.session.selfId == null || room.session.hostId == null) {
 				lifecycle.resetAsHost({ secret: options.secret ?? null })
 			} else {
-				room.closeRendezvousLink('host-rendezvous', 'manual')
+				room.links.closePending({ side: 'host', via: 'manual' })
 			}
 
-			if (options.claimed && room.localParticipantId != null) {
+			if (options.claimed && room.session.selfId != null) {
 				log('info', 'room', 'invite.link.claimed', {
-					hostId: participantIdToString(room.localParticipantId),
+					hostId: room.session.selfId,
 				})
 			}
-			if (room.roomSecret == null) {
-				room.roomSecret = options.secret ?? randomRoomSecret()
-			}
 			// One secret powers all invite link attempts for this host room.
-			const secret = room.roomSecret
+			const secret =
+				room.session.inviteSecret ?? options.secret ?? randomRoomSecret()
+			room.session.inviteSecret = secret
 			const inviteLink = inviteLinkFromSecret(secret)
 			projectHostInvite(secret, inviteLink)
-			room.setState('connection', {
-				...emptyHostConnection(),
+			room.ui.setState('entry', {
+				...emptyHostInvite(),
 				inviteLink,
 				inviteLinkStatus: 'finding',
 			})
-			void beacon.startBeaconRendezvous(secret, 'host', version)
+			void beacon.startBeaconClient(secret, 'host', version)
 
-			nextLink = room.createLink('host-rendezvous', { source: 'manual' })
+			nextLink = room.links.create({
+				kind: 'admission',
+				side: 'host',
+				via: 'manual',
+			})
 			// The invite code is a one-shot offer waiting for one guest reply.
-			const offer = await nextLink.peer.createOffer()
+			const offer = await nextLink.rtc.createOffer()
 			const inviteSignal = await encodeSignal(offer)
 			if (
-				!room.isCurrentSignalingVersion(version) ||
-				room.currentRendezvousLink('host-rendezvous', 'manual') !== nextLink
+				!room.session.isCurrentSignalingGeneration(version) ||
+				room.links.pending({ side: 'host', via: 'manual' }) !== nextLink
 			) {
-				room.closeLink(nextLink)
+				room.links.close(nextLink)
 				return
 			}
 
 			const inviteCode = inviteCodeFromSignal(inviteSignal)
-			room.setState('connection', {
-				...emptyHostConnection(),
+			room.ui.setState('entry', {
+				...emptyHostInvite(),
 				inviteCode,
 				inviteLink,
 				inviteLinkStatus:
-					room.state.connection.side === 'host'
-						? room.state.connection.inviteLinkStatus
+					room.ui.state.entry.side === 'host'
+						? room.ui.state.entry.inviteLinkStatus
 						: 'finding',
 				status: 'invite-ready',
 			})
 		} catch (error) {
 			log('warn', 'room', 'invite.create.failed', { error })
-			if (nextLink != null) room.closeLink(nextLink)
-			if (!room.isCurrentSignalingVersion(version)) return
-			room.setState('connection', {
-				...(room.state.connection.side === 'host'
-					? room.state.connection
-					: emptyHostConnection()),
-				issue: 'Could not create an invite link or invite code.',
+			if (nextLink != null) room.links.close(nextLink)
+			if (!room.session.isCurrentSignalingGeneration(version)) return
+			room.ui.setState('entry', {
+				...(room.ui.state.entry.side === 'host'
+					? room.ui.state.entry
+					: emptyHostInvite()),
+				issue: 'invite-creation-failed',
 			})
 		}
 	}
@@ -224,29 +223,29 @@ export const createHostFlow = (
 			delayMs: MANUAL_ADMISSION_TIMEOUT_MS,
 			link,
 			linkStillCurrent: (candidate) =>
-				room.links.get(candidate.id) === candidate,
+				room.links.records.get(candidate.id) === candidate,
 			stillWaiting: () => true,
 			version,
-			versionStillCurrent: room.isCurrentSignalingVersion,
+			versionStillCurrent: room.session.isCurrentSignalingGeneration,
 			onTimeout: () => {
 				log('warn', 'room', 'manual.admission.timeout', {
 					link,
 					nextStep: 'fresh-signaling-or-network-change',
 				})
-				room.closeLink(link)
-				if (room.state.connection.side === 'host') {
-					room.setState('connection', {
-						...room.state.connection,
-						issue: statusCopy.hostReplyFailed,
+				room.links.close(link)
+				if (room.ui.state.entry.side === 'host') {
+					room.ui.setState('entry', {
+						...room.ui.state.entry,
+						issue: 'host-reply-failed',
 						status: 'invite-ready',
 					})
 				}
 				void startInviteAsHost({ resetPeers: false }).then(() => {
-					if (room.state.connection.side !== 'host') return
+					if (room.ui.state.entry.side !== 'host') return
 
-					room.setState('connection', {
-						...room.state.connection,
-						issue: statusCopy.hostReplyFailed,
+					room.ui.setState('entry', {
+						...room.ui.state.entry,
+						issue: 'host-reply-failed',
 					})
 				})
 			},
@@ -255,7 +254,9 @@ export const createHostFlow = (
 
 	const handleHostRendezvousMessage = (link: RoomLink, message: Packet) => {
 		// Host rendezvous packets may be pre-admission or normal guest packets.
-		let participantId = link.remoteId
+		let participantId = isParticipantLink(link)
+			? link.purpose.participantId
+			: null
 		let fresh = false
 		if (participantId == null && message.type === 'hello') {
 			const admission = admitHostRendezvous(link)
@@ -284,22 +285,17 @@ export const createHostFlow = (
 		// The host finishes the manual handshake by accepting the guest answer.
 		const replyCode = (
 			replyText ??
-			(room.state.connection.side === 'host'
-				? room.state.connection.replyText
-				: '')
+			(room.ui.state.entry.side === 'host' ? room.ui.state.entry.replyText : '')
 		).trim()
-		const answeringLink = room.currentRendezvousLink(
-			'host-rendezvous',
-			'manual',
-		)
+		const answeringLink = room.links.pending({ side: 'host', via: 'manual' })
 		if (replyCode === '' || answeringLink == null) return
 
-		const version = room.signalingVersion
+		const version = room.session.signalingGeneration
 
 		try {
-			if (room.state.connection.side === 'host') {
-				room.setState('connection', {
-					...room.state.connection,
+			if (room.ui.state.entry.side === 'host') {
+				room.ui.setState('entry', {
+					...room.ui.state.entry,
 					issue: null,
 					replyText: replyCode,
 					status: 'accepting-reply',
@@ -310,8 +306,8 @@ export const createHostFlow = (
 			if (answer.type !== 'answer') {
 				throw new Error('Reply code did not contain an answer')
 			}
-			await answeringLink.peer.acceptAnswer(answer)
-			if (!room.isCurrentSignalingVersion(version)) return
+			await answeringLink.rtc.acceptAnswer(answer)
+			if (!room.session.isCurrentSignalingGeneration(version)) return
 
 			watchManualAdmission(answeringLink, version)
 		} catch (error) {
@@ -319,11 +315,11 @@ export const createHostFlow = (
 				error,
 				nextStep: 'fresh-reply-or-network-change',
 			})
-			if (!room.isCurrentSignalingVersion(version)) return
-			if (room.state.connection.side === 'host') {
-				room.setState('connection', {
-					...room.state.connection,
-					issue: statusCopy.hostReplyFailed,
+			if (!room.session.isCurrentSignalingGeneration(version)) return
+			if (room.ui.state.entry.side === 'host') {
+				room.ui.setState('entry', {
+					...room.ui.state.entry,
+					issue: 'host-reply-failed',
 					status: 'invite-ready',
 				})
 			}

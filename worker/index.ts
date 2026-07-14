@@ -1,7 +1,7 @@
 import {
 	discoveryIdFromRequest,
-	FlopRoom,
 	isRendezvousRequest,
+	RendezvousRoom,
 	websocketResponse,
 } from './beacon'
 import { type Env, json } from './common'
@@ -11,7 +11,7 @@ import {
 	RelayGate,
 } from './relay-gate'
 
-export { FlopRoom, RelayGate }
+export { RelayGate, RendezvousRoom }
 
 /** Public Worker route shared by rendezvous sockets and relay credentials. */
 export default {

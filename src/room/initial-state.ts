@@ -1,17 +1,17 @@
 import { emptySelfMedia, type SelfMedia } from '../self-media'
+import type { BlipComposerState } from './activity/blip'
 import type {
-	BlipComposerState,
-	ClosedConnectionState,
-	ConnectionState,
-	GuestConnectionState,
-	HostConnectionState,
-	RelayMetering,
-} from '../state'
+	ClosedEntryState,
+	GuestJoinState,
+	HostInviteState,
+	RoomEntryState,
+} from './entry/state'
+import type { RelayMetering } from './relay'
 
 /** Solid room store: visible card state, not persisted room data. */
 export type RoomState = {
 	blipComposer: BlipComposerState
-	connection: ConnectionState
+	entry: RoomEntryState
 	/** Shared TURN usage shown while a room is relayed. */
 	relayMetering: RelayMetering | null
 	selfMedia: SelfMedia
@@ -19,7 +19,7 @@ export type RoomState = {
 }
 
 /** Host card before an invite link/code has finished preparing. */
-export const emptyHostConnection = (): HostConnectionState => ({
+export const emptyHostInvite = (): HostInviteState => ({
 	side: 'host',
 	status: 'creating-invite',
 	inviteLink: '',
@@ -30,7 +30,7 @@ export const emptyHostConnection = (): HostConnectionState => ({
 })
 
 /** Guest card before the user has supplied any invite. */
-export const emptyGuestConnection = (): GuestConnectionState => ({
+export const emptyGuestJoin = (): GuestJoinState => ({
 	side: 'guest',
 	status: 'needs-invite',
 	inviteText: '',
@@ -41,7 +41,7 @@ export const emptyGuestConnection = (): GuestConnectionState => ({
 })
 
 /** Closed room recovery card. */
-export const closedConnection = (): ClosedConnectionState => ({
+export const closedEntry = (): ClosedEntryState => ({
 	side: 'closed',
 	issue: null,
 })
@@ -56,7 +56,7 @@ export const emptyBlipComposer = (): BlipComposerState => ({
 export const emptyRoomState = (themeSeed: string): RoomState => {
 	return {
 		blipComposer: emptyBlipComposer(),
-		connection: emptyHostConnection(),
+		entry: emptyHostInvite(),
 		relayMetering: null,
 		selfMedia: emptySelfMedia(),
 		themeSeed,
