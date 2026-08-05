@@ -24,7 +24,12 @@ const readJson = (key: string): unknown => {
 	const store = storage()
 	if (store == null) return null
 
-	const text = store.getItem(key)
+	let text: string | null
+	try {
+		text = store.getItem(key)
+	} catch {
+		return null
+	}
 	if (text == null) return null
 
 	try {
@@ -38,11 +43,15 @@ const writeJson = (key: string, value: unknown) => {
 	const store = storage()
 	if (store == null) return
 
-	store.setItem(key, JSON.stringify(value))
+	try {
+		store.setItem(key, JSON.stringify(value))
+	} catch {}
 }
 
 const removeItem = (key: string) => {
-	storage()?.removeItem(key)
+	try {
+		storage()?.removeItem(key)
+	} catch {}
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -51,11 +60,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 
 const tabToken = () => {
 	const store = storage()
-	const existing = store?.getItem(SESSION_TAB_KEY) ?? null
+	let existing: string | null = null
+	try {
+		existing = store?.getItem(SESSION_TAB_KEY) ?? null
+	} catch {}
 	if (existing != null && existing !== '') return existing
 
 	const token = randomBase64Url(TAB_TOKEN_BYTES)
-	store?.setItem(SESSION_TAB_KEY, token)
+	try {
+		store?.setItem(SESSION_TAB_KEY, token)
+	} catch {}
 	return token
 }
 
@@ -73,6 +87,7 @@ const hostInviteMarker = (value: unknown): HostInviteMarker | null => {
 }
 
 const currentState = () => {
+	if (typeof window === 'undefined') return {}
 	return isRecord(window.history.state) ? window.history.state : {}
 }
 

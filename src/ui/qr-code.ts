@@ -53,7 +53,7 @@ type QrGrid = {
 	size: number
 }
 
-export type QrCode = {
+type QrCode = {
 	path: string
 	size: number
 }

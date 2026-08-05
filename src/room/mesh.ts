@@ -3,97 +3,159 @@ import type {
 	OfferDescription,
 } from '../../contracts/signal'
 import { log } from '../log'
-import type { Packet, ParticipantId } from '../protocol'
-import type { RoomLink } from './link'
+import type { Packet, ParticipantId, RoomMembership } from '../protocol'
+import { newSignalExchangeId } from '../random'
+import type { RoomConnection } from './link'
 
 type MeshSignalPacket = Extract<Packet, { type: 'peer-signal' }>
 
-/** Guest-to-guest mesh signaling carried through the host rendezvous link. */
-export type RoomMesh = {
-	acceptSignal: (message: MeshSignalPacket) => Promise<void>
-	startMissingOffers: () => void
-}
+const MESH_NEGOTIATION_TIMEOUT_MS = 20_000
+const MESH_RETRY_DELAY_MS = 2_000
 
-/** Mesh setup controller; the room keeps ownership of identities and links. */
+/** Guest-to-guest connection setup relayed through the host. */
 export const createRoomMesh = (options: {
-	closeLink: (link: RoomLink) => void
-	createMeshLink: (participantId: ParticipantId) => RoomLink | null
-	hostParticipantId: () => ParticipantId | null
-	isSelfGuest: () => boolean
-	linkByParticipantId: (participantId: ParticipantId) => RoomLink | null
-	localParticipantId: () => ParticipantId | null
-	participantIds: () => ParticipantId[]
-	participantLink: (participantId: ParticipantId) => RoomLink | null
+	closeConnection: (connection: RoomConnection) => void
+	connectionFor: (participantId: ParticipantId) => RoomConnection | null
+	createConnection: (
+		participantId: ParticipantId,
+		exchangeId: MeshSignalPacket['exchangeId'],
+	) => RoomConnection | null
+	membership: () => RoomMembership | null
+	roster: () => ParticipantId[]
 	sendToHost: (message: Packet) => boolean
-}): RoomMesh => {
-	// The host shares rosters and forwards offers/answers; guests deterministically dial each edge once.
-	const createOffer = async (participantId: ParticipantId) => {
-		const localParticipantId = options.localParticipantId()
-		const hostParticipantId = options.hostParticipantId()
+}) => {
+	const retries = new Map<
+		ParticipantId,
+		{ connection: RoomConnection; timer: ReturnType<typeof setTimeout> }
+	>()
+
+	const scheduleOfferRetry = (
+		participantId: ParticipantId,
+		connection: RoomConnection,
+		delayMs: number,
+		membership: RoomMembership,
+	) => {
+		const scheduled = retries.get(participantId)
+		if (scheduled?.connection === connection) clearTimeout(scheduled.timer)
+
+		const timer = setTimeout(() => {
+			if (retries.get(participantId)?.timer !== timer) return
+			retries.delete(participantId)
+			if (options.membership() !== membership) return
+
+			const current = options.connectionFor(participantId)
+			if (current === connection && !connection.connected) {
+				options.closeConnection(connection)
+			}
+			if (
+				membership.selfId !== membership.hostId &&
+				options.roster().includes(participantId) &&
+				options.connectionFor(participantId) == null
+			) {
+				void offerConnection(participantId)
+			}
+		}, delayMs)
+		retries.set(participantId, { connection, timer })
+	}
+
+	const retryFailedOffer = (
+		participantId: ParticipantId,
+		connection: RoomConnection,
+		membership: RoomMembership,
+	) => {
 		if (
-			!options.isSelfGuest() ||
-			localParticipantId == null ||
-			hostParticipantId == null ||
-			options.participantLink(participantId) != null
+			options.membership() !== membership ||
+			options.connectionFor(participantId) !== connection
+		) {
+			return false
+		}
+		options.closeConnection(connection)
+		scheduleOfferRetry(
+			participantId,
+			connection,
+			MESH_RETRY_DELAY_MS,
+			membership,
+		)
+		return true
+	}
+
+	const offerConnection = async (participantId: ParticipantId) => {
+		const membership = options.membership()
+		const scheduled = retries.get(participantId)
+		if (scheduled != null) {
+			if (options.connectionFor(participantId) === scheduled.connection) return
+			clearTimeout(scheduled.timer)
+			retries.delete(participantId)
+		}
+		if (
+			membership == null ||
+			membership.selfId === membership.hostId ||
+			membership.selfId < participantId ||
+			!options.roster().includes(participantId) ||
+			options.connectionFor(participantId) != null
 		) {
 			return
 		}
 
-		const link = options.createMeshLink(participantId)
-		if (link == null) return
+		const exchangeId = newSignalExchangeId()
+		const connection = options.createConnection(participantId, exchangeId)
+		if (connection == null) return
+		scheduleOfferRetry(
+			participantId,
+			connection,
+			MESH_NEGOTIATION_TIMEOUT_MS,
+			membership,
+		)
 
 		try {
-			const signal = await link.rtc.createOffer()
-			if (options.participantLink(participantId) !== link) {
-				options.closeLink(link)
+			const signal = await connection.rtc.createOffer()
+			if (options.connectionFor(participantId) !== connection) {
 				return
 			}
 
 			if (
 				!options.sendToHost({
+					exchangeId,
 					type: 'peer-signal',
-					from: localParticipantId,
+					from: membership.selfId,
 					to: participantId,
 					signal,
 				})
 			) {
-				log('warn', 'room', 'mesh.offer.send.failed', {
-					participantId,
-				})
-				options.closeLink(link)
+				if (retryFailedOffer(participantId, connection, membership)) {
+					log('warn', 'room', 'mesh.offer.send.failed', {
+						participantId,
+					})
+				}
 			}
 		} catch (error) {
-			log('warn', 'room', 'mesh.offer.failed', {
-				error,
-				participantId,
-			})
-			options.closeLink(link)
+			if (retryFailedOffer(participantId, connection, membership)) {
+				log('warn', 'room', 'mesh.offer.failed', {
+					error,
+					participantId,
+				})
+			}
 		}
 	}
 
-	const startMissingOffers = () => {
-		// After each roster update, fill in direct guest-to-guest edges.
-		const localParticipantId = options.localParticipantId()
-		const hostParticipantId = options.hostParticipantId()
-		if (
-			!options.isSelfGuest() ||
-			localParticipantId == null ||
-			hostParticipantId == null
-		) {
+	const connectMissingPeers = () => {
+		// The lexicographically larger guest offers, so every pair creates one edge.
+		const membership = options.membership()
+		if (membership == null || membership.selfId === membership.hostId) {
 			return
 		}
 
-		for (const participantId of options.participantIds()) {
+		for (const participantId of options.roster()) {
 			if (
-				participantId === localParticipantId ||
-				participantId === hostParticipantId ||
-				options.linkByParticipantId(participantId) != null ||
-				localParticipantId < participantId
+				participantId === membership.selfId ||
+				participantId === membership.hostId ||
+				options.connectionFor(participantId) != null ||
+				membership.selfId < participantId
 			) {
 				continue
 			}
 
-			void createOffer(participantId)
+			void offerConnection(participantId)
 		}
 	}
 
@@ -102,35 +164,54 @@ export const createRoomMesh = (options: {
 		signal: OfferDescription,
 	) => {
 		// The target guest answers, then the host carries that answer back.
-		const localParticipantId = options.localParticipantId()
-		if (!options.isSelfGuest() || localParticipantId == null) {
+		const membership = options.membership()
+		if (membership == null || membership.selfId === membership.hostId) {
 			return
 		}
-		if (message.to !== localParticipantId) {
+		if (message.to !== membership.selfId) {
 			log('warn', 'room', 'mesh.offer.wrong-target', {
 				from: message.from,
 				to: message.to,
 			})
 			return
 		}
+		if (message.from < membership.selfId) {
+			log('warn', 'room', 'mesh.offer.wrong-dialer', {
+				from: message.from,
+				to: membership.selfId,
+			})
+			return
+		}
 
-		const existing = options.participantLink(message.from)
-		if (existing != null) options.closeLink(existing)
+		// Keep a live edge, but replace a negotiation that never opened.
+		const existing = options.connectionFor(message.from)
+		if (existing?.connected) return
+		if (
+			existing?.origin.kind === 'mesh' &&
+			existing.origin.exchangeId === message.exchangeId
+		) {
+			return
+		}
+		if (existing != null) options.closeConnection(existing)
 
-		const link = options.createMeshLink(message.from)
-		if (link == null) return
+		const connection = options.createConnection(
+			message.from,
+			message.exchangeId,
+		)
+		if (connection == null) return
 
 		try {
-			const answer = await link.rtc.createAnswer(signal)
-			if (options.participantLink(message.from) !== link) {
-				options.closeLink(link)
+			const answer = await connection.rtc.createAnswer(signal)
+			if (options.connectionFor(message.from) !== connection) {
+				options.closeConnection(connection)
 				return
 			}
 
 			if (
 				!options.sendToHost({
+					exchangeId: message.exchangeId,
 					type: 'peer-signal',
-					from: localParticipantId,
+					from: membership.selfId,
 					to: message.from,
 					signal: answer,
 				})
@@ -138,14 +219,14 @@ export const createRoomMesh = (options: {
 				log('warn', 'room', 'mesh.answer.send.failed', {
 					participantId: message.from,
 				})
-				options.closeLink(link)
+				options.closeConnection(connection)
 			}
 		} catch (error) {
 			log('warn', 'room', 'mesh.answer.failed', {
 				error,
 				participantId: message.from,
 			})
-			options.closeLink(link)
+			options.closeConnection(connection)
 		}
 	}
 
@@ -154,40 +235,71 @@ export const createRoomMesh = (options: {
 		signal: AnswerDescription,
 	) => {
 		// The dialing guest completes the direct edge here.
-		const localParticipantId = options.localParticipantId()
-		if (localParticipantId == null) return
-		if (message.to !== localParticipantId) {
+		const membership = options.membership()
+		if (membership == null || membership.selfId === membership.hostId) return
+		if (message.to !== membership.selfId) {
 			log('warn', 'room', 'mesh.answer.wrong-target', {
 				from: message.from,
 				to: message.to,
 			})
 			return
 		}
+		if (membership.selfId < message.from) {
+			log('warn', 'room', 'mesh.answer.wrong-dialer', {
+				from: message.from,
+				to: membership.selfId,
+			})
+			return
+		}
 
-		const link = options.participantLink(message.from)
-		if (link == null) {
+		const connection = options.connectionFor(message.from)
+		if (connection == null) {
 			log('warn', 'room', 'mesh.answer.missing-link', {
 				from: message.from,
 			})
 			return
 		}
+		if (connection.connected) return
+		if (
+			connection.origin.kind !== 'mesh' ||
+			connection.origin.exchangeId !== message.exchangeId
+		) {
+			log('warn', 'room', 'mesh.answer.stale-exchange', {
+				expected:
+					connection.origin.kind === 'mesh'
+						? connection.origin.exchangeId
+						: null,
+				from: message.from,
+				received: message.exchangeId,
+			})
+			return
+		}
+		// Consume before awaiting RTC so a replay cannot race this answer.
+		connection.origin.exchangeId = null
 
 		try {
-			await link.rtc.acceptAnswer(signal)
+			await connection.rtc.acceptAnswer(signal)
 		} catch (error) {
-			log('warn', 'room', 'mesh.answer.accept.failed', {
-				error,
-				from: message.from,
-			})
-			options.closeLink(link)
+			if (retryFailedOffer(message.from, connection, membership)) {
+				log('warn', 'room', 'mesh.answer.accept.failed', {
+					error,
+					from: message.from,
+				})
+			}
 		}
 	}
 
-	const acceptSignal = (message: MeshSignalPacket) => {
+	const handleSignal = (message: MeshSignalPacket) => {
 		return message.signal.type === 'offer'
 			? acceptOffer(message, message.signal)
 			: acceptAnswer(message, message.signal)
 	}
 
-	return { acceptSignal, startMissingOffers }
+	/** Cancel negotiations so no old room can retry inside its successor. */
+	const reset = () => {
+		for (const retry of retries.values()) clearTimeout(retry.timer)
+		retries.clear()
+	}
+
+	return { connectMissingPeers, handleSignal, reset }
 }

@@ -1,43 +1,35 @@
 import {
+	type BeaconPeer,
 	type BeaconPeerId,
-	type BeaconPresence,
 	type ClientBeaconMessage,
 	decodeServerBeaconMessage,
-	type ExchangeId,
 	parseBeaconPeerId,
-	parseExchangeId,
 } from '../../contracts/beacon'
 import type {
 	AnswerDescription,
 	OfferDescription,
+	SignalExchangeId,
 } from '../../contracts/signal'
 import { bytesToBase64Url } from '../binary'
 import { log } from '../log'
-import { randomBase64Url } from '../random'
+import { newSignalExchangeId, randomBase64Url } from '../random'
 
-export type { BeaconPresence } from '../../contracts/beacon'
-
-/** Beacon socket lifecycle state projected into invite-link UI. */
-export type BeaconStatus = 'failed' | 'finding' | 'idle' | 'ready'
-
-/** Room-discovery socket; room contents remain on authenticated WebRTC links. */
-export type BeaconClient = {
-	close: () => void
-}
+/** Beacon socket state projected into invite-link UI. */
+export type BeaconSocketStatus = 'connecting' | 'failed' | 'ready'
 
 type CommonBeaconOptions = {
 	discoveryId: Uint8Array
-	onPresence: (presence: BeaconPresence) => void
-	onStatus: (status: BeaconStatus) => void
+	onPeers: (peers: BeaconPeer[]) => void
+	onStatus: (status: BeaconSocketStatus) => void
 }
 
 type HostBeaconOptions = CommonBeaconOptions & {
 	createOffer: (
-		exchangeId: ExchangeId,
-		to: BeaconPeerId | null,
+		exchangeId: SignalExchangeId,
+		to: BeaconPeerId,
 	) => Promise<OfferDescription | null>
 	onAnswer: (
-		exchangeId: ExchangeId,
+		exchangeId: SignalExchangeId,
 		from: BeaconPeerId,
 		answer: AnswerDescription,
 	) => void
@@ -55,12 +47,11 @@ type GuestBeaconOptions = CommonBeaconOptions & {
 
 type BeaconOptions = GuestBeaconOptions | HostBeaconOptions
 
-const EXCHANGE_ID_BYTES = 16
 const PEER_ID_BYTES = 16
 const RECONNECT_MAXIMUM_MS = 60_000
 const RECONNECT_MINIMUM_MS = 10_000
 const RECONNECT_VARIANCE_MS = 5_000
-const REFRESH_OFFER_INTERVAL_MS = 30_000
+const OFFER_RETRY_MS = 30_000
 
 const decodeBeaconMessage = (data: unknown) => {
 	if (typeof data !== 'string') return null
@@ -82,27 +73,24 @@ const beaconUrl = (discoveryId: Uint8Array) => {
 	return url.href
 }
 
-export const createBeaconClient = (options: BeaconOptions): BeaconClient => {
+/** Room-discovery socket; room contents remain on authenticated WebRTC links. */
+export const createBeaconClient = (options: BeaconOptions) => {
 	const url = beaconUrl(options.discoveryId)
 	const peerId = parseBeaconPeerId(randomBase64Url(PEER_ID_BYTES))
 	if (peerId == null) throw new Error('Failed to create beacon peer id')
-	const timers = new Set<ReturnType<typeof setTimeout>>()
 	let closed = false
-	let currentStatus: BeaconStatus | null = null
+	let currentStatus: BeaconSocketStatus | null = null
+	let guestPeers = new Set<BeaconPeerId>()
+	const offerTimers = new Map<BeaconPeerId, ReturnType<typeof setTimeout>>()
 	let reconnectAttempt = 0
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-	let refreshOfferTimer: ReturnType<typeof setTimeout> | null = null
 	let socket: WebSocket | null = null
 
-	const setStatus = (status: BeaconStatus) => {
+	const setStatus = (status: BeaconSocketStatus) => {
 		if (status === currentStatus) return
 
 		currentStatus = status
 		options.onStatus(status)
-	}
-
-	const setPresence = (presence: BeaconPresence) => {
-		options.onPresence(presence)
 	}
 
 	const send = (message: ClientBeaconMessage) => {
@@ -118,49 +106,46 @@ export const createBeaconClient = (options: BeaconOptions): BeaconClient => {
 		}
 	}
 
-	const clearRefreshOfferTimer = () => {
-		if (refreshOfferTimer == null) return
-
-		clearTimeout(refreshOfferTimer)
-		timers.delete(refreshOfferTimer)
-		refreshOfferTimer = null
-	}
-
-	const scheduleRefreshOffer = () => {
-		clearRefreshOfferTimer()
-		const timer = setTimeout(() => {
-			timers.delete(timer)
-			refreshOfferTimer = null
-			sendOffer(null)
-			if (!closed) scheduleRefreshOffer()
-		}, REFRESH_OFFER_INTERVAL_MS)
-		refreshOfferTimer = timer
-		timers.add(timer)
-	}
-
-	const sendOffer = (to: BeaconPeerId | null) => {
+	const sendOffer = async (to: BeaconPeerId) => {
 		if (options.role !== 'host') return
 
-		const exchangeId = parseExchangeId(randomBase64Url(EXCHANGE_ID_BYTES))
-		if (exchangeId == null) throw new Error('Failed to create exchange id')
-		void options
-			.createOffer(exchangeId, to)
-			.then((offer) => {
-				if (closed || offer == null) return
+		const exchangeId = newSignalExchangeId()
+		try {
+			const offer = await options.createOffer(exchangeId, to)
+			if (closed || offer == null) return
 
-				log('info', 'beacon', 'offer.sent', {
-					to,
-					role: options.role,
-					url,
-				})
-				send({
-					exchangeId,
-					signal: offer,
-					to,
-					type: 'signal',
-				})
+			log('info', 'beacon', 'offer.sent', {
+				to,
+				role: options.role,
+				url,
 			})
-			.catch((error) => log('warn', 'beacon', 'offer.create.failed', { error }))
+			send({ exchangeId, signal: offer, to, type: 'signal' })
+		} catch (error) {
+			log('warn', 'beacon', 'offer.create.failed', { error })
+		}
+	}
+
+	const clearOfferTimers = () => {
+		for (const timer of offerTimers.values()) clearTimeout(timer)
+		offerTimers.clear()
+	}
+
+	const scheduleOffer = (to: BeaconPeerId, delayMs: number) => {
+		if (closed || options.role !== 'host' || offerTimers.has(to)) return
+
+		const timer = setTimeout(() => {
+			if (!guestPeers.has(to)) {
+				offerTimers.delete(to)
+				return
+			}
+
+			void sendOffer(to).finally(() => {
+				if (offerTimers.get(to) !== timer) return
+				offerTimers.delete(to)
+				scheduleOffer(to, OFFER_RETRY_MS)
+			})
+		}, delayMs)
+		offerTimers.set(to, timer)
 	}
 
 	const scheduleReconnect = () => {
@@ -174,7 +159,6 @@ export const createBeaconClient = (options: BeaconOptions): BeaconClient => {
 			) + Math.floor(Math.random() * RECONNECT_VARIANCE_MS)
 		log('info', 'beacon', 'socket.reconnect.scheduled', { delay, url })
 		const timer = setTimeout(() => {
-			timers.delete(timer)
 			reconnectTimer = null
 			if (closed) return
 
@@ -182,7 +166,6 @@ export const createBeaconClient = (options: BeaconOptions): BeaconClient => {
 			openSocket()
 		}, delay)
 		reconnectTimer = timer
-		timers.add(timer)
 	}
 
 	const handleMessage = (data: unknown) => {
@@ -196,47 +179,28 @@ export const createBeaconClient = (options: BeaconOptions): BeaconClient => {
 		}
 
 		switch (message.type) {
-			case 'ready': {
-				const presence = message.presence
-				log('info', 'beacon', 'ready', {
-					guests: presence.guests,
-					hosts: presence.hosts,
+			case 'peers': {
+				const peers = message.peers.filter((peer) => peer.id !== peerId)
+				log('info', 'beacon', 'peers', {
+					guests: peers.filter((peer) => peer.role === 'guest').length,
+					hosts: peers.filter((peer) => peer.role === 'host').length,
 					role: options.role,
 					url,
 				})
-				setPresence(presence)
 				setStatus('ready')
-				if (options.role === 'host') {
-					sendOffer(null)
-					scheduleRefreshOffer()
-				}
-				return
-			}
-			case 'peer-joined': {
-				if (message.peer.id === peerId) return
+				options.onPeers(peers)
+				if (options.role !== 'host') return
 
-				const presence = message.presence
-				log('info', 'beacon', 'peer.joined', {
-					guests: presence.guests,
-					hosts: presence.hosts,
-					role: options.role,
-					url,
-				})
-				setPresence(presence)
-				if (options.role === 'host' && message.peer.role === 'guest') {
-					sendOffer(message.peer.id)
+				const nextGuests = new Set(
+					peers.filter((peer) => peer.role === 'guest').map((peer) => peer.id),
+				)
+				for (const [id, timer] of offerTimers) {
+					if (nextGuests.has(id)) continue
+					clearTimeout(timer)
+					offerTimers.delete(id)
 				}
-				return
-			}
-			case 'presence': {
-				const presence = message.presence
-				log('info', 'beacon', 'presence', {
-					guests: presence.guests,
-					hosts: presence.hosts,
-					role: options.role,
-					url,
-				})
-				setPresence(presence)
+				guestPeers = nextGuests
+				for (const id of nextGuests) scheduleOffer(id, 0)
 				return
 			}
 			case 'signal':
@@ -269,7 +233,7 @@ export const createBeaconClient = (options: BeaconOptions): BeaconClient => {
 	const openSocket = () => {
 		if (closed) return
 
-		setStatus('finding')
+		setStatus('connecting')
 		let nextSocket: WebSocket
 		try {
 			nextSocket = new WebSocket(url)
@@ -286,6 +250,8 @@ export const createBeaconClient = (options: BeaconOptions): BeaconClient => {
 
 			log('info', 'beacon', 'socket.open', { url })
 			reconnectAttempt = 0
+			clearOfferTimers()
+			guestPeers.clear()
 			send({
 				id: peerId,
 				role: options.role,
@@ -299,7 +265,8 @@ export const createBeaconClient = (options: BeaconOptions): BeaconClient => {
 		}
 		nextSocket.onclose = () => {
 			if (socket === nextSocket) socket = null
-			clearRefreshOfferTimer()
+			clearOfferTimers()
+			guestPeers.clear()
 			if (closed) return
 
 			setStatus('failed')
@@ -312,17 +279,15 @@ export const createBeaconClient = (options: BeaconOptions): BeaconClient => {
 		}
 	}
 
-	setStatus('idle')
 	openSocket()
 
 	return {
 		close: () => {
 			closed = true
-			setStatus('idle')
-			for (const timer of timers) clearTimeout(timer)
-			timers.clear()
+			if (reconnectTimer != null) clearTimeout(reconnectTimer)
 			reconnectTimer = null
-			clearRefreshOfferTimer()
+			clearOfferTimers()
+			guestPeers.clear()
 			socket?.close()
 			socket = null
 		},

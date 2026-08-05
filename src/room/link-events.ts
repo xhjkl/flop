@@ -1,196 +1,156 @@
 import { log } from '../log'
-import { decodePacket, encodePacket, type ParticipantId } from '../protocol'
-import type { RtcPeer } from '../webrtc'
+import { decodePacket, encodePacket } from '../protocol'
 import type { GuestFlow } from './entry/guest'
 import type { HostFlow } from './entry/host'
-import { emptyGuestJoin } from './initial-state'
-import type { RoomLifecycle } from './lifecycle'
-import {
-	isAdmissionLink,
-	isBeaconAdmissionLink,
-	isParticipantLink,
-	isVerifiedLink,
-	type LinkId,
-	type RoomLink,
-} from './link'
-import type { RoomLinkEvents, RoomSession } from './session'
+import { initialGuestEntry } from './entry/state'
+import { hasRoomAccess, isBeaconConnection, type RoomConnection } from './link'
+import type { RoomSession } from './session'
 
-/** Link callbacks that turn WebRTC events into room protocol consequences. */
+/** Route RTC callbacks through the connection's current admission or participant. */
 export const createRoomLinkEvents = (
 	room: RoomSession,
-	lifecycle: RoomLifecycle,
 	host: HostFlow,
 	guest: GuestFlow,
-): RoomLinkEvents => {
-	const removeParticipantLink = (
-		participantId: ParticipantId,
-		options: { rtc?: RtcPeer | null } = {},
-	) => {
-		// Link loss can mean "one guest left" or "the whole room ended."
-		const link = room.links.forParticipant(participantId)
-		if (link == null) return
-		if (options.rtc != null && link.rtc !== options.rtc) return
+) => {
+	const handlePeerClose = (connection: RoomConnection) => {
+		const peer = room.connections.peerByConnection(connection)
+		if (peer == null) return false
 
-		room.files.abortIncomingFrom(participantId)
-		room.links.remove(link)
+		room.connections.remove(connection)
 
-		if (room.session.isGuest() && participantId === room.session.hostId) {
-			lifecycle.markRoomClosed()
-			return
-		}
-
-		if (room.session.isGuest()) {
-			room.mesh.startMissingOffers()
-			return
-		}
-
-		// Guests can come and go. A guest only loses the room when the host disappears.
-		if (room.session.isHost()) {
-			room.participants.setIds((ids) =>
-				ids.filter((item) => item !== participantId),
-			)
-			room.participants.setRecords(participantId, void null)
-			room.packets.broadcastMembershipChange({ left: participantId })
-
-			if (
-				room.links.countOpenParticipants() === 0 &&
-				room.links.pending({ side: 'host', via: 'manual' }) == null
-			) {
-				void host.startInviteAsHost({ resetPeers: false })
+		const membership = room.membership()
+		if (room.localRoomRole() === 'guest') {
+			if (peer.id === membership?.hostId) {
+				room.closeRoom()
+			} else {
+				room.mesh.connectMissingPeers()
 			}
+			return true
 		}
+
+		if (room.localRoomRole() !== 'host') return true
+		room.peers.remove(peer.id)
+		room.packets.broadcastRoster()
+		if (
+			room.connections.openPeerConnections().length === 0 &&
+			room.connections.manualAdmission('host') == null
+		) {
+			void host.refreshInvite()
+		}
+		return true
 	}
 
-	const onOpen = (linkId: LinkId) => {
-		// Open transport is not always room membership; beacon auth may still be pending.
-		const link = room.links.records.get(linkId)
-		if (link == null) return
+	const onOpen = (connection: RoomConnection) => {
+		if (!room.connections.isCurrent(connection)) return
 
-		link.channelOpen = true
-		room.links.notifyChanged()
-		log('info', 'room', 'link.open', { link })
+		connection.connected = true
+		log('info', 'room', 'connection.open', { connection })
 
-		if (isBeaconAdmissionLink(link) && !isVerifiedLink(link)) {
-			if (link.purpose.side === 'host') room.auth.sendChallenge(link)
+		if (isBeaconConnection(connection) && !hasRoomAccess(connection)) {
+			if (connection.origin.localRole === 'host') {
+				room.auth.sendChallenge(connection)
+			}
 			return
 		}
 
-		if (isAdmissionLink(link) && link.purpose.side === 'guest') {
-			// Guests say hello first; hosts answer with welcome and identity.
-			link.rtc.trySend(encodePacket({ type: 'hello' }))
+		const peer = room.connections.peerByConnection(connection)
+		if (peer == null) {
+			if (
+				connection.origin.kind !== 'mesh' &&
+				connection.origin.localRole === 'guest'
+			) {
+				// Guest rendezvous starts only after the data channel and any auth are ready.
+				connection.rtc.trySend(encodePacket({ type: 'hello' }))
+			}
 			return
 		}
 
-		if (isParticipantLink(link)) {
-			// Reconnected or mesh links should receive the current self presence.
-			room.blips.sendLocalToPeer(link.rtc)
-			room.packets.sendLocalMediaStateToRtc(link.rtc)
-		}
+		// Mesh connections open after assignment and need the current local presence.
+		room.packets.sendPortraitState(connection)
 	}
 
-	const handlePeerMessage = (link: RoomLink, text: string) => {
+	const onMessage = (connection: RoomConnection, text: string) => {
+		if (!room.connections.isCurrent(connection)) return
+
 		const message = decodePacket(text)
 		if (message == null) {
 			log('warn', 'room', 'packet.decode.failed', {
+				connection,
 				length: text.length,
-				linkId: link.id,
 			})
 			return
 		}
-		if (room.auth.handleAuthPacket(link, message)) return
-		if (isBeaconAdmissionLink(link) && !isVerifiedLink(link)) {
-			// Beacon-discovered transports are only candidates until they prove the room secret.
+		if (room.auth.handleAuthPacket(connection, message)) return
+		if (isBeaconConnection(connection) && !hasRoomAccess(connection)) {
 			log('warn', 'room', 'packet.before-auth', {
-				link,
+				connection,
 				type: message.type,
 			})
 			return
 		}
 
-		switch (link.purpose.kind) {
-			case 'admission':
-				if (link.purpose.side === 'host') {
-					host.handleHostRendezvousMessage(link, message)
+		switch (connection.origin.kind) {
+			case 'beacon':
+			case 'manual':
+				if (connection.origin.localRole === 'host') {
+					host.handleMessage(connection, message)
 				} else {
-					guest.handleGuestMessage(link, message)
+					guest.handleMessage(connection, message)
 				}
 				return
-			case 'participant':
-				if (link.purpose.via === 'admission') {
-					// Admission links keep carrying host-owned setup packets after identity lands.
-					if (room.session.isHost()) {
-						host.handleHostRendezvousMessage(link, message)
-					} else {
-						guest.handleGuestMessage(link, message)
-					}
+			case 'mesh': {
+				const peer = room.connections.peerByConnection(connection)
+				if (peer == null) {
+					log('warn', 'room', 'mesh.packet.unassigned', {
+						connection,
+						type: message.type,
+					})
 					return
 				}
-				room.packets.handleCommon(link.purpose.participantId, message)
+				room.packets.handleActivity(peer.id, message)
 				return
+			}
 		}
 	}
 
-	const onMessage = (linkId: LinkId, text: string) => {
-		// Every incoming string becomes either auth, setup, or common room activity.
-		const link = room.links.records.get(linkId)
-		if (link == null) return
+	const onClose = (connection: RoomConnection) => {
+		// Closing a replaced connection must not clear its successor.
+		if (!room.connections.isCurrent(connection)) return
+		log('info', 'room', 'connection.close', { connection })
+		if (handlePeerClose(connection)) return
 
-		handlePeerMessage(link, text)
-	}
+		const origin = connection.origin
+		room.connections.remove(connection)
+		if (origin.kind === 'mesh') return
 
-	const onClose = (linkId: LinkId) => {
-		// Close callbacks arrive after many paths; look up the current link before acting.
-		const link = room.links.records.get(linkId)
-		if (link == null) return
-
-		log('info', 'room', 'link.close', { link })
-		if (isParticipantLink(link)) {
-			removeParticipantLink(link.purpose.participantId, { rtc: link.rtc })
+		const membership = room.membership()
+		if (origin.localRole === 'host') {
+			if (origin.kind === 'manual' && room.localRoomRole() === 'host') {
+				// Hosts keep one manual admission ready whenever its channel closes naturally.
+				void host.refreshInvite()
+			}
 			return
 		}
-		if (!isAdmissionLink(link)) return
 
-		const purpose = link.purpose
-		room.links.remove(link)
-		if (
-			purpose.side === 'host' &&
-			purpose.via === 'manual' &&
-			room.session.isHost()
-		) {
-			// A closed manual host invite should be replaced so the host stays joinable.
-			void host.startInviteAsHost({ resetPeers: false })
-		} else if (
-			purpose.side === 'guest' &&
-			purpose.via === 'beacon' &&
-			room.session.selfId == null
-		) {
-			return
-		} else if (
-			purpose.side === 'guest' &&
-			purpose.via === 'manual' &&
-			room.session.selfId == null
-		) {
+		if (origin.kind === 'beacon' && membership == null) return
+		if (origin.kind === 'manual' && membership == null) {
 			const inviteText =
-				room.ui.state.entry.side === 'guest'
-					? room.ui.state.entry.inviteText
-					: ''
-			log('warn', 'room', 'webrtc.direct.failed', {
-				link,
-				nextStep: 'fresh-signaling-or-network-change',
-			})
+				room.state.entry.side === 'guest' ? room.state.entry.inviteText : ''
 			log('warn', 'room', 'manual.reply.direct-connection.failed', {
+				connection,
 				nextStep: 'fresh-reply-or-network-change',
 			})
-			room.links.closeAll()
-			room.ui.setState('entry', {
-				...emptyGuestJoin(),
+			room.rendezvous.stop()
+			room.setState('entry', {
+				...initialGuestEntry(),
 				inviteText,
 				issue: 'direct-connection-failed',
 			})
-		} else if (purpose.side === 'guest') {
-			// Losing the host rendezvous before membership means the guest is done here.
-			lifecycle.markRoomClosed()
+			return
 		}
+
+		// The assigned host connection should own this close; an unassigned one is fatal.
+		room.closeRoom()
 	}
 
 	return { onClose, onMessage, onOpen }

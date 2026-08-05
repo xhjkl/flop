@@ -33,6 +33,7 @@ describe('room packet contract', () => {
 		assert.equal(
 			decodePacket(
 				JSON.stringify({
+					exchangeId: 'mesh-contract-id-001',
 					from: '0000000000000001',
 					signal: { sdp: 'answer-sdp', type: 'answer' },
 					to: '0000000000000002',
@@ -58,12 +59,40 @@ describe('room packet contract', () => {
 		assert.deepEqual(decodePacket(encodePacket(packet)), packet)
 	})
 
-	test('rejects non-canonical participant ids', () => {
+	test('rejects duplicate or self-hosted guest membership', () => {
 		assert.equal(
 			decodePacket(
 				JSON.stringify({
-					id: '1',
-					type: 'peer-left',
+					hostId: '0000000000000001',
+					roster: ['0000000000000001', '0000000000000001'],
+					selfId: '0000000000000002',
+					type: 'welcome',
+				}),
+			),
+			null,
+		)
+		assert.equal(
+			decodePacket(
+				JSON.stringify({
+					hostId: '0000000000000001',
+					roster: ['0000000000000001'],
+					selfId: '0000000000000001',
+					type: 'welcome',
+				}),
+			),
+			null,
+		)
+	})
+
+	test('rejects non-canonical participant ids in mesh signals', () => {
+		assert.equal(
+			decodePacket(
+				JSON.stringify({
+					exchangeId: 'mesh-contract-id-002',
+					from: '1',
+					signal: { sdp: 'offer-sdp', type: 'offer' },
+					to: '0000000000000002',
+					type: 'peer-signal',
 				}),
 			),
 			null,

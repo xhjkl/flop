@@ -7,7 +7,7 @@ export type RoomKeys = {
 	discoveryId: Uint8Array
 }
 
-export type RoomAuthPurpose = 'guest-to-host' | 'host-to-guest'
+type RoomAuthPurpose = 'guest-to-host' | 'host-to-guest'
 
 const encoder = new TextEncoder()
 const DISCOVERY_ID_DOMAIN = encoder.encode('flop:where')

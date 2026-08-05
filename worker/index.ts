@@ -1,9 +1,4 @@
-import {
-	discoveryIdFromRequest,
-	isRendezvousRequest,
-	RendezvousRoom,
-	websocketResponse,
-} from './beacon'
+import { RendezvousRoom, rendezvousRoute, websocketResponse } from './beacon'
 import { type Env, json } from './common'
 import {
 	isRelayCredentialsRequest,
@@ -20,20 +15,16 @@ export default {
 			return issueRelayCredentials(request, env)
 		}
 
-		if (
-			isRendezvousRequest(request) &&
-			discoveryIdFromRequest(request) == null
-		) {
-			return json({ error: 'invalid room' }, { status: 400 })
-		}
-
-		const discoveryId = discoveryIdFromRequest(request)
-		if (discoveryId != null) {
+		const rendezvous = rendezvousRoute(request)
+		if (rendezvous != null) {
+			if (rendezvous.discoveryId == null) {
+				return json({ error: 'invalid room' }, { status: 400 })
+			}
 			if (request.headers.get('upgrade') !== 'websocket') {
 				return websocketResponse()
 			}
 
-			const id = env.ROOMS.idFromName(discoveryId)
+			const id = env.ROOMS.idFromName(rendezvous.discoveryId)
 			return env.ROOMS.get(id).fetch(request)
 		}
 

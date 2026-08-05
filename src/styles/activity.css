@@ -81,7 +81,7 @@
 	gap: var(--space-touch);
 }
 
-.blip-issue {
+.file-transfer-issue {
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr) auto;
 	align-items: center;
@@ -109,8 +109,8 @@
 		0 2px 0 color-mix(in oklch, var(--ink) 42%, transparent);
 }
 
-.blip-issue:hover,
-.blip-issue:focus-visible {
+.file-transfer-issue:hover,
+.file-transfer-issue:focus-visible {
 	border-color: color-mix(in oklch, var(--chalk) 62%, var(--room-loud));
 	background:
 		linear-gradient(
@@ -125,8 +125,8 @@
 		0 3px 0 color-mix(in oklch, var(--ink) 46%, transparent);
 }
 
-.blip-issue-mark,
-.blip-issue-dismiss {
+.file-transfer-issue-mark,
+.file-transfer-issue-dismiss {
 	display: inline-grid;
 	place-items: center;
 	flex: none;
@@ -135,19 +135,19 @@
 	border-radius: 50%;
 }
 
-.blip-issue-mark {
+.file-transfer-issue-mark {
 	border: 1px solid color-mix(in oklch, var(--chalk) 34%, transparent);
 	color: var(--chalk);
 	font-size: var(--text-caption);
 	font-style: italic;
 }
 
-.blip-issue-text {
+.file-transfer-issue-text {
 	min-inline-size: 0;
 	overflow-wrap: anywhere;
 }
 
-.blip-issue-dismiss {
+.file-transfer-issue-dismiss {
 	background: color-mix(in oklch, var(--chalk) 16%, transparent);
 	color: var(--chalk);
 	font-size: var(--text-small);
@@ -184,7 +184,7 @@
 	animation: pulse-pop var(--motion-pop);
 }
 
-.person-activity-shell {
+.peer-activity-shell {
 	position: absolute;
 	z-index: 1;
 	inset-block-end: var(--space-page);

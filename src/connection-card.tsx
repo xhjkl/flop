@@ -1,33 +1,41 @@
-import {
-	createMemo,
-	createSignal,
-	type JSX,
-	Match,
-	Show,
-	Switch,
-} from 'solid-js'
+import { createMemo, createSignal, Match, Show, Switch } from 'solid-js'
 import { Daisy } from './daisy'
 import {
+	asHostDiscovery,
 	type GuestJoinState,
-	guestFindingLinkEntry,
 	type HostInviteState,
 	type RoomEntryState,
 } from './room/entry/state'
-import { canShareText, shareText } from './room/invite'
 import { RELAY_FALLBACK_WAIT_SECONDS } from './room/relay'
 import { entryIssueCopy, hostInviteLinkFailureCopy } from './ui/copy'
 import { createPulse } from './ui/pulse'
-import { QrCodeImage } from './ui/qr'
 import { encodeQrCode } from './ui/qr-code'
 
-export type HostInviteMode = 'code' | 'link'
+type HostInviteMode = 'code' | 'link'
 
-const ConnectionActionRail = (props: { children: JSX.Element }) => {
-	return (
-		<div class="card-actions connection-side-switch connection-action">
-			{props.children}
-		</div>
-	)
+const shareData = (text: string): ShareData => {
+	const value = text.trim()
+	try {
+		const url = new URL(value)
+		if (url.protocol === 'http:' || url.protocol === 'https:') {
+			return { title: 'Flop invite', url: url.href }
+		}
+	} catch {}
+	return { text: value, title: 'Flop invite' }
+}
+
+const canShare = (text: string) => {
+	if (
+		typeof navigator === 'undefined' ||
+		typeof navigator.share !== 'function'
+	) {
+		return false
+	}
+	try {
+		return navigator.canShare?.(shareData(text)) ?? true
+	} catch {
+		return false
+	}
 }
 
 const ShareTextBlock = (props: {
@@ -37,29 +45,35 @@ const ShareTextBlock = (props: {
 	copyLabel: string
 	shareLabel?: string
 	disabled?: boolean
-	onCopy?: () => void
 	qr?: boolean
 }) => {
 	const copied = createPulse(1400)
 	const empty = () => props.value.trim() === ''
-	const canShare = () => !empty() && canShareText(props.value)
+	const useShareSheet = () => !empty() && canShare(props.value)
 	const qr = createMemo(() =>
 		(props.qr ?? false) && !empty() ? encodeQrCode(props.value) : null,
 	)
 	const actionLabel = () => {
+		if (props.disabled === true) return props.copyLabel
 		if (copied.active()) return 'copied'
-		if (canShare()) return props.shareLabel ?? 'share'
+		if (useShareSheet()) return props.shareLabel ?? 'share'
 		return props.copyLabel
 	}
 
-	const press = () => {
-		if (canShare()) {
-			void shareText(props.value)
-			return
-		}
+	const canCopy = () =>
+		typeof navigator !== 'undefined' &&
+		typeof navigator.clipboard?.writeText === 'function'
+	const press = async () => {
+		try {
+			if (useShareSheet()) {
+				await navigator.share(shareData(props.value))
+				return
+			}
+			if (!canCopy()) return
 
-		props.onCopy?.()
-		copied.trigger()
+			await navigator.clipboard.writeText(props.value)
+			copied.trigger()
+		} catch {}
 	}
 
 	return (
@@ -73,8 +87,12 @@ const ShareTextBlock = (props: {
 				<button
 					type="button"
 					class="connection-copy-button"
-					onClick={press}
-					disabled={empty() || (props.disabled ?? false)}
+					onClick={() => void press()}
+					disabled={
+						empty() ||
+						(props.disabled ?? false) ||
+						(!useShareSheet() && !canCopy())
+					}
 					classList={{ 'is-copied': copied.active() }}
 				>
 					{actionLabel()}
@@ -89,7 +107,20 @@ const ShareTextBlock = (props: {
 						</pre>
 					}
 				>
-					{(code) => <QrCodeImage code={code()} />}
+					{(code) => (
+						<svg
+							class="connection-copy-qr"
+							viewBox={`0 0 ${code().size} ${code().size}`}
+							aria-hidden="true"
+						>
+							<rect
+								class="connection-copy-qr-paper"
+								width={code().size}
+								height={code().size}
+							/>
+							<path class="connection-copy-qr-ink" d={code().path} />
+						</svg>
+					)}
 				</Show>
 			</div>
 		</div>
@@ -102,10 +133,10 @@ const PasteLine = (props: {
 	placeholder: string
 	disabled?: boolean
 	onChange: (text: string) => void
-	onSubmit: (text?: string) => void
+	onSubmit: (text: string) => void
 }) => {
-	const submit = (text?: string) => {
-		if ((text ?? props.value).trim() === '') return
+	const submit = (text = props.value) => {
+		if (text.trim() === '') return
 		props.onSubmit(text)
 	}
 
@@ -113,13 +144,13 @@ const PasteLine = (props: {
 		const text = event.clipboardData?.getData('text') ?? ''
 		if (text.trim() === '') return
 
-		// Paste is the happy path. Enter is just there for people who type anyway.
+		// Submit clipboard text directly; the controlled input has not observed it yet.
 		event.preventDefault()
 		submit(text)
 	}
 
 	const submitEnter = (event: KeyboardEvent) => {
-		if (event.key !== 'Enter') return
+		if (event.key !== 'Enter' || event.isComposing) return
 		event.preventDefault()
 		submit()
 	}
@@ -142,142 +173,129 @@ const PasteLine = (props: {
 
 const HostInvitePane = (props: {
 	entry: HostInviteState
-	canJoinExistingRoom: boolean
+	canBecomeGuest: boolean
 	mode: HostInviteMode
-	onAcceptReply: (replyText?: string) => void
+	onAcceptReplyCode: (replyText: string) => void
 	onBecomeGuest: () => void
-	onCopyInviteLink: () => void
-	onCopyInviteCode: () => void
 	onSetReplyText: (replyText: string) => void
 }) => {
 	const busy = () =>
-		props.entry.status === 'creating-invite' ||
-		props.entry.status === 'accepting-reply'
-	const inviteLinkReady = () => props.entry.inviteLinkStatus === 'ready'
+		props.entry.manualPhase === 'preparing-code' ||
+		props.entry.manualPhase === 'accepting-reply'
+	const inviteLinkReady = () => props.entry.inviteLinkPhase === 'ready'
 
 	return (
-		<div
-			class="connection-mode-frame connection-body"
-			classList={{ 'is-code': props.mode === 'code' }}
-		>
+		<div class="connection-mode-frame connection-body">
 			<div class="connection-mode-rail">
-				<div
-					class="connection-mode-pane"
-					aria-hidden={props.mode === 'link' ? 'false' : 'true'}
-				>
-					<div class="connection-copy">
-						<Show
-							when={inviteLinkReady()}
-							fallback={
+				<Show
+					when={props.mode === 'link'}
+					fallback={
+						<div class="connection-mode-pane">
+							<div class="connection-copy">
 								<p>
-									Preparing an invite link. When it is ready, send it to another
-									device.
+									Use this invite code if the link does not bring them in. Send
+									it, then paste their reply code here.
 								</p>
-							}
-						>
-							<p>
-								Send this invite link to another device. If it works, they will
-								appear here automatically.
-							</p>
-						</Show>
-						<Show when={props.entry.inviteLinkStatus === 'failed'}>
-							<p class="connection-issue">{hostInviteLinkFailureCopy}</p>
-						</Show>
-					</div>
-					<div class="connection-main">
-						<ShareTextBlock
-							label="invite link"
-							value={inviteLinkReady() ? props.entry.inviteLink : ''}
-							placeholder={
-								props.entry.inviteLinkStatus === 'failed'
-									? 'invite link is unavailable'
-									: 'preparing invite link'
-							}
-							copyLabel={inviteLinkReady() ? 'copy link' : 'preparing'}
-							shareLabel="share link"
-							disabled={!inviteLinkReady()}
-							onCopy={props.onCopyInviteLink}
-							qr={inviteLinkReady()}
-						/>
-					</div>
-				</div>
-				<div
-					class="connection-mode-pane"
-					aria-hidden={props.mode === 'code' ? 'false' : 'true'}
+								<Show when={props.entry.issue}>
+									{(issue) => (
+										<p class="connection-issue" role="status">
+											{entryIssueCopy[issue()]}
+										</p>
+									)}
+								</Show>
+							</div>
+							<div class="connection-main">
+								<ShareTextBlock
+									label="invite code"
+									value={props.entry.inviteCode}
+									placeholder="invite code is being created"
+									copyLabel="copy invite code"
+									shareLabel="share invite code"
+									qr
+								/>
+								<PasteLine
+									label="paste their reply code here to let them in"
+									value={props.entry.replyText}
+									placeholder="paste reply code"
+									disabled={busy()}
+									onChange={props.onSetReplyText}
+									onSubmit={props.onAcceptReplyCode}
+								/>
+							</div>
+							<Show when={props.canBecomeGuest}>
+								<div class="card-actions connection-side-switch connection-action">
+									<button type="button" onClick={props.onBecomeGuest}>
+										join someone else instead
+									</button>
+								</div>
+							</Show>
+						</div>
+					}
 				>
-					{/* Manual host flow: send one invite out, paste one reply code back, admit one guest. */}
-					<div class="connection-copy">
-						<p>
-							Use this invite code if the link does not bring them in. Send it,
-							then paste their reply code here.
-						</p>
-						<Show when={props.entry.issue}>
-							{(issue) => (
-								<p class="connection-issue">{entryIssueCopy[issue()]}</p>
-							)}
-						</Show>
+					<div class="connection-mode-pane">
+						<div class="connection-copy">
+							<Show
+								when={inviteLinkReady()}
+								fallback={
+									<p>
+										Preparing an invite link. When it is ready, send it to
+										another device.
+									</p>
+								}
+							>
+								<p>
+									Send this invite link to another device. If it works, they
+									will appear here automatically.
+								</p>
+							</Show>
+							<Show when={props.entry.inviteLinkPhase === 'failed'}>
+								<p class="connection-issue" role="status">
+									{hostInviteLinkFailureCopy}
+								</p>
+							</Show>
+						</div>
+						<div class="connection-main">
+							<ShareTextBlock
+								label="invite link"
+								value={inviteLinkReady() ? props.entry.inviteLink : ''}
+								placeholder={
+									props.entry.inviteLinkPhase === 'failed'
+										? 'invite link is unavailable'
+										: 'preparing invite link'
+								}
+								copyLabel={inviteLinkReady() ? 'copy link' : 'preparing'}
+								shareLabel="share link"
+								disabled={!inviteLinkReady()}
+								qr={inviteLinkReady()}
+							/>
+						</div>
 					</div>
-					<div class="connection-main">
-						<ShareTextBlock
-							label="invite code"
-							value={props.entry.inviteCode}
-							placeholder="invite code is being created"
-							copyLabel="copy invite code"
-							shareLabel="share invite code"
-							disabled={props.mode !== 'code'}
-							onCopy={props.onCopyInviteCode}
-							qr
-						/>
-						<PasteLine
-							label="paste their reply code here to let them in"
-							value={props.entry.replyText}
-							placeholder="paste reply code"
-							disabled={busy() || props.mode !== 'code'}
-							onChange={props.onSetReplyText}
-							onSubmit={props.onAcceptReply}
-						/>
-					</div>
-					<Show when={props.canJoinExistingRoom}>
-						<ConnectionActionRail>
-							<button type="button" onClick={props.onBecomeGuest}>
-								join someone else instead
-							</button>
-						</ConnectionActionRail>
-					</Show>
-				</div>
+				</Show>
 			</div>
 		</div>
 	)
 }
 
 const GuestInvitePane = (props: {
-	canClaimFindingInviteLink: boolean
+	canClaimInviteAsHost: boolean
 	entry: GuestJoinState
 	onBecomeHost: () => void
 	onClaimInviteLinkAsHost: () => void
-	onCopyReplyCode: () => void
-	onCreateReply: (inviteText?: string) => void
+	onJoinInvite: (inviteText: string) => void
 	onSetInviteText: (inviteText: string) => void
-	onTryRelay: () => void
 }) => {
 	const creating = () => props.entry.status === 'creating-reply'
-	const hasInviteField = () => props.entry.status !== 'finding-link'
-	const canCreate = () => creating() || props.entry.inviteText.trim() !== ''
-	const canClaimFindingLink = () =>
-		props.canClaimFindingInviteLink &&
-		props.entry.status === 'finding-link' &&
-		props.entry.issue == null &&
-		props.entry.inviteLinkPresence?.hosts === 0
+	const hasInviteField = () => props.entry.status !== 'discovering-host'
+	const canCreate = () => !creating() && props.entry.inviteText.trim() !== ''
 
 	return (
 		<>
-			{/* Guest flow: consume one invite, produce one reply code, then wait for the host to admit it. */}
 			<Switch>
 				<Match
 					when={
 						props.entry.status === 'needs-invite' ||
 						props.entry.status === 'creating-reply' ||
-						props.entry.status === 'finding-link'
+						props.entry.status === 'discovering-host'
 					}
 				>
 					<div
@@ -287,7 +305,7 @@ const GuestInvitePane = (props: {
 						}}
 					>
 						<Show
-							when={props.entry.status !== 'finding-link'}
+							when={props.entry.status !== 'discovering-host'}
 							fallback={
 								<ShareTextBlock
 									label="invite link"
@@ -304,7 +322,7 @@ const GuestInvitePane = (props: {
 								placeholder="paste invite link or invite code"
 								disabled={creating()}
 								onChange={props.onSetInviteText}
-								onSubmit={props.onCreateReply}
+								onSubmit={props.onJoinInvite}
 							/>
 						</Show>
 					</div>
@@ -312,14 +330,14 @@ const GuestInvitePane = (props: {
 						<div class="card-actions connection-action">
 							<button
 								type="button"
-								onClick={() => props.onCreateReply()}
+								onClick={() => props.onJoinInvite(props.entry.inviteText)}
 								disabled={!canCreate()}
 							>
 								{creating() ? 'creating reply code' : 'create reply code'}
 							</button>
 						</div>
 					</Show>
-					<Show when={canClaimFindingLink()}>
+					<Show when={props.canClaimInviteAsHost}>
 						<div class="card-actions connection-action">
 							<button type="button" onClick={props.onClaimInviteLinkAsHost}>
 								host this link
@@ -327,54 +345,50 @@ const GuestInvitePane = (props: {
 						</div>
 					</Show>
 				</Match>
-				<Match when={props.entry.status === 'reply-ready'}>
-					<div class="connection-main connection-body">
-						<ShareTextBlock
-							label="reply code"
-							value={props.entry.replyCode}
-							placeholder="reply code appears here"
-							copyLabel="copy reply code"
-							shareLabel="share reply code"
-							onCopy={props.onCopyReplyCode}
-							qr
-						/>
-					</div>
+				<Match when={props.entry.status === 'reply-ready' ? props.entry : null}>
+					{(entry) => (
+						<div class="connection-main connection-body">
+							<ShareTextBlock
+								label="reply code"
+								value={entry().replyCode}
+								placeholder="reply code appears here"
+								copyLabel="copy reply code"
+								shareLabel="share reply code"
+								qr
+							/>
+						</div>
+					)}
 				</Match>
 			</Switch>
 			<Show
 				when={
 					props.entry.status !== 'connected' &&
-					props.entry.status !== 'finding-link'
+					props.entry.status !== 'discovering-host'
 				}
 			>
-				<ConnectionActionRail>
+				<div class="card-actions connection-side-switch connection-action">
 					<button type="button" onClick={props.onBecomeHost}>
 						start a room instead
 					</button>
-				</ConnectionActionRail>
+				</div>
 			</Show>
 		</>
 	)
 }
 
-const relayWaitSeconds = (seconds: number) => {
-	return Math.max(0, Math.min(RELAY_FALLBACK_WAIT_SECONDS, seconds))
-}
-
-const FindingRelayControl = (props: {
+const RelayFallbackControl = (props: {
 	secondsLeft: number
 	onTryRelay: () => void
 }) => {
-	const secondsLeft = () => relayWaitSeconds(props.secondsLeft)
-
 	return (
 		<Show
-			when={secondsLeft() <= 0}
+			when={props.secondsLeft <= 0}
 			fallback={
 				<Daisy
+					ariaLabel={`${Math.ceil(props.secondsLeft)} seconds until relay is available`}
 					max={RELAY_FALLBACK_WAIT_SECONDS}
-					text={`${Math.ceil(secondsLeft())}`}
-					value={secondsLeft()}
+					text={`${Math.ceil(props.secondsLeft)}`}
+					value={props.secondsLeft}
 				/>
 			}
 		>
@@ -389,65 +403,66 @@ const FindingRelayControl = (props: {
 	)
 }
 
+const connectionHeading = (entry: RoomEntryState) => {
+	if (entry.side === 'host') return 'invite'
+	if (entry.side === 'closed') return 'room closed'
+
+	switch (entry.status) {
+		case 'needs-invite':
+			return 'join a room'
+		case 'creating-reply':
+			return 'creating reply code'
+		case 'discovering-host':
+			return 'finding host'
+		case 'reply-ready':
+			return 'reply code'
+		case 'connected':
+			return 'connected'
+	}
+}
+
 export const ConnectionCard = (props: {
 	entry: RoomEntryState
-	canClaimFindingInviteLink: boolean
-	canJoinExistingRoom: boolean
-	initialHostInviteMode: HostInviteMode | null
-	onAcceptReply: (replyText?: string) => void
+	canClaimInviteAsHost: boolean
+	canBecomeGuest: boolean
+	onAcceptReplyCode: (replyText: string) => void
 	onBecomeGuest: () => void
 	onBecomeHost: () => void
 	onClaimInviteLinkAsHost: () => void
-	onCopyInviteLink: () => void
-	onCopyInviteCode: () => void
-	onCopyReplyCode: () => void
-	onCreateReply: (inviteText?: string) => void
+	onJoinInvite: (inviteText: string) => void
 	onSetInviteText: (inviteText: string) => void
 	onSetReplyText: (replyText: string) => void
 	onTryRelay: () => void
 }) => {
 	const hostInvite = () => (props.entry.side === 'host' ? props.entry : null)
 	const guestJoin = () => (props.entry.side === 'guest' ? props.entry : null)
-	const findingLinkEntry = () => {
+	const hostDiscovery = () => {
 		const entry = guestJoin()
-		return entry == null ? null : guestFindingLinkEntry(entry)
+		return entry == null ? null : asHostDiscovery(entry)
 	}
-	const findingLinkHosts = () => {
-		return findingLinkEntry()?.inviteLinkPresence?.hosts ?? null
-	}
-	const hasFindingLinkHost = () => (findingLinkHosts() ?? 0) > 0
-	const hasClaimableFindingLink = () => {
-		const entry = findingLinkEntry()
-		return (
-			props.canClaimFindingInviteLink &&
-			entry != null &&
-			entry.issue == null &&
-			entry.inviteLinkPresence?.hosts === 0
-		)
-	}
-	const hasReachableFindingLinkHost = () => {
+	const hostPresent = () => hostDiscovery()?.hostPresent === true
+	const hostReachable = () => {
 		const entry = guestJoin()
-		return entry?.issue == null && hasFindingLinkHost()
+		return entry?.issue == null && hostPresent()
 	}
-	const findingRelaySecondsLeft = () => {
-		const entry = findingLinkEntry()
+	const relayFallbackSecondsLeft = () => {
+		const entry = hostDiscovery()
 		if (entry == null) return null
-		if (!hasReachableFindingLinkHost()) return null
+		if (!hostReachable()) return null
 
 		return entry.relayFallbackSecondsLeft
 	}
-	const hasFindingRelayControl = () => findingRelaySecondsLeft() != null
+	const showRelayFallback = () => relayFallbackSecondsLeft() != null
 	const hasConnectionCopy = () =>
-		props.entry.side !== 'host' && !hasFindingRelayControl()
+		props.entry.side !== 'host' && !showRelayFallback()
 	const hasConnectionEntryLayout = () => {
 		const entry = guestJoin()
 		return (
 			entry?.status === 'needs-invite' || entry?.status === 'creating-reply'
 		)
 	}
-	const [hostInviteMode, setHostInviteMode] = createSignal<HostInviteMode>(
-		props.initialHostInviteMode ?? 'link',
-	)
+	const [hostInviteMode, setHostInviteMode] =
+		createSignal<HostInviteMode>('link')
 
 	return (
 		<article
@@ -456,13 +471,13 @@ export const ConnectionCard = (props: {
 		>
 			<div class="connection-top">
 				<header class="utility-header">
-					<Switch fallback={<strong>reply code</strong>}>
-						<Match when={hasFindingRelayControl()}>
+					<Switch fallback={<strong>{connectionHeading(props.entry)}</strong>}>
+						<Match when={showRelayFallback()}>
 							<div class="connection-finding-header">
 								<strong>reply code</strong>
 								<p>Found the host. Keep this tab open to join the room.</p>
-								<FindingRelayControl
-									secondsLeft={findingRelaySecondsLeft() ?? 0}
+								<RelayFallbackControl
+									secondsLeft={relayFallbackSecondsLeft() ?? 0}
 									onTryRelay={props.onTryRelay}
 								/>
 							</div>
@@ -477,7 +492,7 @@ export const ConnectionCard = (props: {
 								>
 									with link
 								</button>
-								<span>|</span>
+								<span aria-hidden="true">|</span>
 								<button
 									type="button"
 									aria-pressed={hostInviteMode() === 'code' ? 'true' : 'false'}
@@ -486,17 +501,6 @@ export const ConnectionCard = (props: {
 									with code
 								</button>
 							</div>
-						</Match>
-						<Match when={props.entry.side === 'closed'}>
-							<strong>room closed</strong>
-						</Match>
-						<Match
-							when={
-								props.entry.side === 'guest' &&
-								props.entry.status === 'connected'
-							}
-						>
-							<strong>connected</strong>
 						</Match>
 					</Switch>
 				</header>
@@ -515,14 +519,6 @@ export const ConnectionCard = (props: {
 									This room is no longer live. Start a new room or join someone
 									else.
 								</p>
-							</Match>
-							<Match
-								when={
-									props.entry.side === 'guest' &&
-									props.entry.status === 'connected'
-								}
-							>
-								<p>Connected directly.</p>
 							</Match>
 							<Match
 								when={
@@ -557,8 +553,8 @@ export const ConnectionCard = (props: {
 							<Match
 								when={
 									props.entry.side === 'guest' &&
-									props.entry.status === 'finding-link' &&
-									hasClaimableFindingLink()
+									props.entry.status === 'discovering-host' &&
+									props.canClaimInviteAsHost
 								}
 							>
 								<p>
@@ -569,8 +565,8 @@ export const ConnectionCard = (props: {
 							<Match
 								when={
 									props.entry.side === 'guest' &&
-									props.entry.status === 'finding-link' &&
-									hasReachableFindingLinkHost()
+									props.entry.status === 'discovering-host' &&
+									hostReachable()
 								}
 							>
 								<p>Found the host. Keep this tab open to join the room.</p>
@@ -578,7 +574,7 @@ export const ConnectionCard = (props: {
 							<Match
 								when={
 									props.entry.side === 'guest' &&
-									props.entry.status === 'finding-link'
+									props.entry.status === 'discovering-host'
 								}
 							>
 								<p>
@@ -589,7 +585,9 @@ export const ConnectionCard = (props: {
 						</Switch>
 						<Show when={props.entry.side !== 'closed' && props.entry.issue}>
 							{(issue) => (
-								<p class="connection-issue">{entryIssueCopy[issue()]}</p>
+								<p class="connection-issue" role="status">
+									{entryIssueCopy[issue()]}
+								</p>
 							)}
 						</Show>
 					</div>
@@ -597,27 +595,25 @@ export const ConnectionCard = (props: {
 			</div>
 			<Switch>
 				<Match when={props.entry.side === 'closed'}>
-					<ConnectionActionRail>
+					<div class="card-actions connection-side-switch connection-action">
 						<button type="button" onClick={props.onBecomeHost}>
 							start a new room
 						</button>
-						<Show when={props.canJoinExistingRoom}>
+						<Show when={props.canBecomeGuest}>
 							<button type="button" onClick={props.onBecomeGuest}>
 								join someone else
 							</button>
 						</Show>
-					</ConnectionActionRail>
+					</div>
 				</Match>
 				<Match when={hostInvite()}>
 					{(entry) => (
 						<HostInvitePane
 							entry={entry()}
-							canJoinExistingRoom={props.canJoinExistingRoom}
+							canBecomeGuest={props.canBecomeGuest}
 							mode={hostInviteMode()}
-							onAcceptReply={props.onAcceptReply}
+							onAcceptReplyCode={props.onAcceptReplyCode}
 							onBecomeGuest={props.onBecomeGuest}
-							onCopyInviteLink={props.onCopyInviteLink}
-							onCopyInviteCode={props.onCopyInviteCode}
 							onSetReplyText={props.onSetReplyText}
 						/>
 					)}
@@ -625,14 +621,12 @@ export const ConnectionCard = (props: {
 				<Match when={guestJoin()}>
 					{(entry) => (
 						<GuestInvitePane
-							canClaimFindingInviteLink={props.canClaimFindingInviteLink}
+							canClaimInviteAsHost={props.canClaimInviteAsHost}
 							entry={entry()}
 							onBecomeHost={props.onBecomeHost}
 							onClaimInviteLinkAsHost={props.onClaimInviteLinkAsHost}
-							onCopyReplyCode={props.onCopyReplyCode}
-							onCreateReply={props.onCreateReply}
+							onJoinInvite={props.onJoinInvite}
 							onSetInviteText={props.onSetInviteText}
-							onTryRelay={props.onTryRelay}
 						/>
 					)}
 				</Match>

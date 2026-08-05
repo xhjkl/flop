@@ -1,5 +1,5 @@
-import type { TransferIssue } from '../room/activity/blip'
 import type { EntryIssue } from '../room/entry/state'
+import type { FileTransferIssue } from '../room/participant'
 
 /** Connection-card copy for entry failures emitted by the room engine. */
 export const entryIssueCopy: Record<EntryIssue, string> = {
@@ -23,8 +23,8 @@ export const entryIssueCopy: Record<EntryIssue, string> = {
 export const hostInviteLinkFailureCopy =
 	'This browser cannot reach invite-link discovery. The invite code may still work; try switching to code.'
 
-/** Blip-composer copy for file-transfer issue codes. */
-export const transferIssueCopy: Record<TransferIssue, string> = {
+/** File-transfer feedback rendered beside the local blip draft. */
+export const fileTransferIssueCopy: Record<FileTransferIssue, string> = {
 	'no-peers': 'Connect another device before sending files.',
 	'partial-delivery':
 		'Some peers disconnected before the file reached everyone.',

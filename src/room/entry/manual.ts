@@ -1,24 +1,22 @@
-import { isParticipantLink, type RoomLink } from '../link'
+import type { RoomConnection } from '../link'
+import type { RendezvousAttempt } from '../session'
 
-/** Manual copy-paste admission should feel stuck before users give up. */
-export const MANUAL_ADMISSION_TIMEOUT_MS = 60_000
+const MANUAL_ADMISSION_TIMEOUT_MS = 60_000
 
-/** Deferred admission timeout shared by manual host and guest rendezvous lanes. */
-export const watchRendezvousAdmission = (options: {
-	delayMs: number
-	link: RoomLink
-	linkStillCurrent: (link: RoomLink) => boolean
+/** Maximum wait after manual SDP exchange before surfacing retry guidance. */
+export const scheduleAdmissionTimeout = (options: {
+	attempt: RendezvousAttempt
+	connection: RoomConnection
+	isCurrent: (attempt: RendezvousAttempt) => boolean
+	isUnassigned: (connection: RoomConnection) => boolean
 	onTimeout: () => void
 	stillWaiting: () => boolean
-	version: number
-	versionStillCurrent: (version: number) => boolean
 }) => {
-	setTimeout(() => {
-		if (!options.versionStillCurrent(options.version)) return
-		if (!options.linkStillCurrent(options.link)) return
-		if (isParticipantLink(options.link)) return
+	options.attempt.scheduleTimeout(() => {
+		if (!options.isCurrent(options.attempt)) return
+		if (!options.isUnassigned(options.connection)) return
 		if (!options.stillWaiting()) return
 
 		options.onTimeout()
-	}, options.delayMs)
+	}, MANUAL_ADMISSION_TIMEOUT_MS)
 }

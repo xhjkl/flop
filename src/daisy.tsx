@@ -13,7 +13,7 @@ const daisyTextSize = (text: string) => {
 
 /** Circular value meter with the number kept legible at every fill level. */
 export const Daisy = (props: {
-	ariaLabel?: string
+	ariaLabel: string
 	max: number
 	text: string
 	value: number
@@ -29,8 +29,7 @@ export const Daisy = (props: {
 		<svg
 			class="daisy"
 			viewBox="0 0 32 32"
-			role={props.ariaLabel == null ? undefined : 'img'}
-			aria-hidden={props.ariaLabel == null ? 'true' : undefined}
+			role="img"
 			aria-label={props.ariaLabel}
 			style={`--daisy-fill: ${fill()}; --daisy-value-size: ${textSize()};`}
 		>

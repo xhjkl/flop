@@ -284,7 +284,7 @@ textarea {
 	background: var(--bg-deep);
 }
 
-.person-face.is-empty {
+.peer-face.is-empty {
 	background: hsl(var(--card-h) 42% 34%);
 }
 

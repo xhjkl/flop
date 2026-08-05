@@ -130,17 +130,12 @@
 }
 
 .connection-mode-rail {
-	inline-size: 200%;
+	inline-size: 100%;
 	block-size: 100%;
 	min-block-size: 0;
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-template-columns: minmax(0, 1fr);
 	grid-template-rows: minmax(0, 1fr);
-	transition: transform var(--motion-tap);
-}
-
-.connection-mode-frame.is-code .connection-mode-rail {
-	transform: translateX(-50%);
 }
 
 .connection-mode-pane {

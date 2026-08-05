@@ -1,12 +1,6 @@
 import type { AnswerDescription, OfferDescription } from '../contracts/signal'
 import { log } from './log'
 import {
-	acceptRoomDataChannel,
-	bindChannel,
-	ROOM_DATA_CHANNEL_LABEL,
-} from './webrtc/channel'
-import { connectionHealth } from './webrtc/connection'
-import {
 	DEFAULT_ICE_SERVERS,
 	DISCONNECT_GRACE_MS,
 	hasServerReflexiveOrRelayCandidate,
@@ -15,13 +9,61 @@ import {
 	waitForIce,
 } from './webrtc/ice'
 
-/** One WebRTC transport: a text lane plus optional camera and microphone tracks. */
+export const ROOM_DATA_CHANNEL_LABEL = 'data'
+
+type RoomDataChannel = Pick<RTCDataChannel, 'close' | 'label'>
+
+/** Accept the room's one expected data channel and close every other channel. */
+export const acceptRoomDataChannel = (
+	current: RoomDataChannel | null,
+	candidate: RoomDataChannel,
+) => {
+	if (current == null && candidate.label === ROOM_DATA_CHANNEL_LABEL)
+		return true
+
+	candidate.close()
+	return false
+}
+
+/** One transport verdict from the browser's overlapping peer and ICE states. */
+export const connectionHealth = (
+	connectionState: RTCPeerConnectionState,
+	iceConnectionState: RTCIceConnectionState,
+) => {
+	if (
+		connectionState === 'failed' ||
+		connectionState === 'closed' ||
+		iceConnectionState === 'failed' ||
+		iceConnectionState === 'closed'
+	) {
+		return 'failed'
+	}
+
+	if (
+		connectionState === 'connected' ||
+		iceConnectionState === 'connected' ||
+		iceConnectionState === 'completed'
+	) {
+		return 'connected'
+	}
+
+	if (
+		connectionState === 'disconnected' ||
+		iceConnectionState === 'disconnected'
+	) {
+		return 'disconnected'
+	}
+
+	return 'waiting'
+}
+
+/** One WebRTC connection carrying room packets and optional media tracks. */
 export type RtcPeer = {
 	createOffer: () => Promise<OfferDescription>
 	acceptAnswer: (answer: AnswerDescription) => Promise<void>
 	createAnswer: (offer: OfferDescription) => Promise<AnswerDescription>
 	close: () => void
-	relayStats: () => Promise<PeerRelayStats | null>
+	relayBytes: () => Promise<number | null>
 	trySend: (text: string) => boolean
 	setLocalMedia: (stream: MediaStream | null) => void
 	waitForBufferBelow: (bytes: number) => Promise<void>
@@ -30,7 +72,7 @@ export type RtcPeer = {
 type MediaKind = 'audio' | 'video'
 
 // Raw browser state is useful for logs; the room renders a smaller story.
-type PeerOptions = {
+export type RtcPeerOptions = {
 	onOpen?: () => void
 	onClose?: () => void
 	onMessage?: (text: string) => void
@@ -38,10 +80,6 @@ type PeerOptions = {
 	onState?: (state: PeerStateSnapshot) => void
 	iceServers?: RTCIceServer[]
 	iceTransportPolicy?: RTCIceTransportPolicy
-}
-
-export type PeerRelayStats = {
-	bytes: number
 }
 
 type PeerStateSnapshot = {
@@ -74,7 +112,7 @@ const completeLocalDescription = async (pc: RTCPeerConnection) => {
 	return description
 }
 
-export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
+export const createRtcPeer = (options: RtcPeerOptions = {}): RtcPeer => {
 	// The wrapper collapses three browser surfaces into one room primitive:
 	// SDP for setup, data channel for packets, transceivers for optional media.
 	const configuration: RTCConfiguration = {
@@ -84,11 +122,11 @@ export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
 		configuration.iceTransportPolicy = options.iceTransportPolicy
 	}
 	const pc = new RTCPeerConnection(configuration)
-	// Tracks can arrive one by one; the UI wants one stream to hang on a card.
-	const remoteTracks = new Map<string, MediaStreamTrack>()
-	// A peer has one data lane. Everything room-shaped rides as packets on it.
+	// Keep one stream object for this connection; replacing it restarts video elements.
+	const remoteMedia = new MediaStream()
+	// All room packets share the single negotiated data channel.
 	let channel: RTCDataChannel | null = null
-	// WebRTC reports endings from several doors. The room should hear one goodbye.
+	// The peer connection and data channel can both close; emit one room callback.
 	let closeEmitted = false
 	// Short network blips are normal. Give them a chance to heal.
 	let disconnectTimeout: ReturnType<typeof setTimeout> | null = null
@@ -112,8 +150,11 @@ export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
 	}
 
 	const closeTransport = () => {
-		// Close both surfaces; either one may have been the first to notice.
+		// Invalidate queued track replacements before releasing browser transports.
 		clearDisconnectTimeout(false)
+		localMedia = null
+		localMediaVersion++
+		for (const track of remoteMedia.getTracks()) remoteMedia.removeTrack(track)
 		try {
 			channel?.close()
 		} catch {}
@@ -190,7 +231,7 @@ export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
 	}
 
 	const attachChannel = (nextChannel: RTCDataChannel) => {
-		// Offerers create the lane; answerers receive it. After this, both look the same.
+		// Offerers create the channel and answerers receive it; both then share this path.
 		if (!acceptRoomDataChannel(channel, nextChannel)) {
 			log('warn', 'rtc', 'datachannel.rejected', {
 				duplicate: channel != null,
@@ -201,14 +242,19 @@ export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
 		}
 
 		channel = nextChannel
-		bindChannel(
-			nextChannel,
-			{
-				onMessage: options.onMessage ?? null,
-				onOpen: options.onOpen ?? null,
-			},
-			emitClose,
-		)
+		nextChannel.onopen = () => options.onOpen?.()
+		nextChannel.onclose = emitClose
+		nextChannel.onerror = (event) => {
+			log('warn', 'rtc', 'datachannel.error', {
+				channel: nextChannel.label,
+				type: event.type,
+			})
+			emitClose()
+		}
+		nextChannel.onmessage = (event) => {
+			// The room protocol is text-only; ignore browser-specific binary payloads.
+			if (typeof event.data === 'string') options.onMessage?.(event.data)
+		}
 	}
 
 	const transceiverKind = (
@@ -280,25 +326,21 @@ export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
 	pc.addEventListener('iceconnectionstatechange', handleConnectionHealth)
 
 	const emitRemoteMedia = () => {
-		const tracks = [...remoteTracks.values()]
-		const stream = tracks.length === 0 ? null : new MediaStream(tracks)
-		options.onRemoteMedia?.(stream)
+		options.onRemoteMedia?.(
+			remoteMedia.getTracks().length === 0 ? null : remoteMedia,
+		)
 	}
 
 	pc.ontrack = (event) => {
 		// Muted tracks still count; the remote card should be ready when they wake.
-		if (!remoteTracks.has(event.track.id)) {
-			remoteTracks.set(event.track.id, event.track)
+		if (remoteMedia.getTrackById(event.track.id) == null) {
+			remoteMedia.addTrack(event.track)
+			event.track.addEventListener('ended', () => {
+				remoteMedia.removeTrack(event.track)
+				emitRemoteMedia()
+			})
 		}
 		emitRemoteMedia()
-
-		event.track.addEventListener('unmute', () => {
-			emitRemoteMedia()
-		})
-		event.track.addEventListener('ended', () => {
-			remoteTracks.delete(event.track.id)
-			emitRemoteMedia()
-		})
 	}
 
 	pc.ondatachannel = (event) => {
@@ -306,7 +348,7 @@ export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
 	}
 
 	const createOffer = async (): Promise<OfferDescription> => {
-		// Whoever offers also names the data lane.
+		// The offerer creates the one negotiated data channel.
 		attachChannel(pc.createDataChannel(ROOM_DATA_CHANNEL_LABEL))
 		prepareMediaSlots()
 		const offer = await pc.createOffer()
@@ -336,13 +378,13 @@ export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
 	}
 
 	const close = () => {
-		// Manual close is final; don't echo it back as a surprise event.
+		// Suppress onClose because the room already initiated this removal.
 		closeEmitted = true
 		closeTransport()
 	}
 
 	const trySend = (text: string) => {
-		// Enqueue failure stays a normal result when the data lane closes mid-send.
+		// A channel closing between the state check and send is an ordinary failed send.
 		if (channel?.readyState !== 'open') return false
 
 		try {
@@ -353,7 +395,7 @@ export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
 		}
 	}
 
-	const relayStats = async (): Promise<PeerRelayStats | null> => {
+	const relayBytes = async (): Promise<number | null> => {
 		const stats = await pc.getStats()
 		const stat = (id: unknown) => {
 			return typeof id === 'string' ? (stats.get(id) ?? null) : null
@@ -396,11 +438,11 @@ export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
 			'bytesReceived' in selectedPair ? selectedPair.bytesReceived : null
 		const bytesSent = typeof sent === 'number' ? sent : 0
 		const bytesReceived = typeof received === 'number' ? received : 0
-		return { bytes: bytesSent + bytesReceived }
+		return bytesSent + bytesReceived
 	}
 
 	const setLocalMedia = (stream: MediaStream | null) => {
-		// Media is room state; this peer just mirrors the latest version.
+		// Apply the latest room-owned local stream to this connection's senders.
 		localMedia = stream
 		const version = ++localMediaVersion
 		replaceLocalTracks(version)
@@ -435,7 +477,7 @@ export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
 	}
 
 	const waitForBufferBelow = (bytes: number) => {
-		// Large file sends need a breathing point or the channel becomes a memory queue.
+		// Bound queued file data so a fast producer cannot exhaust browser memory.
 		const activeChannel = channel
 		if (
 			activeChannel == null ||
@@ -488,7 +530,7 @@ export const createRtcPeer = (options: PeerOptions = {}): RtcPeer => {
 		acceptAnswer,
 		createAnswer,
 		close,
-		relayStats,
+		relayBytes,
 		trySend,
 		setLocalMedia,
 		waitForBufferBelow,

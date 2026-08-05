@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
 	acceptRoomDataChannel,
+	connectionHealth,
 	ROOM_DATA_CHANNEL_LABEL,
-} from '../src/webrtc/channel'
-import { connectionHealth } from '../src/webrtc/connection'
+} from '../src/webrtc'
 
 const channel = (label: string) => {
 	let closed = false

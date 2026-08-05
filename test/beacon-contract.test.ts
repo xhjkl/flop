@@ -12,19 +12,16 @@ const signal = {
 }
 
 describe('beacon client contract', () => {
-	test('accepts explicit broadcast and targeted signals', () => {
-		assert.deepEqual(decodeClientBeaconMessage({ ...signal, to: null }), {
-			...signal,
-			to: null,
-		})
+	test('accepts a signal targeted to one discovery peer', () => {
 		assert.deepEqual(
 			decodeClientBeaconMessage({ ...signal, to: 'p'.repeat(16) }),
 			{ ...signal, to: 'p'.repeat(16) },
 		)
 	})
 
-	test('rejects missing or malformed signal targets', () => {
+	test('rejects broadcast, missing, and malformed signal targets', () => {
 		assert.equal(decodeClientBeaconMessage(signal), null)
+		assert.equal(decodeClientBeaconMessage({ ...signal, to: null }), null)
 		assert.equal(
 			decodeClientBeaconMessage({ ...signal, to: 'not a peer id' }),
 			null,
@@ -44,19 +41,20 @@ describe('beacon client contract', () => {
 })
 
 describe('beacon server contract', () => {
-	test('keeps departure identity atomic inside nested presence', () => {
+	test('accepts one complete, uniquely identified peer snapshot', () => {
 		const message = {
-			left: { id: 'p'.repeat(16), role: 'guest' as const },
-			presence: { guests: 0, hosts: 1 },
-			type: 'presence' as const,
+			peers: [
+				{ id: 'g'.repeat(16), role: 'guest' as const },
+				{ id: 'h'.repeat(16), role: 'host' as const },
+			],
+			type: 'peers' as const,
 		}
 
 		assert.deepEqual(decodeServerBeaconMessage(message), message)
 		assert.equal(
 			decodeServerBeaconMessage({
-				leftRole: 'guest',
-				presence: message.presence,
-				type: 'presence',
+				peers: [message.peers[0], message.peers[0]],
+				type: 'peers',
 			}),
 			null,
 		)

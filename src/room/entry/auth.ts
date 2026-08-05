@@ -6,90 +6,94 @@ import {
 	signRoomAuth,
 	verifyRoomAuth,
 } from '../../rendezvous/crypto'
-import { isBeaconAdmissionLink, type RoomLink } from '../link'
+import { isBeaconConnection, type RoomConnection } from '../link'
 
-/** Beacon auth owns the secret proof before anonymous links may join the room protocol. */
-export type BeaconAuth = {
-	handleAuthPacket: (link: RoomLink, message: Packet) => boolean
-	sendChallenge: (link: RoomLink) => void
-}
-
-/** Auth handshake bound to the current room keys and mutable link registry. */
+/** Mutual room-secret proof for connections created through the public beacon. */
 export const createBeaconAuth = (options: {
-	closeLink: (link: RoomLink) => void
-	linkStillCurrent: (link: RoomLink) => boolean
+	closeConnection: (connection: RoomConnection) => void
+	connectionIsCurrent: (connection: RoomConnection) => boolean
 	roomKeys: () => RoomKeys | null
-	verifyLink: (link: RoomLink) => void
-}): BeaconAuth => {
-	const nonces = new WeakMap<RoomLink, string>()
+	verifyConnection: (connection: RoomConnection) => void
+}) => {
+	const nonces = new WeakMap<RoomConnection, string>()
 
-	const sendChallenge = (link: RoomLink) => {
-		// The host makes beacon candidates prove they know the room secret.
+	const sendChallenge = (connection: RoomConnection) => {
+		// A host challenges each anonymous beacon connection before accepting packets.
 		const keys = options.roomKeys()
 		if (keys == null) {
-			log('error', 'room', 'auth.challenge.missing-room-keys', { link })
-			options.closeLink(link)
+			log('error', 'room', 'auth.challenge.missing-room-keys', { connection })
+			options.closeConnection(connection)
 			return
 		}
 
 		const nonce = randomNonce()
-		nonces.set(link, nonce)
-		if (!link.rtc.trySend(encodePacket({ nonce, type: 'auth-challenge' }))) {
-			log('warn', 'room', 'auth.challenge.send.failed', { link })
-			options.closeLink(link)
+		nonces.set(connection, nonce)
+		if (
+			!connection.rtc.trySend(encodePacket({ nonce, type: 'auth-challenge' }))
+		) {
+			log('warn', 'room', 'auth.challenge.send.failed', { connection })
+			options.closeConnection(connection)
 			return
 		}
-		log('info', 'room', 'auth.challenge.sent', { link })
+		log('info', 'room', 'auth.challenge.sent', { connection })
 	}
 
-	const answerChallenge = async (link: RoomLink, hostNonce: string) => {
+	const answerChallenge = async (
+		connection: RoomConnection,
+		hostNonce: string,
+	) => {
 		// The guest signs the host nonce, then asks the host to prove the same key.
 		const keys = options.roomKeys()
 		if (keys == null) {
-			log('error', 'room', 'auth.response.missing-room-keys', { link })
-			options.closeLink(link)
+			log('error', 'room', 'auth.response.missing-room-keys', { connection })
+			options.closeConnection(connection)
 			return
 		}
 
 		const nonce = randomNonce()
-		nonces.set(link, nonce)
+		nonces.set(connection, nonce)
 		let mac: string
 		try {
 			mac = await signRoomAuth(keys.authKey, 'guest-to-host', hostNonce)
 		} catch (error) {
-			log('warn', 'room', 'auth.response.sign.failed', { error, link })
-			options.closeLink(link)
+			log('warn', 'room', 'auth.response.sign.failed', {
+				connection,
+				error,
+			})
+			options.closeConnection(connection)
 			return
 		}
-		if (!options.linkStillCurrent(link)) return
+		if (!options.connectionIsCurrent(connection)) return
 
 		if (
-			!link.rtc.trySend(encodePacket({ mac, nonce, type: 'auth-response' }))
+			!connection.rtc.trySend(
+				encodePacket({ mac, nonce, type: 'auth-response' }),
+			)
 		) {
-			log('warn', 'room', 'auth.response.send.failed', { link })
-			options.closeLink(link)
+			log('warn', 'room', 'auth.response.send.failed', { connection })
+			options.closeConnection(connection)
 			return
 		}
-		log('info', 'room', 'auth.response.sent', { link })
+		log('info', 'room', 'auth.response.sent', { connection })
 	}
 
 	const acceptResponse = async (
-		link: RoomLink,
+		connection: RoomConnection,
 		mac: string,
 		guestNonce: string,
 	) => {
-		// Valid MACs tell apart public beacon noise from a peer with the invite secret.
+		// Only a guest with the invite secret can authenticate the host's nonce.
 		const keys = options.roomKeys()
 		if (keys == null) {
-			log('error', 'room', 'auth.accept.missing-room-keys', { link })
-			options.closeLink(link)
+			log('error', 'room', 'auth.accept.missing-room-keys', { connection })
+			options.closeConnection(connection)
 			return
 		}
 
-		const nonce = nonces.get(link)
+		const nonce = nonces.get(connection)
 		if (nonce == null) {
-			log('warn', 'room', 'auth.accept.missing-nonce', { link })
-			options.closeLink(link)
+			log('warn', 'room', 'auth.accept.missing-nonce', { connection })
+			options.closeConnection(connection)
 			return
 		}
 
@@ -97,15 +101,18 @@ export const createBeaconAuth = (options: {
 		try {
 			verified = await verifyRoomAuth(keys.authKey, 'guest-to-host', nonce, mac)
 		} catch (error) {
-			log('warn', 'room', 'auth.accept.verify.failed', { error, link })
-			options.closeLink(link)
+			log('warn', 'room', 'auth.accept.verify.failed', {
+				connection,
+				error,
+			})
+			options.closeConnection(connection)
 			return
 		}
-		if (!options.linkStillCurrent(link)) return
+		if (!options.connectionIsCurrent(connection)) return
 
 		if (!verified) {
-			log('warn', 'room', 'auth.accept.rejected', { link })
-			options.closeLink(link)
+			log('warn', 'room', 'auth.accept.rejected', { connection })
+			options.closeConnection(connection)
 			return
 		}
 
@@ -113,37 +120,39 @@ export const createBeaconAuth = (options: {
 		try {
 			acceptMac = await signRoomAuth(keys.authKey, 'host-to-guest', guestNonce)
 		} catch (error) {
-			log('warn', 'room', 'auth.accept.sign.failed', { error, link })
-			options.closeLink(link)
+			log('warn', 'room', 'auth.accept.sign.failed', { connection, error })
+			options.closeConnection(connection)
 			return
 		}
-		if (!options.linkStillCurrent(link)) return
+		if (!options.connectionIsCurrent(connection)) return
 
-		nonces.delete(link)
-		options.verifyLink(link)
+		nonces.delete(connection)
+		options.verifyConnection(connection)
 		if (
-			!link.rtc.trySend(encodePacket({ mac: acceptMac, type: 'auth-accepted' }))
+			!connection.rtc.trySend(
+				encodePacket({ mac: acceptMac, type: 'auth-accepted' }),
+			)
 		) {
-			log('warn', 'room', 'auth.accept.send.failed', { link })
-			options.closeLink(link)
+			log('warn', 'room', 'auth.accept.send.failed', { connection })
+			options.closeConnection(connection)
 			return
 		}
-		log('info', 'room', 'auth.accept.sent', { link })
+		log('info', 'room', 'auth.accept.sent', { connection })
 	}
 
-	const acceptAccepted = async (link: RoomLink, mac: string) => {
+	const acceptAccepted = async (connection: RoomConnection, mac: string) => {
 		// The guest accepts only a host that can sign the guest's nonce.
 		const keys = options.roomKeys()
 		if (keys == null) {
-			log('error', 'room', 'auth.accepted.missing-room-keys', { link })
-			options.closeLink(link)
+			log('error', 'room', 'auth.accepted.missing-room-keys', { connection })
+			options.closeConnection(connection)
 			return
 		}
 
-		const nonce = nonces.get(link)
+		const nonce = nonces.get(connection)
 		if (nonce == null) {
-			log('warn', 'room', 'auth.accepted.missing-nonce', { link })
-			options.closeLink(link)
+			log('warn', 'room', 'auth.accepted.missing-nonce', { connection })
+			options.closeConnection(connection)
 			return
 		}
 
@@ -152,59 +161,81 @@ export const createBeaconAuth = (options: {
 			verified = await verifyRoomAuth(keys.authKey, 'host-to-guest', nonce, mac)
 		} catch (error) {
 			log('warn', 'room', 'auth.accepted.verify.failed', {
+				connection,
 				error,
-				link,
 			})
-			options.closeLink(link)
+			options.closeConnection(connection)
 			return
 		}
-		if (!options.linkStillCurrent(link)) return
+		if (!options.connectionIsCurrent(connection)) return
 
 		if (!verified) {
-			log('warn', 'room', 'auth.accepted.rejected', { link })
-			options.closeLink(link)
+			log('warn', 'room', 'auth.accepted.rejected', { connection })
+			options.closeConnection(connection)
 			return
 		}
 
-		nonces.delete(link)
-		options.verifyLink(link)
-		if (!link.rtc.trySend(encodePacket({ type: 'hello' }))) {
-			log('warn', 'room', 'auth.hello.send.failed', { link })
-			options.closeLink(link)
+		nonces.delete(connection)
+		options.verifyConnection(connection)
+		if (!connection.rtc.trySend(encodePacket({ type: 'hello' }))) {
+			log('warn', 'room', 'auth.hello.send.failed', { connection })
+			options.closeConnection(connection)
 			return
 		}
-		log('info', 'room', 'auth.hello.sent', { link })
+		log('info', 'room', 'auth.hello.sent', { connection })
 	}
 
-	const handleAuthPacket = (link: RoomLink, message: Packet) => {
-		// Auth packets are consumed before room-role dispatch.
+	const handleAuthPacket = (connection: RoomConnection, message: Packet) => {
+		if (
+			message.type !== 'auth-challenge' &&
+			message.type !== 'auth-accepted' &&
+			message.type !== 'auth-response'
+		) {
+			return false
+		}
+		if (isBeaconConnection(connection) && connection.origin.authenticated) {
+			// Authentication is single-use; repeats cannot alter an admitted connection.
+			log('warn', 'room', 'auth.packet.after-acceptance', {
+				connection,
+				type: message.type,
+			})
+			return true
+		}
+
 		switch (message.type) {
 			case 'auth-challenge':
-				if (!isBeaconAdmissionLink(link) || link.purpose.side !== 'guest') {
-					log('warn', 'room', 'auth.challenge.unexpected', { link })
+				if (
+					!isBeaconConnection(connection) ||
+					connection.origin.localRole !== 'guest'
+				) {
+					log('warn', 'room', 'auth.challenge.unexpected', { connection })
 					return true
 				}
 
-				void answerChallenge(link, message.nonce)
+				void answerChallenge(connection, message.nonce)
 				return true
 			case 'auth-accepted':
-				if (!isBeaconAdmissionLink(link) || link.purpose.side !== 'guest') {
-					log('warn', 'room', 'auth.accepted.unexpected', { link })
+				if (
+					!isBeaconConnection(connection) ||
+					connection.origin.localRole !== 'guest'
+				) {
+					log('warn', 'room', 'auth.accepted.unexpected', { connection })
 					return true
 				}
 
-				void acceptAccepted(link, message.mac)
+				void acceptAccepted(connection, message.mac)
 				return true
 			case 'auth-response':
-				if (!isBeaconAdmissionLink(link) || link.purpose.side !== 'host') {
-					log('warn', 'room', 'auth.response.unexpected', { link })
+				if (
+					!isBeaconConnection(connection) ||
+					connection.origin.localRole !== 'host'
+				) {
+					log('warn', 'room', 'auth.response.unexpected', { connection })
 					return true
 				}
 
-				void acceptResponse(link, message.mac, message.nonce)
+				void acceptResponse(connection, message.mac, message.nonce)
 				return true
-			default:
-				return false
 		}
 	}
 

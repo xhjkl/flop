@@ -1,15 +1,13 @@
 import { For, Show } from 'solid-js'
-import { ConnectionCard, type HostInviteMode } from './connection-card'
-import { Daisy } from './daisy'
-import { PersonCard, PortraitStrip } from './portraits'
-import type { RoomHandle } from './room'
-import type { RelayMetering } from './room/relay'
-import { RELAY_GRANT_BYTES, RELAY_GRANT_SECONDS } from './room/relay'
-import { SelfPortraitCard } from './self-portrait-card'
+import { RELAY_GRANT_BYTES, RELAY_GRANT_SECONDS } from '../../contracts/relay'
+import { ConnectionCard } from '../connection-card'
+import { Daisy } from '../daisy'
+import { PeerPortraitCard, PortraitStrip, SelfPortraitCard } from '../portraits'
+import type { RoomController } from '../room'
+import type { RelayMetering } from '../room/relay'
 
 export type RoomViewProps = {
-	room: RoomHandle
-	hostInviteMode: HostInviteMode | null
+	room: RoomController
 }
 
 const RELAY_BYTES_PER_GIGABYTE = 1_000_000_000
@@ -82,27 +80,24 @@ export const RoomView = (props: RoomViewProps) => {
 	return (
 		<PortraitStrip themeSeed={props.room.state.themeSeed}>
 			<SelfPortraitCard
-				activity={props.room.selfActivity()}
-				blipComposer={props.room.state.blipComposer}
-				media={props.room.state.selfMedia}
-				onSendBlip={props.room.actions.sendBlip}
-				onDismissBlipIssue={props.room.actions.dismissBlipIssue}
-				onEnableSelfMedia={props.room.actions.enableSelfMedia}
-				onSetBlipText={props.room.actions.setBlipText}
-				onToggleCamera={props.room.actions.toggleCamera}
-				onToggleMicrophone={props.room.actions.toggleMicrophone}
-				onToggleScreen={props.room.actions.toggleScreen}
+				blipDraft={props.room.self.blipDraft}
+				fileTransferIssue={props.room.self.fileTransferIssue}
+				files={props.room.self.files}
+				media={props.room.self.media}
+				onSendBlip={props.room.commands.sendBlip}
+				onDismissFileTransferIssue={
+					props.room.commands.dismissFileTransferIssue
+				}
+				onEnableSelfMedia={props.room.commands.enableSelfMedia}
+				onSendFiles={props.room.commands.sendFiles}
+				onSetBlipDraft={props.room.commands.setBlipDraft}
+				onToggleCamera={props.room.commands.toggleCamera}
+				onToggleMicrophone={props.room.commands.toggleMicrophone}
+				onToggleScreen={props.room.commands.toggleScreen}
 			/>
-			<For each={props.room.peers()}>
-				{(peer) => (
-					<PersonCard
-						activity={peer.activity}
-						colorSeed={peer.id}
-						mediaState={peer.mediaState}
-						mediaStream={peer.mediaStream}
-						connectionState={peer.connectionState}
-					/>
-				)}
+			{/* Stable participant records survive every transport replacement. */}
+			<For each={props.room.peers.all()}>
+				{(peer) => <PeerPortraitCard peer={peer} />}
 			</For>
 			<Show when={props.room.state.relayMetering}>
 				{(metering) => <RelayNoticeCard metering={metering()} />}
@@ -115,23 +110,19 @@ export const RoomView = (props: RoomViewProps) => {
 			>
 				<ConnectionCard
 					entry={props.room.state.entry}
-					canClaimFindingInviteLink={props.room.canClaimFindingInviteLink()}
-					canJoinExistingRoom={
+					canClaimInviteAsHost={props.room.canClaimInviteAsHost()}
+					canBecomeGuest={
 						props.room.state.entry.side !== 'host' ||
-						props.room.peers().length === 0
+						props.room.peers.all().length === 0
 					}
-					initialHostInviteMode={props.hostInviteMode}
-					onAcceptReply={props.room.actions.acceptReply}
-					onBecomeGuest={props.room.actions.becomeGuest}
-					onBecomeHost={props.room.actions.becomeHost}
-					onClaimInviteLinkAsHost={props.room.actions.claimInviteLinkAsHost}
-					onCopyInviteLink={props.room.actions.copyInviteLink}
-					onCopyInviteCode={props.room.actions.copyInviteCode}
-					onCopyReplyCode={props.room.actions.copyReplyCode}
-					onCreateReply={props.room.actions.createReply}
-					onSetInviteText={props.room.actions.setInviteText}
-					onSetReplyText={props.room.actions.setReplyText}
-					onTryRelay={props.room.actions.tryRelay}
+					onAcceptReplyCode={props.room.commands.acceptReplyCode}
+					onBecomeGuest={props.room.commands.becomeGuest}
+					onBecomeHost={props.room.commands.becomeHost}
+					onClaimInviteLinkAsHost={props.room.commands.claimInviteLinkAsHost}
+					onJoinInvite={props.room.commands.joinInvite}
+					onSetInviteText={props.room.commands.setInviteText}
+					onSetReplyText={props.room.commands.setReplyText}
+					onTryRelay={props.room.commands.tryRelay}
 				/>
 			</Show>
 		</PortraitStrip>

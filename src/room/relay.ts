@@ -4,9 +4,8 @@ import {
 	RELAY_PATH,
 	RELAY_REQUEST_HEADER,
 } from '../../contracts/relay'
-import type { LinkId, RoomLink } from './link'
+import type { RoomConnection } from './link'
 
-export { RELAY_GRANT_BYTES, RELAY_GRANT_SECONDS } from '../../contracts/relay'
 export const RELAY_FALLBACK_WAIT_SECONDS = 8
 
 const RELAY_STATS_INTERVAL_MS = 3000
@@ -30,17 +29,11 @@ type RelayPeerOptions = {
 	iceTransportPolicy?: RTCIceTransportPolicy
 }
 
-/** Link surface needed to aggregate TURN usage. */
-type RelayStatsLink = {
-	id: LinkId
-	rtc: Pick<RoomLink['rtc'], 'relayStats'>
-}
-
-export type RoomRelay = {
-	active: () => boolean
-	clear: (options?: { keepMetering?: boolean }) => void
-	peerOptions: () => RelayPeerOptions
-	start: (iceServers: RTCIceServer[], onExpired: () => void) => void
+type RelaySession = {
+	connectionBytes: Map<RoomConnection, number>
+	expiresAt: number
+	iceServers: RTCIceServer[]
+	timer: ReturnType<typeof setInterval> | null
 }
 
 const isTurnUrl = (url: string) => /^turns?:/i.test(url)
@@ -87,13 +80,14 @@ const relayIceServers = (value: unknown) => {
 }
 
 /** Same-origin TURN mint used only after direct invite-link discovery stalls. */
-export const requestRelayIceServers = async () => {
+export const requestRelayIceServers = async (signal: AbortSignal) => {
 	const response = await fetch(RELAY_PATH, {
 		headers: {
 			accept: 'application/json',
 			[RELAY_REQUEST_HEADER]: '1',
 		},
 		method: 'POST',
+		signal,
 	})
 
 	if (!response.ok) {
@@ -109,77 +103,73 @@ export const requestRelayIceServers = async () => {
 	return servers
 }
 
-/** Active relay state and honest local usage meter for the current room. */
+/** TURN configuration and local usage estimate for the active relay grant. */
 export const createRoomRelay = (options: {
-	links: ReadonlyMap<LinkId, RelayStatsLink>
-	onStatsError: (error: unknown, link: RelayStatsLink) => void
+	connections: () => RoomConnection[]
+	onStatsError: (error: unknown, connection: RoomConnection) => void
 	setMetering: (metering: RelayMetering | null) => void
-}): RoomRelay => {
-	let generation = 0
-	let iceServers: RTCIceServer[] | null = null
-	let meterTimer: ReturnType<typeof setInterval> | null = null
+}) => {
+	let activeSession: RelaySession | null = null
 
 	const clear = (clearOptions: { keepMetering?: boolean } = {}) => {
-		generation++
-		if (meterTimer != null) {
-			clearInterval(meterTimer)
-			meterTimer = null
-		}
-
-		iceServers = null
+		const session = activeSession
+		activeSession = null
+		if (session?.timer != null) clearInterval(session.timer)
 		if (!clearOptions.keepMetering) options.setMetering(null)
-	}
-
-	const sampleBytes = async (
-		linkBytes: Map<LinkId, number>,
-		session: number,
-	) => {
-		await Promise.all(
-			[...options.links.values()].map(async (link) => {
-				const stats = await link.rtc.relayStats().catch((error: unknown) => {
-					if (session === generation) options.onStatsError(error, link)
-					return null
-				})
-				if (session !== generation || stats == null) return
-
-				linkBytes.set(
-					link.id,
-					Math.max(linkBytes.get(link.id) ?? 0, stats.bytes),
-				)
-			}),
-		)
-
-		if (session !== generation) return null
-		return [...linkBytes.values()].reduce((sum, bytes) => sum + bytes, 0)
 	}
 
 	const start = (servers: RTCIceServer[], onExpired: () => void) => {
 		clear()
-		const session = generation
-		const linkBytes = new Map<LinkId, number>()
-		iceServers = servers
-
-		const expiresAt = Date.now() + RELAY_GRANT_SECONDS * 1000
+		const session: RelaySession = {
+			connectionBytes: new Map(),
+			expiresAt: Date.now() + RELAY_GRANT_SECONDS * 1000,
+			iceServers: servers,
+			timer: null,
+		}
+		activeSession = session
 		let bytesSpent = 0
 		let lastStatsAt = 0
 		let updateRunning = false
 
 		const update = async () => {
-			if (session !== generation || updateRunning) return
+			if (activeSession !== session || updateRunning) return
 
 			updateRunning = true
 			try {
 				if (Date.now() - lastStatsAt >= RELAY_STATS_INTERVAL_MS) {
-					const sampledBytes = await sampleBytes(linkBytes, session)
-					if (sampledBytes == null) return
+					await Promise.all(
+						options.connections().map(async (connection) => {
+							const bytes = await connection.rtc
+								.relayBytes()
+								.catch((error: unknown) => {
+									if (activeSession === session) {
+										options.onStatsError(error, connection)
+									}
+									return null
+								})
+							if (activeSession !== session || bytes == null) return
 
-					bytesSpent = sampledBytes
+							session.connectionBytes.set(
+								connection,
+								Math.max(session.connectionBytes.get(connection) ?? 0, bytes),
+							)
+						}),
+					)
+					if (activeSession !== session) return
+
+					bytesSpent = [...session.connectionBytes.values()].reduce(
+						(sum, bytes) => sum + bytes,
+						0,
+					)
 					lastStatsAt = Date.now()
 				}
-				if (session !== generation) return
+				if (activeSession !== session) return
 
 				const now = Date.now()
-				const secondsLeft = Math.max(0, Math.ceil((expiresAt - now) / 1000))
+				const secondsLeft = Math.max(
+					0,
+					Math.ceil((session.expiresAt - now) / 1000),
+				)
 				const bytesLeft = Math.max(0, RELAY_GRANT_BYTES - bytesSpent)
 				options.setMetering({ bytesLeft, secondsLeft })
 				if (secondsLeft > 0 && bytesLeft > 0) return
@@ -193,78 +183,21 @@ export const createRoomRelay = (options: {
 		}
 
 		void update()
-		meterTimer = setInterval(() => void update(), 1000)
+		session.timer = setInterval(() => void update(), 1000)
 	}
 	const peerOptions = (): RelayPeerOptions => {
-		return iceServers == null ? {} : { iceServers, iceTransportPolicy: 'relay' }
+		return activeSession == null
+			? {}
+			: {
+					iceServers: activeSession.iceServers,
+					iceTransportPolicy: 'relay',
+				}
 	}
 
 	return {
-		active: () => iceServers != null,
+		active: () => activeSession != null,
 		clear,
 		peerOptions,
 		start,
 	}
-}
-
-export type RelayFallbackTimer = {
-	hide: () => void
-	start: () => void
-	stop: () => void
-}
-
-/** Direct-first wait meter before the guest is allowed to request relay credentials. */
-export const createRelayFallbackTimer = (options: {
-	active: () => boolean
-	currentSecondsLeft: () => number | null
-	finding: () => boolean
-	setSecondsLeft: (seconds: number | null) => void
-}): RelayFallbackTimer => {
-	let frame: number | null = null
-	let endsAt = 0
-
-	const stop = () => {
-		if (frame == null) return
-
-		cancelAnimationFrame(frame)
-		frame = null
-	}
-
-	const hide = () => {
-		stop()
-		options.setSecondsLeft(null)
-	}
-
-	const tick = () => {
-		if (frame == null) return
-		if (!options.finding()) {
-			stop()
-			return
-		}
-		if (options.active()) {
-			hide()
-			return
-		}
-
-		const secondsLeft = Math.max(0, (endsAt - Date.now()) / 1000)
-		options.setSecondsLeft(secondsLeft)
-		if (secondsLeft <= 0) {
-			stop()
-			return
-		}
-
-		frame = requestAnimationFrame(tick)
-	}
-
-	const start = () => {
-		if (options.active()) return
-		if (frame != null) return
-		if (options.currentSecondsLeft() === 0) return
-
-		endsAt = Date.now() + RELAY_FALLBACK_WAIT_SECONDS * 1000
-		options.setSecondsLeft(RELAY_FALLBACK_WAIT_SECONDS)
-		frame = requestAnimationFrame(tick)
-	}
-
-	return { hide, start, stop }
 }

@@ -12,10 +12,23 @@ export type AnswerDescription = {
 
 export type SignalDescription = AnswerDescription | OfferDescription
 
-/** Runtime guard for an offer crossing a signaling boundary. */
-export const isOfferDescription = (
+/** Correlation id binding one offer to its answer across a signaling path. */
+export type SignalExchangeId = string & {
+	readonly SignalExchangeId: unique symbol
+}
+
+const SIGNAL_EXCHANGE_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/
+
+/** Validate a signaling exchange id at an untrusted boundary. */
+export const parseSignalExchangeId = (
 	value: unknown,
-): value is OfferDescription => {
+): SignalExchangeId | null => {
+	return typeof value === 'string' && SIGNAL_EXCHANGE_ID_PATTERN.test(value)
+		? (value as SignalExchangeId)
+		: null
+}
+
+const isOfferDescription = (value: unknown): value is OfferDescription => {
 	return (
 		typeof value === 'object' &&
 		value != null &&
@@ -26,10 +39,7 @@ export const isOfferDescription = (
 	)
 }
 
-/** Runtime guard for an answer crossing a signaling boundary. */
-export const isAnswerDescription = (
-	value: unknown,
-): value is AnswerDescription => {
+const isAnswerDescription = (value: unknown): value is AnswerDescription => {
 	return (
 		typeof value === 'object' &&
 		value != null &&

@@ -3,67 +3,112 @@ import {
 	createSignal,
 	For,
 	type JSX,
-	Match,
 	onCleanup,
 	Show,
-	Switch,
 } from 'solid-js'
 import { hueFromSeed, themeHueFromSeed } from './hue'
-import type { BlipComposerState } from './room/activity/blip'
-import type { MediaPresence } from './room/activity/media'
-import type { LinkStatus } from './room/link'
-import type { ParticipantActivity, ParticipantFile } from './room/participant'
-import type { SelfMedia, SelfMediaStatus } from './self-media'
-import { transferIssueCopy } from './ui/copy'
+import { type SelfMedia, selfMediaDeviceTrack } from './room/media'
+import type {
+	FileTransferIssue,
+	RoomPeer,
+	SharedFile,
+} from './room/participant'
+import { fileTransferIssueCopy } from './ui/copy'
 import { createPulse } from './ui/pulse'
 import { viewfinderObjectPosition } from './viewfinder'
-
-const SelfMediaStatusLabel = (props: { status: SelfMediaStatus }) => {
-	return (
-		<Switch fallback={null}>
-			<Match when={props.status === 'missing'}>
-				<small>device missing</small>
-			</Match>
-			<Match when={props.status === 'unsupported'}>
-				<small>unsupported</small>
-			</Match>
-			<Match when={props.status === 'error'}>
-				<small>capture failed</small>
-			</Match>
-		</Switch>
-	)
-}
-
-const hasLiveSelfPreview = (media: SelfMedia) => {
-	return media.status === 'live' && media.outboundStream != null
-}
 
 const hasActiveSelfPreview = (media: SelfMedia) => {
 	return (
 		media.status === 'live' &&
-		media.outboundStream != null &&
-		((media.screenEnabled && media.screenStream != null) ||
-			(media.cameraAvailable && media.cameraEnabled))
+		(media.screen.status === 'sharing' ||
+			selfMediaDeviceTrack(media, 'video')?.enabled === true)
 	)
 }
 
-const hasSelfMediaWarning = (status: SelfMediaStatus) => {
+const hasSelfMediaWarning = (status: SelfMedia['status']) => {
 	return (
+		status === 'busy' ||
 		status === 'denied' ||
+		status === 'interrupted' ||
 		status === 'missing' ||
 		status === 'unsupported' ||
 		status === 'error'
 	)
 }
 
+const selfMediaNotice = (media: SelfMedia) => {
+	let title: string
+	let issue: string
+	switch (media.status) {
+		case 'idle':
+			return {
+				actionDisabled: false,
+				actionLabel: 'enable cam and mic',
+				paragraphs: [
+					'Send an invite to another device. Once connected, drop files here to send them directly. Turn on camera and microphone when you want peers to see or hear you.',
+				],
+				title: 'welcome to flop',
+			}
+		case 'requesting':
+			return {
+				actionDisabled: true,
+				actionLabel: 'waiting for permission',
+				paragraphs: [
+					'Your browser should be asking for permission now. Once allowed, this card becomes your live portrait.',
+				],
+				title: 'Allow cam and mic',
+			}
+		case 'denied':
+			title = 'Access denied'
+			issue =
+				'Camera or microphone access was denied. Allow access in your browser, then try again.'
+			break
+		case 'missing':
+			title = 'No devices found'
+			issue =
+				'No working camera or microphone was found. Connect one and try again.'
+			break
+		case 'interrupted':
+			title = 'Media stopped'
+			issue =
+				'The camera or microphone stopped. Check the device or browser permission, then try again.'
+			break
+		case 'unsupported':
+			title = 'Browser unsupported'
+			issue = 'This browser cannot open camera and microphone here.'
+			break
+		case 'busy':
+			title = 'Could not start media'
+			issue =
+				'This browser could not start camera or microphone. Another app may already be using a device.'
+			break
+		case 'error':
+			title = 'Could not start media'
+			issue = 'This browser could not open camera and microphone.'
+			break
+		case 'live':
+			return null
+	}
+
+	return {
+		actionDisabled: false,
+		actionLabel: 'try again',
+		paragraphs: [
+			issue,
+			'After changing your browser or device setting, try again. You can still use the room without camera or microphone.',
+		],
+		title,
+	}
+}
+
 type VideoPointerEvent = PointerEvent & { currentTarget: HTMLVideoElement }
 
 const VideoStream = (props: {
-	active?: boolean
+	active: boolean
 	class: string
 	mirrored?: boolean
 	muted?: boolean
-	stream?: MediaStream | null
+	stream: MediaStream | null
 }) => {
 	let video: HTMLVideoElement | null = null
 	let viewfinderPointer: number | null = null
@@ -106,7 +151,7 @@ const VideoStream = (props: {
 		if (element.srcObject !== stream) {
 			element.srcObject = stream
 		}
-		if (stream != null && props.active !== false) {
+		if (stream != null && props.active) {
 			void element.play().catch(() => {})
 		}
 	})
@@ -117,7 +162,7 @@ const VideoStream = (props: {
 		video.srcObject = null
 	})
 
-	const hidden = () => (props.stream ?? null) == null || props.active === false
+	const hidden = () => props.stream == null || !props.active
 
 	return (
 		<video
@@ -142,14 +187,14 @@ const VideoStream = (props: {
 }
 
 export const PortraitStrip = (props: {
-	themeSeed?: string | null
+	themeSeed: string
 	children?: JSX.Element
 }) => {
 	return (
-		// The whole app is one gallery strip; every flow should earn its portrait.
+		// One persistent scroll container owns every room card.
 		<main
 			class="portrait-app"
-			style={{ '--h': `${themeHueFromSeed(props.themeSeed ?? null)}` }}
+			style={{ '--h': `${themeHueFromSeed(props.themeSeed)}` }}
 		>
 			<section class="portrait-strip scrollbarless" aria-label="room cards">
 				{props.children}
@@ -158,27 +203,28 @@ export const PortraitStrip = (props: {
 	)
 }
 
-const fileChipLabel = (file: ParticipantFile) => {
+const fileChipLabel = (file: SharedFile) => {
 	switch (file.state) {
 		case 'sending':
 			return `sending ${file.name}`
 		case 'receiving':
 			return `receiving ${file.name}`
-		case 'error':
+		case 'failed':
 			return `failed ${file.name}`
-		case 'ready':
+		case 'download':
+		case 'sent':
 			return file.name
 	}
 }
 
-const fileProgress = (file: ParticipantFile) => {
+const fileProgress = (file: SharedFile) => {
 	if (file.state !== 'sending' && file.state !== 'receiving') return 100
 	if (file.size <= 0) return 100
 
 	return Math.min(100, Math.round((file.transferredBytes / file.size) * 100))
 }
 
-const FileChip = (props: { file: ParticipantFile }) => {
+const FileChip = (props: { file: SharedFile }) => {
 	const body = () => (
 		<>
 			<span>{fileChipLabel(props.file)}</span>
@@ -187,48 +233,59 @@ const FileChip = (props: { file: ParticipantFile }) => {
 					props.file.state === 'sending' || props.file.state === 'receiving'
 				}
 			>
-				<i style={{ '--progress': `${fileProgress(props.file)}%` }} />
+				<i
+					role="progressbar"
+					aria-label={`${props.file.name} transfer progress`}
+					aria-valuemin="0"
+					aria-valuemax="100"
+					aria-valuenow={fileProgress(props.file)}
+					style={{ '--progress': `${fileProgress(props.file)}%` }}
+				/>
 			</Show>
 		</>
 	)
 
 	return (
-		// Files live under the person who announced them; that keeps transfer state social, not panel-shaped.
 		<Show
-			when={props.file.url != null}
+			when={props.file.state === 'download' ? props.file : null}
 			fallback={
 				<span
 					class="file-chip glass-pill"
-					classList={{ 'is-error': props.file.state === 'error' }}
+					classList={{ 'is-error': props.file.state === 'failed' }}
 				>
 					{body()}
 				</span>
 			}
 		>
-			<a
-				class="file-chip glass-pill"
-				classList={{ 'is-error': props.file.state === 'error' }}
-				href={props.file.url ?? ''}
-				download={props.file.name}
-			>
-				{body()}
-			</a>
+			{(file) => (
+				<a
+					class="file-chip glass-pill"
+					href={file().url}
+					download={file().name}
+				>
+					{body()}
+				</a>
+			)}
 		</Show>
 	)
 }
 
 const PortraitActivity = (props: {
-	activity: ParticipantActivity
-	showBlip?: boolean
+	blip?: string | null
+	files: SharedFile[]
 }) => {
-	const blip = () =>
-		props.showBlip !== false ? props.activity.blip?.trim() || null : null
+	const blip = () => props.blip?.trim() || null
 
 	return (
-		<Show when={props.activity.files.length > 0 || blip() != null}>
+		<Show when={props.files.length > 0 || blip() != null}>
 			<div class="portrait-activity">
-				<For each={props.activity.files}>
-					{(file) => <FileChip file={file} />}
+				{/* Progress replaces file snapshots; transfer identity keeps each chip mounted. */}
+				<For each={props.files.map((file) => file.id)}>
+					{(id) => (
+						<Show when={props.files.find((file) => file.id === id)}>
+							{(file) => <FileChip file={file()} />}
+						</Show>
+					)}
 				</For>
 				<Show when={blip()}>
 					{(text) => <p class="portrait-blip glass-pill">{text()}</p>}
@@ -239,12 +296,11 @@ const PortraitActivity = (props: {
 }
 
 const BlipComposer = (props: {
-	canSend: boolean
-	composer: BlipComposerState
+	draft: string
+	fileTransferIssue: FileTransferIssue | null
 	onSend: () => void
 	onDismissIssue: () => void
 	onSetText: (text: string) => void
-	showWhenIdle?: boolean
 }) => {
 	const [dirty, setDirty] = createSignal(false)
 	const [editing, setEditing] = createSignal(false)
@@ -257,7 +313,7 @@ const BlipComposer = (props: {
 	}
 
 	const send = () => {
-		if (!props.canSend || !dirty()) {
+		if (!dirty()) {
 			setEditing(false)
 			return
 		}
@@ -278,234 +334,253 @@ const BlipComposer = (props: {
 		send()
 	}
 
-	const visible = () => {
-		return (
-			props.showWhenIdle ||
-			props.canSend ||
-			props.composer.issue != null ||
-			props.composer.text.trim() !== ''
-		)
-	}
-
 	return (
-		<Show when={visible()}>
-			<form class="blip-composer" onSubmit={submit}>
-				<Show when={props.composer.issue}>
-					{(issue) => {
-						const copy = () => transferIssueCopy[issue()]
-						return (
-							<button
-								type="button"
-								class="blip-issue"
-								aria-label={`Dismiss notice: ${copy()}`}
-								onClick={props.onDismissIssue}
-							>
-								<span class="blip-issue-mark" aria-hidden="true">
-									i
-								</span>
-								<span class="blip-issue-text">{copy()}</span>
-								<span class="blip-issue-dismiss" aria-hidden="true">
-									×
-								</span>
-							</button>
-						)
-					}}
-				</Show>
-				<Show
-					when={
-						props.showWhenIdle ||
-						props.canSend ||
-						props.composer.text.trim() !== ''
-					}
-				>
-					<textarea
-						value={props.composer.text}
-						aria-label="blip"
-						enterkeyhint="done"
-						placeholder="tap to edit blip"
-						rows={1}
-						class="blip-composer-input glass-pill"
-						classList={{
-							'is-editing': editing(),
-							'is-committed': committed.active(),
-						}}
-						onFocus={() => setEditing(true)}
-						onInput={(event) => {
-							setDirty(true)
-							setEditing(true)
-							committed.clear()
-							props.onSetText(event.currentTarget.value)
-						}}
-						onKeyDown={submitEnter}
-						onBlur={send}
-						disabled={!props.canSend}
-					/>
-				</Show>
-			</form>
-		</Show>
+		<form class="blip-composer" onSubmit={submit}>
+			<Show when={props.fileTransferIssue}>
+				{(issue) => {
+					const copy = () => fileTransferIssueCopy[issue()]
+					return (
+						<button
+							type="button"
+							class="file-transfer-issue"
+							aria-label={`Dismiss notice: ${copy()}`}
+							onClick={props.onDismissIssue}
+						>
+							<span class="file-transfer-issue-mark" aria-hidden="true">
+								i
+							</span>
+							<span class="file-transfer-issue-text">{copy()}</span>
+							<span class="file-transfer-issue-dismiss" aria-hidden="true">
+								×
+							</span>
+						</button>
+					)
+				}}
+			</Show>
+			<textarea
+				value={props.draft}
+				aria-label="blip"
+				enterkeyhint="done"
+				placeholder="tap to edit blip"
+				rows={1}
+				class="blip-composer-input glass-pill"
+				classList={{
+					'is-editing': editing(),
+					'is-committed': committed.active(),
+				}}
+				onFocus={() => setEditing(true)}
+				onInput={(event) => {
+					setDirty(true)
+					setEditing(true)
+					committed.clear()
+					props.onSetText(event.currentTarget.value)
+				}}
+				onKeyDown={submitEnter}
+				onBlur={send}
+			/>
+		</form>
 	)
 }
-
-export const PersonCard = (props: {
-	activity: ParticipantActivity
-	colorSeed: string
-	mediaState?: MediaPresence | null
-	mediaStream?: MediaStream | null
-	connectionState: LinkStatus
-}) => {
+export const PeerPortraitCard = (props: { peer: RoomPeer }) => {
+	const connection = () => props.peer.connection
+	const hasVideoTrack = () =>
+		connection()
+			?.mediaStream?.getVideoTracks()
+			.some((track) => track.readyState !== 'ended') === true
 	const videoActive = () =>
-		props.mediaStream != null &&
-		(props.mediaState == null ||
-			props.mediaState.cameraEnabled ||
-			props.mediaState.screenEnabled)
+		hasVideoTrack() &&
+		(connection()?.mediaPresence == null ||
+			connection()?.mediaPresence?.cameraEnabled === true ||
+			connection()?.mediaPresence?.screenEnabled === true)
 
 	return (
 		<article
-			class="portrait-card person-card"
-			classList={{ 'is-live': props.connectionState === 'live' }}
+			class="portrait-card peer-card"
+			classList={{ 'is-live': connection()?.connected === true }}
 		>
 			<div
-				class="portrait-face person-face"
+				class="portrait-face peer-face"
 				classList={{
 					'has-video': videoActive(),
 					'is-empty': !videoActive(),
 				}}
-				style={{ '--card-h': `${hueFromSeed(props.colorSeed)}` }}
+				style={{ '--card-h': `${hueFromSeed(props.peer.id)}` }}
 			>
 				<VideoStream
 					active={videoActive()}
 					class="remote-video"
-					stream={props.mediaStream ?? null}
+					stream={connection()?.mediaStream ?? null}
 				/>
-				<div class="person-activity-shell">
-					<PortraitActivity activity={props.activity} />
+				<div class="peer-activity-shell">
+					<PortraitActivity blip={props.peer.blip} files={props.peer.files} />
 				</div>
 			</div>
 		</article>
 	)
 }
 
-export const SelfMediaCard = (props: {
-	activity: ParticipantActivity
-	canBlip: boolean
-	blipComposer: BlipComposerState
+/** Keyboard- and touch-accessible counterpart to room-wide file dropping. */
+const FilePickerButton = (props: { onSelect: (files: File[]) => void }) => {
+	let input: HTMLInputElement | null = null
+	const selected = (event: Event & { currentTarget: HTMLInputElement }) => {
+		const files = Array.from(event.currentTarget.files ?? [])
+		event.currentTarget.value = ''
+		if (files.length > 0) props.onSelect(files)
+	}
+
+	return (
+		<>
+			<button
+				type="button"
+				class="self-toggle self-file-picker"
+				aria-label="send files"
+				onClick={() => input?.click()}
+			>
+				<span class="self-toggle-label">file</span>
+				<span class="self-file-picker-icon" aria-hidden="true">
+					↑
+				</span>
+			</button>
+			<input
+				ref={(element) => {
+					input = element
+				}}
+				type="file"
+				multiple
+				hidden
+				onChange={selected}
+			/>
+		</>
+	)
+}
+
+export const SelfPortraitCard = (props: {
+	blipDraft: string
+	fileTransferIssue: FileTransferIssue | null
+	files: SharedFile[]
 	media: SelfMedia
-	title?: string
-	children?: JSX.Element
-	actions?: JSX.Element
+	onDismissFileTransferIssue: () => void
+	onEnableSelfMedia: () => void
+	onSendFiles: (files: File[]) => void
 	onSendBlip: () => void
-	onDismissBlipIssue: () => void
-	onSetBlipText: (text: string) => void
-	onToggleCamera?: () => void
-	onToggleMicrophone?: () => void
+	onSetBlipDraft: (text: string) => void
+	onToggleCamera: () => void
+	onToggleMicrophone: () => void
 	onToggleScreen: () => void
 }) => {
+	const notice = () => selfMediaNotice(props.media)
+	const liveMedia = () => (props.media.status === 'live' ? props.media : null)
+	const camera = () => selfMediaDeviceTrack(props.media, 'video')
+	const microphone = () => selfMediaDeviceTrack(props.media, 'audio')
+	const screenStatus = () => liveMedia()?.screen.status ?? null
+
 	return (
 		<article
 			class="portrait-card self-card"
 			classList={{
 				'is-live': props.media.status === 'live',
-				'has-preview': hasLiveSelfPreview(props.media),
 				'is-setup': props.media.status !== 'live',
 				'is-warning': hasSelfMediaWarning(props.media.status),
 			}}
 		>
-			<Show when={hasLiveSelfPreview(props.media)}>
+			<Show when={props.media.status === 'live'}>
 				<div class="portrait-face self-portrait-face">
 					<VideoStream
 						active={hasActiveSelfPreview(props.media)}
 						class="self-video"
-						mirrored={!props.media.screenEnabled}
+						mirrored={liveMedia()?.screen.status !== 'sharing'}
 						muted
-						stream={props.media.outboundStream}
+						stream={liveMedia()?.publishedStream ?? null}
 					/>
 				</div>
 			</Show>
-			<Show
-				when={props.media.status === 'live'}
-				fallback={
-					<div class="self-card-body">
-						<Show
-							when={(props.title ?? '').trim() !== '' || props.children != null}
-						>
-							<div class="self-copy-shell">
-								<Show when={(props.title ?? '').trim() !== ''}>
-									<header class="utility-header">
-										<strong>{props.title}</strong>
-										<SelfMediaStatusLabel status={props.media.status} />
-									</header>
-								</Show>
-								<Show when={props.children != null}>
-									<div class="self-card-copy">{props.children}</div>
-								</Show>
-							</div>
-						</Show>
-						<PortraitActivity activity={props.activity} showBlip={false} />
-						<BlipComposer
-							canSend={props.canBlip}
-							composer={props.blipComposer}
-							onSend={props.onSendBlip}
-							onDismissIssue={props.onDismissBlipIssue}
-							onSetText={props.onSetBlipText}
-						/>
-						<Show when={props.actions != null}>
-							<div class="card-actions">{props.actions}</div>
-						</Show>
-					</div>
-				}
+			<div
+				classList={{
+					'self-card-body': liveMedia() == null,
+					'self-live-shell': liveMedia() != null,
+				}}
 			>
-				<div class="self-live-shell">
-					<div class="self-screen-control">
+				<Show when={notice()}>
+					{(notice) => (
+						<div class="self-copy-shell">
+							<header class="utility-header">
+								<strong>{notice().title}</strong>
+							</header>
+							<div class="self-card-copy">
+								<For each={notice().paragraphs}>
+									{(paragraph) => <p>{paragraph}</p>}
+								</For>
+							</div>
+						</div>
+					)}
+				</Show>
+				<div
+					class="self-media-actions"
+					classList={{
+						'card-actions': liveMedia() == null,
+						'self-screen-control': liveMedia() != null,
+					}}
+				>
+					<FilePickerButton onSelect={props.onSendFiles} />
+					<Show
+						when={liveMedia()}
+						fallback={
+							<button
+								type="button"
+								onClick={props.onEnableSelfMedia}
+								disabled={notice()?.actionDisabled ?? true}
+							>
+								{notice()?.actionLabel ?? 'enable cam and mic'}
+							</button>
+						}
+					>
 						<ToggleButton
+							accessibleName="screen sharing"
 							label="scr"
-							enabled={props.media.screenEnabled}
+							enabled={screenStatus() === 'sharing'}
 							disabled={
-								!props.media.screenAvailable || props.media.screenRequesting
+								screenStatus() !== 'available' && screenStatus() !== 'sharing'
 							}
 							onPress={props.onToggleScreen}
 						/>
-					</div>
-					<PortraitActivity activity={props.activity} showBlip={false} />
-					<BlipComposer
-						canSend={props.canBlip}
-						composer={props.blipComposer}
-						onSend={props.onSendBlip}
-						onDismissIssue={props.onDismissBlipIssue}
-						onSetText={props.onSetBlipText}
-						showWhenIdle
-					/>
-					<div class="self-live-controls">
-						<Show when={props.onToggleCamera}>
-							{(onToggleCamera) => (
-								<ToggleButton
-									label="cam"
-									enabled={props.media.cameraEnabled}
-									disabled={!props.media.cameraAvailable}
-									onPress={onToggleCamera()}
-								/>
-							)}
-						</Show>
-						<Show when={props.onToggleMicrophone}>
-							{(onToggleMicrophone) => (
-								<ToggleButton
-									label="mic"
-									enabled={props.media.microphoneEnabled}
-									disabled={!props.media.microphoneAvailable}
-									onPress={onToggleMicrophone()}
-								/>
-							)}
-						</Show>
-					</div>
+					</Show>
 				</div>
-			</Show>
+				<PortraitActivity files={props.files} />
+				<BlipComposer
+					draft={props.blipDraft}
+					fileTransferIssue={props.fileTransferIssue}
+					onSend={props.onSendBlip}
+					onDismissIssue={props.onDismissFileTransferIssue}
+					onSetText={props.onSetBlipDraft}
+				/>
+				<Show when={liveMedia()}>
+					<div class="self-live-controls">
+						<ToggleButton
+							accessibleName="camera"
+							label="cam"
+							enabled={camera()?.enabled === true}
+							disabled={camera() == null}
+							onPress={props.onToggleCamera}
+						/>
+						<ToggleButton
+							accessibleName="microphone"
+							label="mic"
+							enabled={microphone()?.enabled === true}
+							disabled={microphone() == null}
+							onPress={props.onToggleMicrophone}
+						/>
+					</div>
+				</Show>
+			</div>
 		</article>
 	)
 }
 
 const ToggleButton = (props: {
+	accessibleName: string
 	label: string
 	enabled: boolean
-	disabled?: boolean
+	disabled: boolean
 	onPress: () => void
 }) => {
 	return (
@@ -513,7 +588,8 @@ const ToggleButton = (props: {
 			type="button"
 			class="self-toggle"
 			onClick={props.onPress}
-			disabled={props.disabled ?? false}
+			disabled={props.disabled}
+			aria-label={props.accessibleName}
 			aria-pressed={props.enabled}
 		>
 			<span class="self-toggle-label">{props.label}</span>

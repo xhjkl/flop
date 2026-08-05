@@ -1,18 +1,19 @@
 import type { JSX } from 'solid-js'
-import type { HostInviteMode } from '../connection-card'
+import { parseSignalExchangeId } from '../../contracts/signal'
 import { parseParticipantId } from '../protocol'
-import type { ParticipantView, RoomState } from '../room'
 import type {
-	ClosedEntryState,
 	GuestJoinState,
 	HostInviteState,
+	RoomEntryState,
 } from '../room/entry/state'
-import type { ParticipantActivity } from '../room/participant'
+import type { RoomConnection } from '../room/link'
+import type { SelfMedia } from '../room/media'
+import type { RoomPeer, SharedFile } from '../room/participant'
 import type { RelayMetering } from '../room/relay'
-import { RoomView, type RoomViewProps } from '../room-view'
-import type { SelfMedia } from '../self-media'
+import { RoomView, type RoomViewProps } from '../ui/room-view'
+import type { RtcPeer } from '../webrtc'
 
-export type UiFixture = {
+type UiFixture = {
 	id: string
 	title: string
 	render: () => JSX.Element
@@ -33,64 +34,109 @@ const fixtureParticipantId = (value: string) => {
 const HOST_ID = fixtureParticipantId('48b6a1e2c59d730f')
 const OLEG_ID = fixtureParticipantId('79df2a4c038be116')
 const NADIA_ID = fixtureParticipantId('b05e9d8328aa41c7')
+const MESH_EXCHANGE_ID = parseSignalExchangeId('fixture-mesh-id-0001')
+if (MESH_EXCHANGE_ID == null)
+	throw new Error('Invalid fixture mesh exchange id')
 
 const noop = () => {}
-const noopFiles = (_files: File[]) => {}
-const noopText = (_text: string) => {}
-const noopTextMaybe = (_text?: string) => {}
 
-const fixtureActions: RoomViewProps['room']['actions'] = {
-	acceptReply: noopTextMaybe,
+const fixtureCommands: RoomViewProps['room']['commands'] = {
+	acceptReplyCode: noop,
 	becomeGuest: noop,
 	becomeHost: noop,
 	claimInviteLinkAsHost: noop,
-	copyInviteLink: noop,
-	copyInviteCode: noop,
-	copyReplyCode: noop,
-	createReply: noopTextMaybe,
-	dismissBlipIssue: noop,
+	joinInvite: noop,
+	dismissFileTransferIssue: noop,
 	enableSelfMedia: noop,
 	sendBlip: noop,
-	sendFiles: noopFiles,
-	setBlipText: noopText,
-	setInviteText: noopText,
-	setReplyText: noopText,
+	sendFiles: noop,
+	setBlipDraft: noop,
+	setInviteText: noop,
+	setReplyText: noop,
 	toggleCamera: noop,
 	toggleMicrophone: noop,
 	toggleScreen: noop,
 	tryRelay: noop,
 }
 
-const emptyActivity: ParticipantActivity = { blip: null, files: [] }
-const emptyComposer = { issue: null, text: '' }
+const noFiles: SharedFile[] = []
+const unavailableRtcOperation = async () => {
+	throw new Error('Room fixtures do not execute WebRTC operations')
+}
 
-const selfMedia = (overrides: Partial<SelfMedia> = {}): SelfMedia => {
+const fixtureRtc: RtcPeer = {
+	acceptAnswer: unavailableRtcOperation,
+	close: noop,
+	createAnswer: unavailableRtcOperation,
+	createOffer: unavailableRtcOperation,
+	relayBytes: async () => null,
+	setLocalMedia: noop,
+	trySend: () => false,
+	waitForBufferBelow: async () => {},
+}
+
+const fixturePeer = (
+	id: RoomPeer['id'],
+	options: {
+		blip?: string | null
+		connected?: boolean
+		files?: SharedFile[]
+		mediaPresence?: RoomConnection['mediaPresence']
+		mediaStream?: MediaStream | null
+	} = {},
+): RoomPeer => {
+	const connection: RoomConnection | null = options.connected
+		? {
+				connected: true,
+				mediaPresence: options.mediaPresence ?? null,
+				mediaStream: options.mediaStream ?? null,
+				origin: { exchangeId: MESH_EXCHANGE_ID, kind: 'mesh' },
+				rtc: fixtureRtc,
+			}
+		: null
+
 	return {
-		status: 'ready',
-		issue: null,
-		outboundStream: null,
-		deviceStream: null,
-		screenStream: null,
-		cameraAvailable: false,
-		cameraEnabled: false,
-		microphoneAvailable: false,
-		microphoneEnabled: false,
-		screenAvailable: true,
-		screenEnabled: false,
-		screenRequesting: false,
-		...overrides,
+		blip: options.blip ?? null,
+		connection,
+		files: options.files ?? noFiles,
+		id,
 	}
 }
 
-const liveSelfMedia = (overrides: Partial<SelfMedia> = {}) => {
-	return selfMedia({
+const inactiveSelfMedia = (
+	status: Exclude<SelfMedia['status'], 'live'> = 'idle',
+): SelfMedia => ({ status })
+
+const liveSelfMedia = (
+	options: {
+		cameraEnabled?: boolean
+		microphoneEnabled?: boolean
+		screenAvailable?: boolean
+	} = {},
+): SelfMedia => {
+	const camera = {
+		enabled: options.cameraEnabled ?? false,
+		readyState: 'live',
+	} as MediaStreamTrack
+	const microphone = {
+		enabled: options.microphoneEnabled ?? true,
+		readyState: 'live',
+	} as MediaStreamTrack
+	const deviceStream = {
+		getAudioTracks: () => [microphone],
+		getTracks: () => [microphone, camera],
+		getVideoTracks: () => [camera],
+	} as MediaStream
+
+	return {
+		deviceStream,
+		publishedStream: new MediaStream(),
+		screen: {
+			status: options.screenAvailable === false ? 'unavailable' : 'available',
+			stream: null,
+		},
 		status: 'live',
-		cameraAvailable: true,
-		cameraEnabled: false,
-		microphoneAvailable: true,
-		microphoneEnabled: true,
-		...overrides,
-	})
+	}
 }
 
 const hostInvite = (
@@ -98,9 +144,9 @@ const hostInvite = (
 ): HostInviteState => {
 	return {
 		side: 'host',
-		status: 'invite-ready',
+		manualPhase: 'waiting-for-reply',
 		inviteLink: SAMPLE_INVITE_LINK,
-		inviteLinkStatus: 'ready',
+		inviteLinkPhase: 'ready',
 		inviteCode: SAMPLE_INVITE_CODE,
 		replyText: '',
 		issue: null,
@@ -109,28 +155,33 @@ const hostInvite = (
 }
 
 const guestJoin = (
-	overrides: Partial<Omit<GuestJoinState, 'side'>> = {},
+	overrides: {
+		hostPresent?: boolean | null
+		inviteText?: string
+		issue?: GuestJoinState['issue']
+		relayFallbackSecondsLeft?: number | null
+		replyCode?: string
+		status?: GuestJoinState['status']
+	} = {},
 ): GuestJoinState => {
-	return {
-		side: 'guest',
-		status: 'needs-invite',
-		inviteText: '',
-		inviteLinkPresence: null,
-		relayFallbackSecondsLeft: null,
-		replyCode: '',
-		issue: null,
-		...overrides,
+	const base = {
+		side: 'guest' as const,
+		inviteText: overrides.inviteText ?? '',
+		issue: overrides.issue ?? null,
 	}
-}
-
-const closedEntry = (
-	overrides: Partial<Omit<ClosedEntryState, 'side'>> = {},
-): ClosedEntryState => {
-	return {
-		side: 'closed',
-		issue: null,
-		...overrides,
+	const status = overrides.status ?? 'needs-invite'
+	if (status === 'discovering-host') {
+		return {
+			...base,
+			hostPresent: overrides.hostPresent ?? null,
+			relayFallbackSecondsLeft: overrides.relayFallbackSecondsLeft ?? null,
+			status,
+		}
 	}
+	if (status === 'reply-ready') {
+		return { ...base, replyCode: overrides.replyCode ?? '', status }
+	}
+	return { ...base, status }
 }
 
 const fixture = (id: string, title: string, view: RoomViewProps): UiFixture => {
@@ -141,30 +192,35 @@ const fixture = (id: string, title: string, view: RoomViewProps): UiFixture => {
 	}
 }
 
-const room = (
-	props: {
-		entry: RoomState['entry']
-		themeSeed: string
-		hostInviteMode?: HostInviteMode
-		peers?: ParticipantView[]
-		relayMetering?: RelayMetering | null
-		selfActivity?: ParticipantActivity
-		selfMedia?: SelfMedia
-		canClaimFindingInviteLink?: boolean
-	} & Partial<Pick<RoomState, 'blipComposer'>>,
-): RoomViewProps => {
+const room = (props: {
+	entry: RoomEntryState
+	themeSeed: string
+	peers?: RoomPeer[]
+	relayMetering?: RelayMetering | null
+	self?: Partial<RoomViewProps['room']['self']>
+	selfMedia?: SelfMedia
+	canClaimInviteAsHost?: boolean
+	blipDraft?: string
+	fileTransferIssue?: RoomViewProps['room']['self']['fileTransferIssue']
+}): RoomViewProps => {
 	return {
-		hostInviteMode: props.hostInviteMode ?? null,
 		room: {
-			actions: fixtureActions,
-			canClaimFindingInviteLink: () => props.canClaimFindingInviteLink ?? false,
-			peers: () => props.peers ?? [],
-			selfActivity: () => props.selfActivity ?? emptyActivity,
+			commands: fixtureCommands,
+			canClaimInviteAsHost: () => props.canClaimInviteAsHost ?? false,
+			peers: {
+				all: () => props.peers ?? [],
+			},
+			self: {
+				blip: props.self?.blip ?? null,
+				blipDraft: props.blipDraft ?? props.self?.blipDraft ?? '',
+				fileTransferIssue:
+					props.fileTransferIssue ?? props.self?.fileTransferIssue ?? null,
+				files: props.self?.files ?? noFiles,
+				media: props.self?.media ?? props.selfMedia ?? inactiveSelfMedia(),
+			},
 			state: {
-				blipComposer: props.blipComposer ?? emptyComposer,
 				entry: props.entry,
 				relayMetering: props.relayMetering ?? null,
-				selfMedia: props.selfMedia ?? selfMedia(),
 				themeSeed: props.themeSeed,
 			},
 		},
@@ -185,11 +241,11 @@ export const uiFixtures: UiFixture[] = [
 		'Media requesting',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
-			selfMedia: selfMedia({ status: 'requesting' }),
+			selfMedia: inactiveSelfMedia('requesting'),
 			entry: hostInvite({
-				status: 'creating-invite',
+				manualPhase: 'preparing-code',
 				inviteLink: '',
-				inviteLinkStatus: 'idle',
+				inviteLinkPhase: 'preparing',
 				inviteCode: '',
 			}),
 		}),
@@ -199,21 +255,16 @@ export const uiFixtures: UiFixture[] = [
 		'Media denied',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
-			selfMedia: selfMedia({
-				status: 'denied',
-				issue:
-					'Camera or microphone access was denied. Allow access in your browser, then try again.',
-			}),
+			selfMedia: inactiveSelfMedia('denied'),
 			entry: hostInvite(),
 		}),
 	),
 	fixture(
-		'host-code-fallback',
-		'Host code fallback',
+		'host-link-failed',
+		'Host link failed',
 		room({
 			themeSeed: SAMPLE_INVITE_CODE,
-			hostInviteMode: 'code',
-			entry: hostInvite(),
+			entry: hostInvite({ inviteLinkPhase: 'failed' }),
 		}),
 	),
 	fixture(
@@ -229,15 +280,7 @@ export const uiFixtures: UiFixture[] = [
 		'Reply ready',
 		room({
 			themeSeed: SAMPLE_REPLY,
-			peers: [
-				{
-					activity: emptyActivity,
-					id: HOST_ID,
-					mediaState: null,
-					mediaStream: null,
-					connectionState: 'waiting',
-				},
-			],
+			peers: [fixturePeer(HOST_ID)],
 			entry: guestJoin({
 				status: 'reply-ready',
 				inviteText: SAMPLE_OFFER,
@@ -250,19 +293,11 @@ export const uiFixtures: UiFixture[] = [
 		'Guest link finding',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
-			peers: [
-				{
-					activity: emptyActivity,
-					id: HOST_ID,
-					mediaState: null,
-					mediaStream: null,
-					connectionState: 'waiting',
-				},
-			],
+			peers: [fixturePeer(HOST_ID)],
 			entry: guestJoin({
-				status: 'finding-link',
+				status: 'discovering-host',
 				inviteText: SAMPLE_INVITE_LINK,
-				inviteLinkPresence: { guests: 1, hosts: 1 },
+				hostPresent: true,
 				relayFallbackSecondsLeft: 5,
 			}),
 		}),
@@ -272,19 +307,11 @@ export const uiFixtures: UiFixture[] = [
 		'Guest link relay offered',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
-			peers: [
-				{
-					activity: emptyActivity,
-					id: HOST_ID,
-					mediaState: null,
-					mediaStream: null,
-					connectionState: 'waiting',
-				},
-			],
+			peers: [fixturePeer(HOST_ID)],
 			entry: guestJoin({
-				status: 'finding-link',
+				status: 'discovering-host',
 				inviteText: SAMPLE_INVITE_LINK,
-				inviteLinkPresence: { guests: 1, hosts: 1 },
+				hostPresent: true,
 				relayFallbackSecondsLeft: 0,
 			}),
 		}),
@@ -294,19 +321,11 @@ export const uiFixtures: UiFixture[] = [
 		'Guest link relay quota exceeded',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
-			peers: [
-				{
-					activity: emptyActivity,
-					id: HOST_ID,
-					mediaState: null,
-					mediaStream: null,
-					connectionState: 'waiting',
-				},
-			],
+			peers: [fixturePeer(HOST_ID)],
 			entry: guestJoin({
-				status: 'finding-link',
+				status: 'discovering-host',
 				inviteText: SAMPLE_INVITE_LINK,
-				inviteLinkPresence: { guests: 1, hosts: 1 },
+				hostPresent: true,
 				issue: 'relay-quota-exceeded',
 			}),
 		}),
@@ -316,11 +335,11 @@ export const uiFixtures: UiFixture[] = [
 		'Guest link unhosted',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
-			canClaimFindingInviteLink: true,
+			canClaimInviteAsHost: true,
 			entry: guestJoin({
-				status: 'finding-link',
+				status: 'discovering-host',
 				inviteText: SAMPLE_INVITE_LINK,
-				inviteLinkPresence: { guests: 0, hosts: 0 },
+				hostPresent: false,
 			}),
 		}),
 	),
@@ -330,19 +349,19 @@ export const uiFixtures: UiFixture[] = [
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
 			entry: guestJoin({
-				status: 'finding-link',
+				status: 'discovering-host',
 				inviteText: SAMPLE_INVITE_LINK,
-				inviteLinkPresence: { guests: 1, hosts: 1 },
+				hostPresent: true,
 				issue: 'discovery-unreachable',
 			}),
 		}),
 	),
 	fixture(
-		'blip-issue-file-stopped',
-		'Blip issue file stopped',
+		'file-transfer-stopped',
+		'File transfer stopped',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
-			selfActivity: {
+			self: {
 				blip: null,
 				files: [
 					{
@@ -350,25 +369,14 @@ export const uiFixtures: UiFixture[] = [
 						name: 'camera-roll.zip',
 						transferredBytes: 42,
 						size: 100,
-						state: 'error',
+						state: 'failed',
 						url: null,
 					},
 				],
 			},
 			selfMedia: liveSelfMedia({ cameraEnabled: true }),
-			blipComposer: {
-				issue: 'stopped',
-				text: '',
-			},
-			peers: [
-				{
-					activity: emptyActivity,
-					id: OLEG_ID,
-					mediaState: null,
-					mediaStream: null,
-					connectionState: 'waiting',
-				},
-			],
+			fileTransferIssue: 'stopped',
+			peers: [fixturePeer(OLEG_ID)],
 			entry: hostInvite(),
 		}),
 	),
@@ -377,7 +385,7 @@ export const uiFixtures: UiFixture[] = [
 		'Connected strip',
 		room({
 			themeSeed: SAMPLE_INVITE_LINK,
-			selfActivity: {
+			self: {
 				blip: 'dragged a few screenshots over',
 				files: [
 					{
@@ -399,37 +407,23 @@ export const uiFixtures: UiFixture[] = [
 				],
 			},
 			selfMedia: liveSelfMedia({ screenAvailable: false }),
-			blipComposer: {
-				issue: null,
-				text: 'dragged a few screenshots over',
-			},
+			blipDraft: 'dragged a few screenshots over',
 			peers: [
-				{
-					activity: {
-						blip: 'send the raw photos too',
-						files: [
-							{
-								id: 'oleg-file',
-								name: 'photo-export.zip',
-								transferredBytes: 37,
-								size: 100,
-								state: 'receiving',
-								url: null,
-							},
-						],
-					},
-					id: OLEG_ID,
-					mediaState: null,
-					mediaStream: null,
-					connectionState: 'live',
-				},
-				{
-					activity: emptyActivity,
-					id: NADIA_ID,
-					mediaState: null,
-					mediaStream: null,
-					connectionState: 'live',
-				},
+				fixturePeer(OLEG_ID, {
+					blip: 'send the raw photos too',
+					files: [
+						{
+							id: 'oleg-file',
+							name: 'photo-export.zip',
+							transferredBytes: 37,
+							size: 100,
+							state: 'receiving',
+							url: null,
+						},
+					],
+					connected: true,
+				}),
+				fixturePeer(NADIA_ID, { connected: true }),
 			],
 			entry: hostInvite(),
 		}),
@@ -442,17 +436,14 @@ export const uiFixtures: UiFixture[] = [
 			relayMetering: { bytesLeft: 1_600_000_000, secondsLeft: 48 * 60 },
 			selfMedia: liveSelfMedia({ cameraEnabled: true }),
 			peers: [
-				{
-					activity: emptyActivity,
-					id: HOST_ID,
-					mediaState: {
+				fixturePeer(HOST_ID, {
+					connected: true,
+					mediaPresence: {
 						cameraEnabled: true,
 						microphoneEnabled: true,
 						screenEnabled: false,
 					},
-					mediaStream: null,
-					connectionState: 'live',
-				},
+				}),
 			],
 			entry: guestJoin({
 				status: 'connected',
@@ -466,7 +457,7 @@ export const uiFixtures: UiFixture[] = [
 		'Closed room',
 		room({
 			themeSeed: 'closed-room',
-			entry: closedEntry(),
+			entry: { side: 'closed' },
 		}),
 	),
 	fixture(
@@ -475,17 +466,12 @@ export const uiFixtures: UiFixture[] = [
 		room({
 			themeSeed: 'error-screen',
 			entry: hostInvite({
-				status: 'creating-invite',
+				manualPhase: 'preparing-code',
 				inviteLink: '',
-				inviteLinkStatus: 'failed',
+				inviteLinkPhase: 'failed',
 				inviteCode: '',
 				issue: 'invite-creation-failed',
 			}),
 		}),
 	),
 ]
-
-export const getFixture = (id: string | null): UiFixture | null => {
-	if (id == null) return null
-	return uiFixtures.find((fixture) => fixture.id === id) ?? null
-}

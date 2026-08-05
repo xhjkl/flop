@@ -5,47 +5,10 @@ import {
 	type RoomSecret,
 } from '../rendezvous/secret'
 
-export type InviteInput =
+type InviteInput =
 	| { type: 'empty' }
 	| { type: 'invite-link'; secret: RoomSecret }
 	| { code: string; type: 'manual-code' }
-
-export const copyText = (text: string) => {
-	// Copy is best-effort; the UI already gave the person the text.
-	return navigator.clipboard?.writeText(text).catch(() => null) ?? null
-}
-
-const shareDataFromText = (text: string): ShareData => {
-	// Share sheets treat URLs better than plain text when we can prove one.
-	const value = text.trim()
-
-	try {
-		const url = new URL(value)
-		if (url.protocol === 'http:' || url.protocol === 'https:') {
-			return { title: 'Flop invite', url: url.href }
-		}
-	} catch {}
-
-	return { text: value, title: 'Flop invite' }
-}
-
-export const canShareText = (text: string) => {
-	// Native share is a bonus path, never a requirement.
-	if (typeof navigator === 'undefined') return false
-	if (typeof navigator.share !== 'function') return false
-
-	const data = shareDataFromText(text)
-	try {
-		return navigator.canShare?.(data) ?? true
-	} catch {
-		return false
-	}
-}
-
-export const shareText = (text: string) => {
-	if (!canShareText(text)) return null
-	return navigator.share(shareDataFromText(text)).catch(() => null)
-}
 
 const safeDecodeURIComponent = (value: string) => {
 	// A mangled hash can still be a pasted manual code, so keep the raw text.
@@ -60,7 +23,7 @@ const safeDecodeURIComponent = (value: string) => {
 	}
 }
 
-export const inviteFromHash = (hashText: string): InviteInput => {
+const inviteFromHash = (hashText: string): InviteInput => {
 	// Hashes carry either the invite link secret or a manual WebRTC signal.
 	const hash = hashText.replace(/^#/, '')
 	if (hash.trim() === '') return { type: 'empty' }

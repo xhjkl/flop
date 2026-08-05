@@ -9,7 +9,7 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
 const encodeSignalText = (description: SignalDescription) => {
-	// The invite code is SDP type plus SDP body. JSON would only add ceremony here.
+	// The first byte encodes SDP type; the rest is the compressed SDP body.
 	if (description.type === 'offer') return `o\n${description.sdp}`
 	if (description.type === 'answer') return `a\n${description.sdp}`
 

@@ -1,9 +1,12 @@
 import {
 	isSignalDescription,
+	parseSignalExchangeId,
 	type SignalDescription,
+	type SignalExchangeId,
 } from '../contracts/signal'
+import { randomHex } from './random'
 
-/** Ephemeral room identity whose lexical order is also its mesh dialing order. */
+/** Room-scoped participant identity whose lexical order assigns mesh dialing. */
 export type ParticipantId = string & {
 	readonly ParticipantId: unique symbol
 }
@@ -11,19 +14,27 @@ export type ParticipantId = string & {
 /** Host-owned room membership in stable presentation order. */
 export type Roster = ParticipantId[]
 
-/** Tiny room protocol: the host introduces people, then peers carry their own words and bytes. */
+/** Local participant identity and the host anchoring its room membership. */
+export type RoomMembership = {
+	readonly hostId: ParticipantId
+	readonly selfId: ParticipantId
+}
+
+/** Camera, microphone, and screen state a participant publishes to peers. */
+export type MediaPresence = {
+	cameraEnabled: boolean
+	microphoneEnabled: boolean
+	screenEnabled: boolean
+}
+
+/** Room packets: host-owned membership plus peer-owned activity and mesh signaling. */
 export type Packet =
 	| { type: 'hello' }
 	| { nonce: string; type: 'auth-challenge' }
 	| { mac: string; type: 'auth-accepted' }
 	| { mac: string; nonce: string; type: 'auth-response' }
 	| { text: string; type: 'blip' }
-	| {
-			cameraEnabled: boolean
-			microphoneEnabled: boolean
-			screenEnabled: boolean
-			type: 'media-state'
-	  }
+	| (MediaPresence & { type: 'media-state' })
 	| {
 			id: string
 			mime: string
@@ -37,25 +48,25 @@ export type Packet =
 			type: 'file-chunk'
 	  }
 	| { id: string; type: 'file-end' }
-	| {
-			type: 'welcome'
-			hostId: ParticipantId
-			roster: Roster
-			selfId: ParticipantId
-	  }
+	| (RoomMembership & { roster: Roster; type: 'welcome' })
 	| { type: 'roster'; roster: Roster }
 	| {
+			exchangeId: SignalExchangeId
 			type: 'peer-signal'
 			from: ParticipantId
 			signal: SignalDescription
 			to: ParticipantId
 	  }
-	| { type: 'peer-left'; id: ParticipantId }
 
 /** Validate a participant id crossing a protocol or test boundary. */
 export const parseParticipantId = (value: string): ParticipantId | null => {
 	if (!/^[0-9a-f]{16}$/.test(value)) return null
 	return value as ParticipantId
+}
+
+/** New room-scoped participant identity. */
+export const newParticipantId = (): ParticipantId => {
+	return randomHex(8) as ParticipantId
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -70,10 +81,12 @@ const decodeRoster = (value: unknown): Roster | null => {
 	if (!Array.isArray(value)) return null
 
 	const roster: Roster = []
+	const seen = new Set<ParticipantId>()
 	for (const valueParticipantId of value) {
 		const participantId = decodeParticipantId(valueParticipantId)
-		if (participantId == null) return null
+		if (participantId == null || seen.has(participantId)) return null
 
+		seen.add(participantId)
 		roster.push(participantId)
 	}
 
@@ -102,7 +115,7 @@ export const decodePacket = (text: string): Packet | null => {
 	if (!isRecord(value)) return null
 	const message = value
 
-	// Data channels are friendly, not trusted. Keep bad packets boring.
+	// Every field crossing a data channel is untrusted, including discriminants.
 	switch (message.type) {
 		case 'hello':
 			return { type: 'hello' }
@@ -165,7 +178,12 @@ export const decodePacket = (text: string): Packet | null => {
 			const hostId = decodeParticipantId(message.hostId)
 			const selfId = decodeParticipantId(message.selfId)
 			const roster = decodeRoster(message.roster)
-			return hostId == null || selfId == null || roster == null
+			return hostId == null ||
+				selfId == null ||
+				hostId === selfId ||
+				roster == null ||
+				!roster.includes(hostId) ||
+				!roster.includes(selfId)
 				? null
 				: { hostId, roster, selfId, type: 'welcome' }
 		}
@@ -174,15 +192,21 @@ export const decodePacket = (text: string): Packet | null => {
 			return roster == null ? null : { roster, type: 'roster' }
 		}
 		case 'peer-signal': {
+			const exchangeId = parseSignalExchangeId(message.exchangeId)
 			const from = decodeParticipantId(message.from)
 			const to = decodeParticipantId(message.to)
-			return from == null || to == null || !isSignalDescription(message.signal)
+			return exchangeId == null ||
+				from == null ||
+				to == null ||
+				!isSignalDescription(message.signal)
 				? null
-				: { from, signal: message.signal, to, type: 'peer-signal' }
-		}
-		case 'peer-left': {
-			const id = decodeParticipantId(message.id)
-			return id == null ? null : { id, type: 'peer-left' }
+				: {
+						exchangeId,
+						from,
+						signal: message.signal,
+						to,
+						type: 'peer-signal',
+					}
 		}
 		default:
 			return null

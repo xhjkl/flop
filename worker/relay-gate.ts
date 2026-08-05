@@ -254,7 +254,7 @@ export class RelayGate extends DurableObject {
 		return await this.reserve(message.bucket)
 	}
 
-	async reserve(bucket: string) {
+	private async reserve(bucket: string) {
 		const { day, month } = calendarKeys()
 		const globalMonthKey = `global:${month}:bytes`
 		const bucketDayKey = `bucket:${day}:${bucket}:grants`

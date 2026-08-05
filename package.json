@@ -13,7 +13,7 @@
 		"deploy:beacon": "bunx wrangler deploy --config worker/wrangler.toml",
 		"preview": "vite preview --port 31337",
 		"sculpt": "vite --open /src/fixtures/index.html",
-		"test": "bun test"
+		"test": "bun --conditions=browser test"
 	},
 	"dependencies": {
 		"solid-js": "1"

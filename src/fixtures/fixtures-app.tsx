@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js'
 import { PortraitStrip } from '../portraits'
-import { getFixture, uiFixtures } from './fixtures'
+import { uiFixtures } from './fixtures'
 import '../app.css'
 import './fixtures.css'
 
@@ -18,7 +18,9 @@ const writeFixtureId = (id: string | null) => {
 const FixturesApp = () => {
 	const [fixtureId, setFixtureId] = createSignal<string | null>(readFixtureId())
 
-	const activeFixture = createMemo(() => getFixture(fixtureId()))
+	const activeFixture = createMemo(
+		() => uiFixtures.find((fixture) => fixture.id === fixtureId()) ?? null,
+	)
 
 	createEffect(() => {
 		writeFixtureId(fixtureId())

@@ -1,19 +1,4 @@
-import type { BeaconPresence } from '../../../contracts/beacon'
-import type { BeaconStatus } from '../../rendezvous/beacon'
-
-export type HostInviteStatus =
-	| 'accepting-reply'
-	| 'creating-invite'
-	| 'invite-ready'
-
-export type GuestJoinStatus =
-	| 'connected'
-	| 'creating-reply'
-	| 'finding-link'
-	| 'needs-invite'
-	| 'reply-ready'
-
-/** Entry failures interpreted as copy only by the connection card. */
+/** Failure codes rendered by the connection card. */
 export type EntryIssue =
 	| 'direct-connection-failed'
 	| 'discovery-unreachable'
@@ -26,9 +11,9 @@ export type EntryIssue =
 
 export type HostInviteState = {
 	side: 'host'
-	status: HostInviteStatus
+	manualPhase: 'accepting-reply' | 'preparing-code' | 'waiting-for-reply'
 	inviteLink: string
-	inviteLinkStatus: BeaconStatus
+	inviteLinkPhase: 'failed' | 'preparing' | 'ready'
 	inviteCode: string
 	replyText: string
 	issue: EntryIssue | null
@@ -37,32 +22,48 @@ export type HostInviteState = {
 type GuestJoinBase = {
 	side: 'guest'
 	inviteText: string
-	inviteLinkPresence: BeaconPresence | null
-	/** Direct-first relay affordance: null hides it, 0 offers the relay. */
-	relayFallbackSecondsLeft: number | null
-	replyCode: string
 	issue: EntryIssue | null
 }
 
 export type GuestJoinState =
-	| (GuestJoinBase & { status: 'finding-link' })
 	| (GuestJoinBase & {
-			status: Exclude<GuestJoinStatus, 'finding-link'>
+			/** Whether the latest discovery membership contains a host. */
+			hostPresent: boolean | null
+			/** Null before a host is reachable; zero makes relay immediately available. */
+			relayFallbackSecondsLeft: number | null
+			status: 'discovering-host'
+	  })
+	| (GuestJoinBase & { replyCode: string; status: 'reply-ready' })
+	| (GuestJoinBase & {
+			status: 'connected' | 'creating-reply' | 'needs-invite'
 	  })
 
-export type ClosedEntryState = {
-	side: 'closed'
-	issue: EntryIssue | null
-}
+export type RoomEntryState =
+	| { side: 'closed' }
+	| GuestJoinState
+	| HostInviteState
 
-export type RoomEntryState = ClosedEntryState | GuestJoinState | HostInviteState
+/** Host card while its automatic and copy-paste invitations are prepared. */
+export const initialHostEntry = (): HostInviteState => ({
+	side: 'host',
+	manualPhase: 'preparing-code',
+	inviteLink: '',
+	inviteLinkPhase: 'preparing',
+	inviteCode: '',
+	replyText: '',
+	issue: null,
+})
 
-export type GuestFindingLinkEntry = GuestJoinState & {
-	status: 'finding-link'
-}
+/** Guest card before the user supplies an invitation. */
+export const initialGuestEntry = (): GuestJoinState => ({
+	side: 'guest',
+	status: 'needs-invite',
+	inviteText: '',
+	issue: null,
+})
 
-/** Invite-link guest still waiting for a direct admission transport. */
-export const guestFindingLinkEntry = (entry: RoomEntryState) => {
-	if (entry.side !== 'guest' || entry.status !== 'finding-link') return null
+/** Narrow an entry to invite-link host discovery. */
+export const asHostDiscovery = (entry: RoomEntryState) => {
+	if (entry.side !== 'guest' || entry.status !== 'discovering-host') return null
 	return entry
 }

@@ -3,10 +3,6 @@
 	background: var(--surface-strong);
 }
 
-.self-card.has-preview {
-	background: var(--bg-deep);
-}
-
 .self-card-body {
 	display: grid;
 	align-content: center;
@@ -33,6 +29,7 @@
 }
 
 .self-card.is-live {
+	background: var(--bg-deep);
 	border-color: var(--line-card-live);
 	grid-template-rows: minmax(0, 1fr);
 }
@@ -53,6 +50,7 @@
 
 .self-card.is-setup .card-actions {
 	align-content: start;
+	order: 1;
 }
 
 .self-card.is-setup .card-actions button {
@@ -71,11 +69,11 @@
 		var(--bg-deep);
 }
 
-.self-card.is-setup:not(.has-preview) {
+.self-card.is-setup {
 	grid-template-rows: auto;
 }
 
-.self-card.has-preview .self-portrait-face {
+.self-card.is-live .self-portrait-face {
 	position: absolute;
 	inset: 0;
 }
@@ -97,6 +95,10 @@
 
 .self-live-shell .portrait-activity {
 	justify-self: stretch;
+}
+
+.self-live-shell .self-media-actions {
+	order: -1;
 }
 
 .self-screen-control {
@@ -139,9 +141,22 @@
 		inset 0 -1px 0 color-mix(in oklch, black 28%, transparent);
 }
 
-.self-screen-control .self-toggle {
+.self-screen-control .self-toggle:not(.self-file-picker) {
 	grid-column: 2;
 	inline-size: 100%;
+}
+
+.self-screen-control .self-file-picker {
+	grid-column: 1;
+}
+
+.self-file-picker-icon {
+	display: inline-grid;
+	place-items: center;
+	inline-size: var(--toggle-track-inline);
+	block-size: var(--toggle-track-block);
+	border-radius: var(--radius-pill);
+	background: color-mix(in oklch, var(--chalk) 16%, transparent);
 }
 
 .self-toggle-label {
@@ -183,7 +198,7 @@
 	background: var(--ink);
 }
 
-.person-card.is-live {
+.peer-card.is-live {
 	border-color: var(--line-card-live);
 }
 

@@ -8,18 +8,6 @@ export const ICE_GATHER_TIMEOUT_MS = 2500
 export const RELAY_ICE_GATHER_TIMEOUT_MS = 8000
 export const DISCONNECT_GRACE_MS = 30_000
 
-export const candidateTypeCounts = (sdp: string) => {
-	// SDP is the browser's ledger. We only need the candidate flavors.
-	const counts: Record<string, number> = {}
-
-	for (const match of sdp.matchAll(/^a=candidate:.*\styp\s+(\S+)/gm)) {
-		const type = match[1] ?? 'unknown'
-		counts[type] = (counts[type] ?? 0) + 1
-	}
-
-	return counts
-}
-
 export const waitForIce = (
 	pc: RTCPeerConnection,
 	timeoutMs: number | null = null,
@@ -77,6 +65,8 @@ export const waitForIce = (
 
 /** Server-reflexive or relay address suitable for non-trickle signaling. */
 export const hasServerReflexiveOrRelayCandidate = (pc: RTCPeerConnection) => {
-	const counts = candidateTypeCounts(pc.localDescription?.sdp ?? '')
-	return counts.srflx != null || counts.relay != null
+	// Candidate types in local SDP determine whether direct or relayed ICE succeeded.
+	return /^a=candidate:.*\styp\s+(?:srflx|relay)(?:\s|$)/m.test(
+		pc.localDescription?.sdp ?? '',
+	)
 }

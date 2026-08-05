@@ -1,127 +1,113 @@
+import { batch } from 'solid-js'
 import { log } from '../../log'
 import { decodeSignal, encodeSignal } from '../../manual-signal-codec'
-import type { Packet, ParticipantId, Roster } from '../../protocol'
+import type { Packet, Roster } from '../../protocol'
 import type { RoomSecret } from '../../rendezvous/secret'
-import { emptyBlipComposer, emptyGuestJoin } from '../initial-state'
 import { inviteFromInput, inviteLinkFromSecret } from '../invite'
-import type { RoomLifecycle } from '../lifecycle'
-import { isBeaconCandidate, isParticipantLink, type RoomLink } from '../link'
+import type { RoomConnection } from '../link'
 import { RelayQuotaExceededError, requestRelayIceServers } from '../relay'
-import type { RoomSession } from '../session'
+import type { RendezvousAttempt, RoomSession } from '../session'
 import type { BeaconFlow } from './beacon'
 import type { HostFlow } from './host'
-import { MANUAL_ADMISSION_TIMEOUT_MS, watchRendezvousAdmission } from './manual'
-import { guestFindingLinkEntry } from './state'
-
-/** Guest-side invite consumption, welcome, and room roster transitions. */
-export type GuestFlow = {
-	becomeGuest: () => void
-	canClaimFindingInviteLink: () => boolean
-	claimInviteLinkAsHost: () => void
-	createReply: (inviteText?: string) => Promise<void>
-	handleGuestMessage: (link: RoomLink, message: Packet) => void
-	joinRoomWithInviteLink: (secret: RoomSecret) => void
-	tryRelay: () => Promise<void>
-}
+import { scheduleAdmissionTimeout } from './manual'
+import { asHostDiscovery, initialGuestEntry } from './state'
 
 export const createGuestFlow = (
 	room: RoomSession,
-	lifecycle: RoomLifecycle,
 	beacon: BeaconFlow,
 	host: HostFlow,
-): GuestFlow => {
+) => {
 	const applyRoster = (roster: Roster) => {
-		// If the host is gone from the roster, the room is gone for guests.
-		if (room.session.hostId != null && !roster.includes(room.session.hostId)) {
-			log('warn', 'room', 'roster.missing-host', {
-				hostId: room.session.hostId,
+		const membership = room.membership()
+		if (membership == null) return
+		if (
+			!roster.includes(membership.hostId) ||
+			!roster.includes(membership.selfId)
+		) {
+			log('warn', 'room', 'roster.missing-required-participant', {
+				hostId: membership.hostId,
+				selfId: membership.selfId,
 			})
-			lifecycle.markRoomClosed()
+			room.closeRoom()
 			return
 		}
 
-		room.participants.replace(roster)
-		room.mesh.startMissingOffers()
+		room.peers.replaceRoster(roster)
+		room.mesh.connectMissingPeers()
 	}
 
-	let relayRequest: Promise<void> | null = null
+	let relayRequest: {
+		attempt: RendezvousAttempt
+		promise: Promise<void>
+	} | null = null
 
-	const closeGuestBeaconCandidates = () => {
-		for (const link of [...room.links.records.values()]) {
-			if (!isBeaconCandidate(link, 'guest')) continue
-
-			room.links.close(link)
-		}
+	const hostDiscoveryAttempt = () => {
+		const attempt = room.rendezvous.current
+		return asHostDiscovery(room.state.entry) != null &&
+			attempt?.localRole === 'guest' &&
+			attempt.secret != null
+			? attempt
+			: null
 	}
 
-	const findingInviteLinkSecret = () => {
-		return guestFindingLinkEntry(room.ui.state.entry) == null
-			? null
-			: room.session.inviteSecret
-	}
-
-	const stillFindingInviteLink = (secret: RoomSecret, version: number) => {
+	const stillDiscoveringHost = (attempt: RendezvousAttempt) => {
 		return (
-			room.session.isCurrentSignalingGeneration(version) &&
-			room.session.inviteSecret === secret &&
-			guestFindingLinkEntry(room.ui.state.entry) != null
+			room.rendezvous.isCurrent(attempt) &&
+			asHostDiscovery(room.state.entry) != null
 		)
 	}
 
-	const removeGuestRosterParticipant = (participantId: ParticipantId) => {
-		// Roster leaves are host-approved; close any direct link we had.
-		if (participantId === room.session.hostId) {
-			lifecycle.markRoomClosed()
+	const acceptWelcome = (
+		connection: RoomConnection,
+		message: Extract<Packet, { type: 'welcome' }>,
+	) => {
+		let assigned = false
+		batch(() => {
+			// Assignment observes the new membership and its host peer from this roster.
+			room.setMembership({ hostId: message.hostId, selfId: message.selfId })
+			room.peers.replaceRoster(message.roster)
+			assigned = room.connections.assign(connection, message.hostId)
+		})
+		if (!assigned) {
+			log('error', 'room', 'guest.welcome.assign-host-connection.failed', {
+				connection,
+				hostId: message.hostId,
+			})
+			room.closeRoom()
 			return
 		}
 
-		room.files.abortIncomingFrom(participantId)
-		room.participants.remove(participantId)
+		// Assignment moves the host out of attempt-owned admissions before they close.
+		room.rendezvous.stop()
+		room.setState('themeSeed', message.hostId)
+		const entry = room.state.entry
+		room.setState('entry', {
+			side: 'guest',
+			inviteText: entry.side === 'guest' ? entry.inviteText : '',
+			issue: null,
+			status: 'connected',
+		})
+		room.packets.sendPortraitState(connection)
+		room.mesh.connectMissingPeers()
 	}
 
-	const handleGuestMessage = (link: RoomLink, message: Packet) => {
-		// Before welcome, the rendezvous link itself is the best sender hint.
+	const handleMessage = (connection: RoomConnection, message: Packet) => {
 		const senderId =
-			room.session.hostId ??
-			(isParticipantLink(link) ? link.purpose.participantId : null)
-		if (senderId != null && room.packets.handleCommon(senderId, message)) return
+			room.connections.peerByConnection(connection)?.id ??
+			room.membership()?.hostId ??
+			null
+		if (senderId != null && room.packets.handleActivity(senderId, message))
+			return
 
 		switch (message.type) {
 			case 'welcome':
-				// Welcome is the handoff from paste-code UX into actual room membership.
-				room.session.selfId = message.selfId
-				room.session.hostId = message.hostId
-				room.session.stopBeacon()
-				room.ui.setState('themeSeed', message.hostId)
-				room.participants.replace(message.roster)
-				room.blips.applyPending()
-				if (!beacon.promoteAdmissionLink(link, message.hostId)) {
-					log('error', 'room', 'guest.welcome.adopt-link.failed', {
-						hostId: message.hostId,
-						link,
-					})
-					lifecycle.markRoomClosed()
-					return
-				}
-				room.ui.setState('entry', {
-					...(room.ui.state.entry.side === 'guest'
-						? room.ui.state.entry
-						: emptyGuestJoin()),
-					issue: null,
-					status: 'connected',
-				})
-				room.blips.publishLocal()
-				room.packets.publishLocalMediaState()
-				room.mesh.startMissingOffers()
+				acceptWelcome(connection, message)
 				break
 			case 'roster':
 				applyRoster(message.roster)
 				break
 			case 'peer-signal':
-				void room.mesh.acceptSignal(message)
-				break
-			case 'peer-left':
-				removeGuestRosterParticipant(message.id)
+				void room.mesh.handleSignal(message)
 				break
 			case 'file-chunk':
 			case 'file-end':
@@ -134,52 +120,49 @@ export const createGuestFlow = (
 	}
 
 	const joinRoomWithInviteLink = (secret: RoomSecret) => {
-		// Opening an invite link makes the guest wait for the host, no reply code needed.
-		const version = room.session.nextSignalingGeneration()
-		lifecycle.resetBeforeJoining({ keepPendingBlip: true })
-		room.session.inviteSecret = secret
-		room.ui.setState('entry', {
-			...emptyGuestJoin(),
+		room.resetForJoining({ preserveBlip: true })
+		const attempt = room.rendezvous.start('guest', secret)
+		room.setState('entry', {
+			...initialGuestEntry(),
+			hostPresent: null,
 			inviteText: inviteLinkFromSecret(secret),
-			status: 'finding-link',
+			relayFallbackSecondsLeft: null,
+			status: 'discovering-host',
 		})
-		void beacon.startBeaconClient(secret, 'guest', version)
+		void beacon.start(attempt)
 	}
 
 	const tryRelay = () => {
-		if (relayRequest != null) return relayRequest
+		const startingAttempt = hostDiscoveryAttempt()
+		if (startingAttempt == null || startingAttempt.secret == null) {
+			return Promise.resolve()
+		}
+		if (relayRequest?.attempt === startingAttempt) return relayRequest.promise
 
-		relayRequest = (async () => {
-			const secret = findingInviteLinkSecret()
-			if (secret == null) return
-			const startingVersion = room.session.signalingGeneration
-
+		const promise = (async () => {
 			try {
-				const iceServers = await requestRelayIceServers()
-				if (!stillFindingInviteLink(secret, startingVersion)) return
+				const iceServers = await requestRelayIceServers(startingAttempt.signal)
+				if (!stillDiscoveringHost(startingAttempt)) return
 
-				const version = room.session.nextSignalingGeneration()
-				closeGuestBeaconCandidates()
+				const attempt = room.rendezvous.start('guest', startingAttempt.secret)
 				room.relay.start(iceServers, () =>
-					lifecycle.markRoomClosed({ keepRelayMetering: true }),
+					room.closeRoom({ preserveRelayMetering: true }),
 				)
-				const entry = guestFindingLinkEntry(room.ui.state.entry)
+				const entry = asHostDiscovery(room.state.entry)
 				if (entry == null) return
-
-				room.ui.setState('entry', {
+				room.setState('entry', {
 					...entry,
 					issue: null,
 					relayFallbackSecondsLeft: null,
 				})
-				void beacon.startBeaconClient(secret, 'guest', version)
+				void beacon.start(attempt)
 			} catch (error) {
+				if (!stillDiscoveringHost(startingAttempt)) return
 				log('warn', 'room', 'relay.start.failed', { error })
-				if (!stillFindingInviteLink(secret, startingVersion)) return
 
-				const entry = guestFindingLinkEntry(room.ui.state.entry)
+				const entry = asHostDiscovery(room.state.entry)
 				if (entry == null) return
-
-				room.ui.setState('entry', {
+				room.setState('entry', {
 					...entry,
 					issue:
 						error instanceof RelayQuotaExceededError
@@ -188,79 +171,68 @@ export const createGuestFlow = (
 					relayFallbackSecondsLeft: null,
 				})
 			}
-		})().finally(() => {
-			relayRequest = null
+		})()
+		relayRequest = { attempt: startingAttempt, promise }
+		void promise.finally(() => {
+			if (relayRequest?.attempt === startingAttempt) relayRequest = null
 		})
-
-		return relayRequest
+		return promise
 	}
 
-	const canClaimFindingInviteLink = () => {
-		// Claiming is safe only after presence confirms the secret has no host.
-		const entry = guestFindingLinkEntry(room.ui.state.entry)
+	const canClaimInviteAsHost = () => {
+		const entry = asHostDiscovery(room.state.entry)
 		return (
-			room.session.inviteSecret != null &&
+			hostDiscoveryAttempt() != null &&
 			entry != null &&
 			entry.issue == null &&
-			entry.inviteLinkPresence?.hosts === 0
+			entry.hostPresent === false
 		)
 	}
 
 	const claimInviteLinkAsHost = () => {
-		if (!canClaimFindingInviteLink()) return
-
-		const secret = room.session.inviteSecret
+		if (!canClaimInviteAsHost()) return
+		const secret = hostDiscoveryAttempt()?.secret ?? null
 		if (secret == null) return
 
-		void host.startInviteAsHost({
-			claimed: true,
-			resetPeers: true,
-			secret,
-		})
+		void host.startRoom(secret)
 	}
 
 	const becomeGuest = () => {
-		// Switching sides abandons host identity and any old invites.
-		room.session.nextSignalingGeneration()
-		lifecycle.resetBeforeJoining()
-		room.ui.setState('entry', emptyGuestJoin())
-		room.ui.setState('blipComposer', emptyBlipComposer())
+		room.resetForJoining()
+		room.setState('entry', initialGuestEntry())
 	}
 
-	const watchReplyAdmission = (link: RoomLink, version: number) => {
-		watchRendezvousAdmission({
-			delayMs: MANUAL_ADMISSION_TIMEOUT_MS,
-			link,
-			linkStillCurrent: (candidate) =>
-				room.links.records.get(candidate.id) === candidate,
+	const watchReplyAdmission = (
+		connection: RoomConnection,
+		attempt: RendezvousAttempt,
+	) => {
+		scheduleAdmissionTimeout({
+			attempt,
+			connection,
+			isCurrent: room.rendezvous.isCurrent,
+			isUnassigned: (candidate) =>
+				room.connections.isCurrent(candidate) &&
+				room.connections.peerByConnection(candidate) == null,
 			stillWaiting: () =>
-				room.ui.state.entry.side === 'guest' &&
-				room.ui.state.entry.status === 'reply-ready',
-			version,
-			versionStillCurrent: room.session.isCurrentSignalingGeneration,
+				room.state.entry.side === 'guest' &&
+				room.state.entry.status === 'reply-ready',
 			onTimeout: () => {
 				log('warn', 'room', 'manual.admission.waiting', {
-					link,
+					connection,
 					nextStep: 'resend-reply-or-fresh-invite',
 				})
-				if (room.ui.state.entry.side !== 'guest') return
-
-				room.ui.setState('entry', {
-					...room.ui.state.entry,
+				const entry = room.state.entry
+				if (entry.side !== 'guest') return
+				room.setState('entry', {
+					...entry,
 					issue: 'reply-still-waiting',
 				})
 			},
 		})
 	}
 
-	const createReply = async (inviteText?: string) => {
-		// Guest paste decides the path: invite link or manual answer code.
-		const inviteInput = (
-			inviteText ??
-			(room.ui.state.entry.side === 'guest'
-				? room.ui.state.entry.inviteText
-				: '')
-		).trim()
+	const joinInvite = async (inviteText: string) => {
+		const inviteInput = inviteText.trim()
 		const invite = inviteFromInput(inviteInput)
 		if (invite.type === 'empty') return
 		if (invite.type === 'invite-link') {
@@ -268,51 +240,48 @@ export const createGuestFlow = (
 			return
 		}
 
-		const version = room.session.nextSignalingGeneration()
-		let nextLink: RoomLink | null = null
+		room.resetForJoining({ preserveBlip: true })
+		const attempt = room.rendezvous.start('guest', null)
+		room.setState('entry', {
+			...initialGuestEntry(),
+			inviteText: inviteInput,
+			status: 'creating-reply',
+		})
 
+		let connection: RoomConnection | null = null
 		try {
-			lifecycle.resetBeforeJoining({ keepPendingBlip: true })
-			room.ui.setState('entry', {
-				...emptyGuestJoin(),
-				inviteText: inviteInput,
-				status: 'creating-reply',
+			connection = room.connections.createAdmission({
+				kind: 'manual',
+				localRole: 'guest',
 			})
-
-			nextLink = room.links.create({
-				kind: 'admission',
-				side: 'guest',
-				via: 'manual',
-			})
-			// Manual reply turns the host's offer into an answer they can paste back.
 			const offer = await decodeSignal(invite.code)
 			if (offer.type !== 'offer') {
 				throw new Error('Invite code did not contain an offer')
 			}
-			const answer = await nextLink.rtc.createAnswer(offer)
+			const answer = await connection.rtc.createAnswer(offer)
 			const replyCode = await encodeSignal(answer)
 			if (
-				!room.session.isCurrentSignalingGeneration(version) ||
-				room.links.pending({ side: 'guest', via: 'manual' }) !== nextLink
+				!room.rendezvous.isCurrent(attempt) ||
+				room.connections.manualAdmission('guest') !== connection
 			) {
-				room.links.close(nextLink)
+				room.connections.close(connection)
 				return
 			}
 
-			room.ui.setState('entry', {
-				...emptyGuestJoin(),
+			room.setState('entry', {
+				...initialGuestEntry(),
 				inviteText: inviteInput,
 				replyCode,
 				status: 'reply-ready',
 			})
-			watchReplyAdmission(nextLink, version)
+			watchReplyAdmission(connection, attempt)
 		} catch (error) {
 			log('warn', 'room', 'reply.create.failed', { error })
-			if (nextLink != null) room.links.close(nextLink)
-			if (!room.session.isCurrentSignalingGeneration(version)) return
-			room.links.closeAll()
-			room.ui.setState('entry', {
-				...emptyGuestJoin(),
+			if (connection != null) room.connections.close(connection)
+			if (!room.rendezvous.isCurrent(attempt)) return
+			room.rendezvous.stop()
+			room.setState('entry', {
+				...initialGuestEntry(),
 				inviteText: inviteInput,
 				issue: 'invite-invalid',
 			})
@@ -321,11 +290,14 @@ export const createGuestFlow = (
 
 	return {
 		becomeGuest,
-		canClaimFindingInviteLink,
+		canClaimInviteAsHost,
 		claimInviteLinkAsHost,
-		createReply,
-		handleGuestMessage,
+		joinInvite,
+		handleMessage,
 		joinRoomWithInviteLink,
 		tryRelay,
 	}
 }
+
+/** Guest-side invite consumption, welcome, and roster transitions. */
+export type GuestFlow = ReturnType<typeof createGuestFlow>

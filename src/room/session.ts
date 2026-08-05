@@ -1,672 +1,713 @@
-import { createMemo, createSignal } from 'solid-js'
-import { createStore, reconcile } from 'solid-js/store'
-import type { ExchangeId } from '../../contracts/beacon'
+import { createSignal } from 'solid-js'
+import { createStore } from 'solid-js/store'
+import type { SignalExchangeId } from '../../contracts/signal'
 import { log } from '../log'
 import {
 	encodePacket,
+	type MediaPresence,
+	newParticipantId,
 	type Packet,
 	type ParticipantId,
+	type RoomMembership,
 	type Roster,
 } from '../protocol'
-import type { BeaconClient } from '../rendezvous/beacon'
+import type { createBeaconClient } from '../rendezvous/beacon'
 import type { RoomKeys } from '../rendezvous/crypto'
 import type { RoomSecret } from '../rendezvous/secret'
-import { createRtcPeer, type RtcPeer } from '../webrtc'
-import { createRoomBlips, type TransferIssue } from './activity/blip'
+import { createRtcPeer, type RtcPeer, type RtcPeerOptions } from '../webrtc'
 import { createRoomFileTransfers } from './activity/files'
-import {
-	createRoomMediaController,
-	type MediaPresence,
-	selfMediaState,
-} from './activity/media'
+import { clearProjectedHostInvite } from './address-bar'
 import { createBeaconAuth } from './entry/auth'
-import { emptyRoomState } from './initial-state'
+import { initialHostEntry, type RoomEntryState } from './entry/state'
 import {
-	type AdmissionPath,
-	type AdmissionSide,
-	findAdmissionLink,
-	findParticipantLink,
-	isAdmissionLink,
-	isBeaconAdmissionLink,
-	isParticipantLink,
-	type LinkId,
-	type LinkPurpose,
-	openParticipantLinks,
-	type RoomLink,
+	type ConnectionOrigin,
+	hasRoomAccess,
+	type LocalRoomRole,
+	type RoomConnection,
 } from './link'
+import { createRoomMediaController, type SelfMedia } from './media'
 import { createRoomMesh } from './mesh'
-import {
-	emptyParticipantActivity,
-	mergeParticipant,
-	type ParticipantActivity,
-	type ParticipantFile,
-	type ParticipantState,
-	type ParticipantView,
-	randomParticipantId,
-} from './participant'
-import { createRoomRelay } from './relay'
+import type { FileTransferIssue, RoomPeer, SharedFile } from './participant'
+import { createRoomRelay, type RelayMetering } from './relay'
 
-type ParticipantsStore = Partial<Record<ParticipantId, ParticipantState>>
-type AdmissionQuery = {
-	side?: AdmissionSide
-	via?: AdmissionPath
+/** Resources owned by the only rendezvous attempt allowed to update the room. */
+export type RendezvousAttempt = {
+	client: ReturnType<typeof createBeaconClient> | null
+	keys: RoomKeys | null
+	localRole: LocalRoomRole
+	scheduleTimeout: (task: () => void, delayMs: number) => () => void
+	secret: RoomSecret | null
+	signal: AbortSignal
 }
 
-/** WebRTC link callbacks bound during synchronous room assembly. */
-export type RoomLinkEvents = {
-	onClose: (linkId: LinkId) => void
-	onMessage: (linkId: LinkId, text: string) => void
-	onOpen: (linkId: LinkId) => void
+type OwnedRendezvousAttempt = RendezvousAttempt & { close: () => void }
+
+/** Callbacks installed after the mutually dependent room flows are assembled. */
+type ConnectionCallbacks = {
+	onClose: (connection: RoomConnection) => void
+	onMessage: (connection: RoomConnection, text: string) => void
+	onOpen: (connection: RoomConnection) => void
 }
 
-/** Create the room session and its cohesive identity, participant, link, and UI ledgers. */
-export const createRoomSession = () => {
-	const hostParticipant = mergeParticipant(randomParticipantId())
-	const links = new Map<LinkId, RoomLink>()
-	const beaconExchanges = new Map<ExchangeId, RoomLink>()
-	let linkEvents: RoomLinkEvents | null = null
-	let linkSequence = 0
-	const [linkRevision, setLinkRevision] = createSignal(0)
-	const [participantIds, setParticipantIds] = createSignal<ParticipantId[]>([
-		hostParticipant.id,
-	])
-	const [localId, setLocalId] = createSignal<ParticipantId | null>(
-		hostParticipant.id,
-	)
-	const [participants, setParticipants] = createStore<ParticipantsStore>({
-		[hostParticipant.id]: hostParticipant,
+/** Room state with one owner for membership, self activity, peers, and connections. */
+export const createRoomSession = (
+	createRtc: (options: RtcPeerOptions) => RtcPeer = createRtcPeer,
+) => {
+	const initialSelfId = newParticipantId()
+	const admissions = new Set<RoomConnection>()
+	let connectionEvents: ConnectionCallbacks | null = null
+	let rendezvousAttempt: OwnedRendezvousAttempt | null = null
+	const [membership, setMembership] = createSignal<RoomMembership | null>({
+		hostId: initialSelfId,
+		selfId: initialSelfId,
 	})
-	const [state, setState] = createStore(emptyRoomState(hostParticipant.id))
-	const session = {
-		beaconClient: null as BeaconClient | null,
-		hostId: hostParticipant.id as ParticipantId | null,
-		inviteSecret: null as RoomSecret | null,
-		keys: null as RoomKeys | null,
-		signalingGeneration: 0,
-		get selfId() {
-			return localId()
-		},
-		set selfId(participantId: ParticipantId | null) {
-			setLocalId(participantId)
-		},
-		isGuest: () => {
-			return (
-				session.selfId != null &&
-				session.hostId != null &&
-				session.selfId !== session.hostId
-			)
-		},
-		isHost: () => {
-			return session.selfId != null && session.selfId === session.hostId
-		},
-		isCurrentSignalingGeneration: (generation: number) => {
-			return generation === session.signalingGeneration
-		},
-		nextSignalingGeneration: () => ++session.signalingGeneration,
-		stopBeacon: () => {
-			session.beaconClient?.close()
-			session.beaconClient = null
-			beaconExchanges.clear()
-		},
+	const [peers, setPeers] = createSignal<RoomPeer[]>([])
+	const [self, setSelf] = createStore<{
+		blip: string | null
+		blipDraft: string
+		fileTransferIssue: FileTransferIssue | null
+		files: SharedFile[]
+		media: SelfMedia
+	}>({
+		blip: null,
+		blipDraft: '',
+		fileTransferIssue: null,
+		files: [],
+		media: { status: 'idle' },
+	})
+	const [state, setState] = createStore<{
+		entry: RoomEntryState
+		relayMetering: RelayMetering | null
+		/** Last known host identity retained through membership gaps for color continuity. */
+		themeSeed: string
+	}>({
+		entry: initialHostEntry(),
+		relayMetering: null,
+		themeSeed: initialSelfId,
+	})
+
+	const localRoomRole = (): LocalRoomRole | null => {
+		const current = membership()
+		if (current == null) return null
+		return current.selfId === current.hostId ? 'host' : 'guest'
 	}
+
+	/** Stable peer record whose reactive fields update without changing its reference. */
+	const createPeerRecord = (id: ParticipantId): RoomPeer => {
+		const [blip, setBlip] = createSignal<string | null>(null)
+		const [connection, setConnection] = createSignal<RoomConnection | null>(
+			null,
+		)
+		const [files, setFiles] = createSignal<SharedFile[]>([])
+		return {
+			get blip() {
+				return blip()
+			},
+			set blip(value) {
+				setBlip(value)
+			},
+			get connection() {
+				return connection()
+			},
+			set connection(value) {
+				setConnection(value)
+			},
+			get files() {
+				return files()
+			},
+			set files(value) {
+				setFiles(value)
+			},
+			id,
+		}
+	}
+
+	const peerById = (participantId: ParticipantId) => {
+		return peers().find((peer) => peer.id === participantId) ?? null
+	}
+
+	const peerByConnection = (connection: RoomConnection) => {
+		return peers().find((peer) => peer.connection === connection) ?? null
+	}
+
+	const events = () => {
+		if (connectionEvents == null) {
+			throw new Error('Room connection events are not bound')
+		}
+		return connectionEvents
+	}
+
+	const peerConnections = () => {
+		return peers().flatMap((peer) =>
+			peer.connection == null ? [] : [peer.connection],
+		)
+	}
+
+	const allConnections = () => [...admissions, ...peerConnections()]
+
 	const relay = createRoomRelay({
-		links,
-		onStatsError: (error, link) => {
-			log('warn', 'room', 'relay.stats.failed', { error, link })
+		connections: allConnections,
+		onStatsError: (error, connection) => {
+			log('warn', 'room', 'relay.stats.failed', { error, connection })
 		},
 		setMetering: (metering) => setState('relayMetering', metering),
 	})
 
-	const notifyLinksChanged = () => {
-		// Links are mutable on purpose; this is the one Solid wake-up bell.
-		setLinkRevision((revision) => revision + 1)
-	}
+	const createConnection = (origin: ConnectionOrigin) => {
+		let connection: RoomConnection
+		const [connected, setConnected] = createSignal(false)
+		const [mediaPresence, setMediaPresence] =
+			createSignal<MediaPresence | null>(null)
+		// The stream object survives track churn, so same-reference writes still notify UI.
+		const [mediaStream, setMediaStream] = createSignal<MediaStream | null>(
+			null,
+			{
+				equals: false,
+			},
+		)
+		const rtc = createRtc({
+			...relay.peerOptions(),
+			onOpen: () => events().onOpen(connection),
+			onMessage: (text) => events().onMessage(connection, text),
+			onRemoteMedia: (stream) => {
+				if (!connectionIsCurrent(connection)) return
+				connection.mediaStream = stream
+			},
+			onState: (snapshot) => {
+				if (!connectionIsCurrent(connection)) return
+				if (connection.origin.kind === 'mesh') return
+				log('info', 'room', 'rtc.state', { connection, ...snapshot })
+			},
+			onClose: () => events().onClose(connection),
+		})
 
-	const events = () => {
-		if (linkEvents == null) throw new Error('Room link events are not bound')
-		return linkEvents
-	}
-
-	const participantById = (
-		participantId: ParticipantId | null,
-	): ParticipantState | null => {
-		return participantId == null ? null : (participants[participantId] ?? null)
-	}
-
-	const selfActivity = createMemo(() => {
-		// Before welcome, the composer is local-only; self has no room activity yet.
-		const id = localId()
-		return id == null
-			? emptyParticipantActivity()
-			: (participantById(id)?.activity ?? emptyParticipantActivity())
-	})
-
-	const pendingLink = (query: AdmissionQuery = {}) => {
-		// There should be at most one open invite lane for a given path.
-		return findAdmissionLink(links.values(), query)
-	}
-
-	const linkByParticipantId = (participantId: ParticipantId) => {
-		return findParticipantLink(links.values(), participantId)
-	}
-
-	const linkedPeers = () => [...links.values()].map((link) => link.rtc)
-
-	const removeLink = (link: RoomLink) => {
-		// Remove means "stop routing"; closeLink adds browser teardown.
-		if (links.get(link.id) !== link) return
-
-		link.channelOpen = false
-		links.delete(link.id)
-		for (const [exchangeId, exchangeLink] of beaconExchanges) {
-			if (exchangeLink === link) beaconExchanges.delete(exchangeId)
+		connection = {
+			get connected() {
+				return connected()
+			},
+			set connected(value) {
+				setConnected(value)
+			},
+			get mediaPresence() {
+				return mediaPresence()
+			},
+			set mediaPresence(value) {
+				setMediaPresence(value)
+			},
+			get mediaStream() {
+				return mediaStream()
+			},
+			set mediaStream(value) {
+				setMediaStream(value)
+			},
+			origin,
+			rtc,
 		}
-		notifyLinksChanged()
+		// Anonymous rendezvous peers receive no camera or microphone before admission.
+		rtc.setLocalMedia(null)
+		return connection
 	}
 
-	const closeLink = (link: RoomLink) => {
-		// Close from our side should still clean room bookkeeping first.
-		removeLink(link)
+	const connectionIsCurrent = (connection: RoomConnection) => {
+		return admissions.has(connection) || peerByConnection(connection) != null
+	}
 
+	const removeConnection = (connection: RoomConnection) => {
+		const admitted = admissions.delete(connection)
+		const peer = peerByConnection(connection)
+		if (!admitted && peer == null) return
+
+		connection.connected = false
+		connection.mediaPresence = null
+		connection.mediaStream = null
+		if (peer != null) {
+			// Partial incoming bytes cannot cross a data-channel replacement.
+			files.abortIncomingFrom(peer.id)
+			peer.connection = null
+		}
+	}
+
+	const closeConnection = (connection: RoomConnection) => {
+		if (!connectionIsCurrent(connection)) return
+		removeConnection(connection)
 		try {
-			link.rtc.close()
+			connection.rtc.close()
 		} catch {}
 	}
 
-	const closePendingLink = (query: AdmissionQuery = {}) => {
-		// Replacing an invite should not disturb established mesh links.
-		const link = pendingLink(query)
-		if (link != null) closeLink(link)
+	const closeConnections = () => {
+		for (const connection of allConnections()) closeConnection(connection)
 	}
 
-	const closeAllLinks = () => {
-		// Snapshot first; close callbacks may try to mutate the same map.
-		const closingLinks = [...links.values()]
-		links.clear()
-		beaconExchanges.clear()
-		for (const link of closingLinks) link.channelOpen = false
-		notifyLinksChanged()
+	const manualAdmission = (localRole: LocalRoomRole) => {
+		for (const connection of admissions) {
+			if (connection.origin.kind !== 'manual') continue
+			if (connection.origin.localRole === localRole) return connection
+		}
+		return null
+	}
 
-		for (const link of closingLinks) {
-			try {
-				link.rtc.close()
-			} catch {}
+	const createAdmission = (
+		origin: Exclude<ConnectionOrigin, { kind: 'mesh' }>,
+	) => {
+		const connection = createConnection(origin)
+		admissions.add(connection)
+		return connection
+	}
+
+	const closeAdmissions = (
+		matches: (connection: RoomConnection) => boolean,
+	) => {
+		for (const connection of [...admissions]) {
+			if (matches(connection)) closeConnection(connection)
 		}
 	}
 
-	const participantLink = (participantId: ParticipantId) => {
-		// Most protocol packets name participants, not link ids.
-		return linkByParticipantId(participantId)
-	}
-
-	const adoptLink = (link: RoomLink, participantId: ParticipantId) => {
-		// Adoption needs a participant record first, then enforces one link per person.
-		if (links.get(link.id) !== link) return false
-		if (
-			isParticipantLink(link) &&
-			link.purpose.participantId !== participantId
-		) {
-			return false
-		}
-		if (!isAdmissionLink(link) && !isParticipantLink(link)) return false
-
-		const person = participants[participantId]
-		if (person == null) return false
-
-		const existing = linkByParticipantId(participantId)
-		if (existing != null && existing !== link) closeLink(existing)
-
-		link.purpose = {
-			kind: 'participant',
-			participantId,
-			via: isAdmissionLink(link) ? 'admission' : link.purpose.via,
-		}
-		for (const [exchangeId, exchangeLink] of beaconExchanges) {
-			if (exchangeLink === link) beaconExchanges.delete(exchangeId)
-		}
-		notifyLinksChanged()
-		return true
-	}
-
-	const closeSiblingAdmissionLinks = (link: RoomLink) => {
-		// Once one candidate wins a doorway, parallel candidates there retire.
-		if (!isAdmissionLink(link)) return
-
-		for (const candidate of [...links.values()]) {
-			if (candidate === link) continue
-			if (!isAdmissionLink(candidate)) continue
-			if (candidate.purpose.side !== link.purpose.side) continue
-			if (candidate.purpose.via !== link.purpose.via) continue
+	const closeSiblingAdmissions = (connection: RoomConnection) => {
+		if (connection.origin.kind === 'mesh') return
+		for (const candidate of [...admissions]) {
+			if (candidate === connection) continue
+			if (candidate.origin.kind !== connection.origin.kind) continue
+			if (candidate.origin.localRole !== connection.origin.localRole) continue
 			if (
-				isBeaconAdmissionLink(link) &&
-				isBeaconAdmissionLink(candidate) &&
-				(candidate.purpose.peerId == null ||
-					link.purpose.peerId == null ||
-					candidate.purpose.peerId !== link.purpose.peerId)
+				candidate.origin.kind === 'beacon' &&
+				connection.origin.kind === 'beacon' &&
+				candidate.origin.peerId !== connection.origin.peerId
 			) {
 				continue
 			}
-
-			closeLink(candidate)
+			closeConnection(candidate)
 		}
 	}
 
-	const replaceParticipants = (roster: Roster) => {
-		// The host owns membership; guests keep local activity while matching it.
-		const nextIds = roster
-		const nextIdSet = new Set(nextIds)
-		const host = session.hostId
-		const nextParticipants: ParticipantsStore = {}
-
-		for (const id of participantIds()) {
-			if (id === host || nextIdSet.has(id)) continue
-
-			const link = linkByParticipantId(id)
-			if (link != null) closeLink(link)
+	const assignConnection = (
+		connection: RoomConnection,
+		participantId: ParticipantId,
+	) => {
+		if (!connectionIsCurrent(connection)) return false
+		if (!hasRoomAccess(connection)) {
+			log('warn', 'room', 'connection.assign.before-auth', {
+				connection,
+				participantId,
+			})
+			closeConnection(connection)
+			return false
 		}
 
-		for (const id of roster) {
-			const existing = participants[id]
-			nextParticipants[id] = mergeParticipant(id, existing ?? null)
-		}
+		const peer = peerById(participantId)
+		if (peer == null) return false
+		if (peer.connection === connection) return true
 
-		setParticipants(reconcile(nextParticipants))
-		setParticipantIds(nextIds)
+		closeSiblingAdmissions(connection)
+		if (peer.connection != null) closeConnection(peer.connection)
+		admissions.delete(connection)
+		peer.connection = connection
+		connection.rtc.setLocalMedia(
+			self.media.status === 'live' ? self.media.publishedStream : null,
+		)
+		return true
 	}
 
-	const removeParticipant = (participantId: ParticipantId) => {
-		// Membership and its transport leave together so callers cannot keep a ghost card.
-		const link = participantLink(participantId)
+	const connectPeer = (
+		participantId: ParticipantId,
+		exchangeId: SignalExchangeId,
+	) => {
+		const peer = peerById(participantId)
+		if (peer == null) {
+			log('warn', 'room', 'mesh.connection.unknown-participant', {
+				participantId,
+			})
+			return null
+		}
 
-		setParticipantIds((ids) => ids.filter((item) => item !== participantId))
-		setParticipants(participantId, void null)
-		if (link != null) closeLink(link)
+		const connection = createConnection({ exchangeId, kind: 'mesh' })
+		if (peer.connection != null) closeConnection(peer.connection)
+		peer.connection = connection
+		connection.rtc.setLocalMedia(
+			self.media.status === 'live' ? self.media.publishedStream : null,
+		)
+		return connection
+	}
+
+	const addPeer = (participantId: ParticipantId) => {
+		if (peerById(participantId) != null) return
+		setPeers((current) => [...current, createPeerRecord(participantId)])
+	}
+
+	const roster = () => {
+		const selfId = membership()?.selfId
+		return selfId == null ? [] : [selfId, ...peers().map((peer) => peer.id)]
 	}
 
 	const allocateParticipantId = () => {
-		// The host hands guests ids so all peers agree on the same roster.
 		while (true) {
-			const id = randomParticipantId()
-			if (id === session.selfId) continue
-			if (id === session.hostId) continue
-			if (participants[id] != null) continue
-
+			const id = newParticipantId()
+			if (id === membership()?.selfId || id === membership()?.hostId) continue
+			if (peerById(id) != null) continue
 			return id
 		}
 	}
 
-	const roomRoster = () => {
-		// Send only protocol identity; activity moves as live packets.
-		return participantIds()
+	const setPeerBlip = (participantId: ParticipantId, text: string) => {
+		const blip = text.trim()
+		const value = blip === '' ? null : blip
+		const peer = peerById(participantId)
+		if (peer != null) peer.blip = value
 	}
 
-	const participantLinksOpen = () => {
-		// Common packets go only to people, not invite candidates.
-		return openParticipantLinks(links.values())
+	/** Revoke the browser URL owned by a completed incoming file. */
+	const releaseDownload = (file: SharedFile) => {
+		if (file.state === 'download') URL.revokeObjectURL(file.url)
 	}
 
-	const openParticipantLinkCount = () => participantLinksOpen().length
-
-	const sendToParticipant = (participantId: ParticipantId, packet: Packet) => {
-		// Missing links are normal while the mesh is still forming.
-		const link = participantLink(participantId)
-		if (link == null || !link.channelOpen) return false
-
-		return link.rtc.trySend(encodePacket(packet))
-	}
-
-	const sendToLinks = (targetLinks: RoomLink[], packet: Packet) => {
-		// Return a count so file sends can fail fast when everyone disappears.
-		let sent = 0
-
-		for (const link of targetLinks) {
-			if (link.channelOpen && link.rtc.trySend(encodePacket(packet))) sent++
+	const upsertFile = (participantId: ParticipantId, nextFile: SharedFile) => {
+		const upsert = (files: SharedFile[]) => {
+			const index = files.findIndex((file) => file.id === nextFile.id)
+			const previous = files[index] ?? null
+			if (
+				previous?.state === 'download' &&
+				(nextFile.state !== 'download' || previous.url !== nextFile.url)
+			) {
+				releaseDownload(previous)
+			}
+			return index === -1
+				? [...files, nextFile]
+				: files.map((file, itemIndex) =>
+						itemIndex === index ? nextFile : file,
+					)
 		}
+		if (participantId === membership()?.selfId) {
+			setSelf('files', upsert)
+			return
+		}
+		const peer = peerById(participantId)
+		if (peer != null) peer.files = upsert(peer.files)
+	}
 
+	const connectedPeerConnections = () => {
+		return peers().flatMap((peer) =>
+			peer.connection?.connected ? [peer.connection] : [],
+		)
+	}
+
+	const sendPacket = (targets: RoomConnection[], packet: Packet) => {
+		const text = encodePacket(packet)
+		let sent = 0
+		for (const connection of targets) {
+			if (connection.connected && connection.rtc.trySend(text)) sent++
+		}
 		return sent
 	}
 
-	const broadcastPacket = (
-		packet: Packet,
-		except: ParticipantId | null = null,
-	) => {
-		// Broadcast follows the roster order and skips the optional sender.
-		for (const id of participantIds()) {
-			const link = linkByParticipantId(id)
-			if (id === except || link == null || !link.channelOpen) continue
-
-			link.rtc.trySend(encodePacket(packet))
-		}
+	const sendToParticipant = (participantId: ParticipantId, packet: Packet) => {
+		const connection = peerById(participantId)?.connection ?? null
+		return connection == null ? false : sendPacket([connection], packet) === 1
 	}
 
-	const broadcastMembershipChange = (
-		options: { left?: ParticipantId } = {},
-	) => {
-		// Membership is a protocol commit, not any participant-store mutation.
-		if (options.left != null) {
-			broadcastPacket({ type: 'peer-left', id: options.left })
-		}
-		broadcastPacket({ type: 'roster', roster: roomRoster() })
+	const broadcastRoster = () => {
+		sendPacket(connectedPeerConnections(), { type: 'roster', roster: roster() })
 	}
 
 	const setMediaPresence = (
 		participantId: ParticipantId,
-		mediaState: MediaPresence,
+		presence: MediaPresence,
 	) => {
-		// Remote media state decorates the link because it is transport-adjacent.
-		const link = participantLink(participantId)
-		if (link == null) return
-
-		link.media = { state: mediaState, stream: link.media?.stream ?? null }
-		notifyLinksChanged()
+		const connection = peerById(participantId)?.connection ?? null
+		if (connection == null) return
+		connection.mediaPresence = presence
 	}
 
-	const updateParticipantActivity = (
-		participantId: ParticipantId,
-		update: (activity: ParticipantActivity) => ParticipantActivity,
-	) => {
-		const person = participants[participantId]
-		if (person == null) return
-
-		setParticipants(participantId, 'activity', update)
+	const startRendezvous = (
+		localRole: LocalRoomRole,
+		secret: RoomSecret | null,
+	): RendezvousAttempt => {
+		stopRendezvous()
+		const abort = new AbortController()
+		const timers = new Set<ReturnType<typeof setTimeout>>()
+		const attempt: OwnedRendezvousAttempt = {
+			client: null,
+			close: () => {
+				abort.abort()
+				attempt.client?.close()
+				attempt.client = null
+				attempt.keys = null
+				for (const timer of timers) clearTimeout(timer)
+				timers.clear()
+			},
+			keys: null,
+			localRole,
+			scheduleTimeout: (task, delayMs) => {
+				const timer = setTimeout(() => {
+					timers.delete(timer)
+					task()
+				}, delayMs)
+				timers.add(timer)
+				return () => {
+					clearTimeout(timer)
+					timers.delete(timer)
+				}
+			},
+			secret,
+			signal: abort.signal,
+		}
+		rendezvousAttempt = attempt
+		return attempt
 	}
 
-	const setParticipantBlip = (participantId: ParticipantId, text: string) => {
-		const blip = text.trim()
-		updateParticipantActivity(participantId, (activity) => ({
-			...activity,
-			blip: blip === '' ? null : blip,
-		}))
+	const stopRendezvous = () => {
+		const attempt = rendezvousAttempt
+		if (attempt == null) return
+		rendezvousAttempt = null
+		attempt.close()
+		closeAdmissions(() => true)
 	}
 
-	const sendLocalMediaStateToPeer = (
-		peer: RtcPeer,
-		mediaState: MediaPresence = selfMediaState(state.selfMedia),
-	) => {
-		return peer.trySend(encodePacket({ ...mediaState, type: 'media-state' }))
+	const rendezvous = {
+		get current(): RendezvousAttempt | null {
+			return rendezvousAttempt
+		},
+		isCurrent: (attempt: RendezvousAttempt) => rendezvousAttempt === attempt,
+		start: startRendezvous,
+		stop: stopRendezvous,
 	}
 
-	const verifyLink = (link: RoomLink) => {
-		// After auth, normal room packets may pass on this candidate.
-		if (!isBeaconAdmissionLink(link)) return
-		link.purpose.auth = 'verified'
-		notifyLinksChanged()
+	const auth = createBeaconAuth({
+		closeConnection,
+		connectionIsCurrent,
+		roomKeys: () => rendezvousAttempt?.keys ?? null,
+		verifyConnection: (connection) => {
+			if (connection.origin.kind !== 'beacon') return
+			connection.origin.authenticated = true
+		},
+	})
+
+	const sendBlip = () => {
+		const blip = self.blipDraft.trim()
+		if (blip === '' && self.blip == null) return
+
+		// Commit before publishing so later connections replay the same value.
+		setSelf('blip', blip === '' ? null : blip)
+		sendPacket(connectedPeerConnections(), { type: 'blip', text: blip })
+		setSelf('blipDraft', blip)
 	}
 
-	const publishLocalMediaState = (
-		mediaState: MediaPresence = selfMediaState(state.selfMedia),
-	) => {
-		// When camera state changes, every live portrait should update.
-		return sendToLinks(participantLinksOpen(), {
-			...mediaState,
+	const files = createRoomFileTransfers({
+		connections: connectedPeerConnections,
+		localParticipantId: () => membership()?.selfId ?? null,
+		sendPacket,
+		setIssue: (issue) => setSelf('fileTransferIssue', issue),
+		upsertFile,
+	})
+
+	const removePeer = (participantId: ParticipantId) => {
+		const peer = peerById(participantId)
+		if (peer == null) return
+
+		for (const file of peer.files) releaseDownload(file)
+		if (peer.connection != null) closeConnection(peer.connection)
+		setPeers((current) => current.filter((item) => item.id !== participantId))
+	}
+
+	const replaceRoster = (nextRoster: Roster) => {
+		const selfId = membership()?.selfId ?? null
+		const remoteIds = nextRoster.filter((id) => id !== selfId)
+		const retained = new Set(remoteIds)
+		for (const peer of peers()) {
+			if (retained.has(peer.id)) continue
+
+			for (const file of peer.files) releaseDownload(file)
+			if (peer.connection != null) closeConnection(peer.connection)
+		}
+		setPeers((current) =>
+			remoteIds.map(
+				(id) => current.find((peer) => peer.id === id) ?? createPeerRecord(id),
+			),
+		)
+	}
+
+	const mesh = createRoomMesh({
+		closeConnection,
+		connectionFor: (id) => peerById(id)?.connection ?? null,
+		createConnection: connectPeer,
+		membership,
+		roster,
+		sendToHost: (packet) => {
+			const hostId = membership()?.hostId
+			return hostId == null ? false : sendToParticipant(hostId, packet)
+		},
+	})
+
+	const media = createRoomMediaController({
+		connections: peerConnections,
+		publishPresence: (presence) => {
+			sendPacket(connectedPeerConnections(), {
+				...presence,
+				type: 'media-state',
+			})
+		},
+		selfMedia: () => self.media,
+		setSelfMedia: (selfMedia) => setSelf('media', selfMedia),
+	})
+
+	const sendPortraitState = (connection: RoomConnection) => {
+		sendPacket([connection], { type: 'blip', text: self.blip ?? '' })
+		sendPacket([connection], {
+			...media.presence(),
 			type: 'media-state',
 		})
 	}
 
-	const setBlipIssue = (issue: TransferIssue | null) => {
-		setState('blipComposer', 'issue', issue)
+	const resetForHosting = () => {
+		mesh.reset()
+		relay.clear()
+		stopRendezvous()
+		closeConnections()
+
+		const selfId = newParticipantId()
+		setMembership({ hostId: selfId, selfId })
+		replaceRoster([selfId])
+		// Room churn must not replace the live capture or restart its preview.
+		setSelf({
+			blip: null,
+			blipDraft: '',
+			fileTransferIssue: null,
+			files: [],
+		})
+		setState('themeSeed', selfId)
 	}
 
-	const upsertParticipantFile = (
-		participantId: ParticipantId,
-		nextFile: ParticipantFile,
-	) => {
-		// File chips update in place so progress does not reorder the activity stack.
-		updateParticipantActivity(participantId, (activity) => {
-			const files = activity.files
-			const index = files.findIndex((item) => item.id === nextFile.id)
-			const nextFiles =
-				index === -1
-					? [...files, nextFile]
-					: files.map((item, itemIndex) =>
-							itemIndex === index ? nextFile : item,
-						)
+	const resetForJoining = (options: { preserveBlip?: boolean } = {}) => {
+		const blip = options.preserveBlip ? self.blip : null
+		const blipDraft = blip ?? ''
+		clearProjectedHostInvite()
+		mesh.reset()
+		relay.clear()
+		stopRendezvous()
+		closeConnections()
 
-			return { ...activity, files: nextFiles }
+		setMembership(null)
+		replaceRoster([])
+		// Preserve live capture while this same person enters another room.
+		setSelf({
+			blip,
+			blipDraft,
+			fileTransferIssue: null,
+			files: [],
 		})
 	}
 
-	const markLocalSendingFilesError = () => {
-		// One failed drop marks any in-flight local chips as failed.
-		if (session.selfId == null) return
-
-		updateParticipantActivity(session.selfId, (activity) => ({
-			...activity,
-			files: activity.files.map((file) =>
-				file.state === 'sending' ? { ...file, state: 'error' } : file,
-			),
-		}))
-	}
-
-	const createLink = (purpose: LinkPurpose) => {
-		// Create the transport first; the room role decides what it becomes.
-		linkSequence++
-		const id: LinkId = `${purpose.kind}:${linkSequence}`
-		const peer = createRtcPeer({
-			...relay.peerOptions(),
-			onOpen: () => events().onOpen(id),
-			onMessage: (text) => events().onMessage(id, text),
-			onRemoteMedia: (stream) => {
-				// Remote media belongs to the link, because the participant may reconnect.
-				const link = links.get(id)
-				if (link == null) return
-
-				link.media = { state: link.media?.state ?? null, stream }
-				notifyLinksChanged()
-			},
-			onState: (state) => {
-				// Rendezvous failures are the hard ones to explain to users.
-				const link = links.get(id)
-				if (link == null) return
-				if (
-					link.purpose.kind === 'participant' &&
-					link.purpose.via === 'mesh'
-				) {
-					return
-				}
-
-				log('info', 'room', 'rtc.state', { link, ...state })
-			},
-			onClose: () => events().onClose(id),
+	const closeRoom = (options: { preserveRelayMetering?: boolean } = {}) => {
+		clearProjectedHostInvite()
+		mesh.reset()
+		stopRendezvous()
+		relay.clear({
+			keepMetering: options.preserveRelayMetering ?? false,
 		})
-
-		const link: RoomLink = {
-			channelOpen: false,
-			id,
-			media: null,
-			purpose,
-			rtc: peer,
-		}
-		links.set(id, link)
-		notifyLinksChanged()
-		// New links should inherit any already-enabled camera/mic immediately.
-		peer.setLocalMedia(state.selfMedia.outboundStream)
-		return link
+		closeConnections()
+		replaceRoster([])
+		setMembership(null)
+		setState('entry', { side: 'closed' })
 	}
 
-	const peerById = (id: ParticipantId): ParticipantView | null => {
-		const participant = participantById(id)
-		if (participant == null) return null
-
-		// Link state decides whether a person is live; participant state decides what they showed.
-		linkRevision()
-		const link = linkByParticipantId(id)
-		return {
-			activity: participant.activity,
-			connectionState: link?.channelOpen ? 'live' : 'waiting',
-			id: participant.id,
-			mediaState: link?.media?.state ?? null,
-			mediaStream: link?.media?.stream ?? null,
-		}
+	const dispose = () => {
+		// Reload consumes the address-bar marker to resume this tab's host room.
+		mesh.reset()
+		stopRendezvous()
+		relay.clear()
+		closeConnections()
+		replaceRoster([])
+		setMembership(null)
+		media.dispose()
 	}
 
-	const peers = createMemo(() => {
-		const local = localId()
-		return participantIds()
-			.filter((id) => id !== local)
-			.flatMap((id) => {
-				const peer = peerById(id)
-				return peer == null ? [] : [peer]
-			})
-	})
-
-	const createMeshLink = (participantId: ParticipantId) => {
-		// Mesh links skip rendezvous; the roster already names the target.
-		const link = createLink({
-			kind: 'participant',
-			participantId,
-			via: 'mesh',
-		})
-
-		if (participantById(participantId) == null) {
-			log('warn', 'room', 'mesh.link.unknown-participant', {
-				participantId,
-			})
-			closeLink(link)
-			return null
-		}
-
-		return link
-	}
-
-	const sendToHost = (message: Packet) => {
-		if (session.hostId == null) return false
-		return sendToParticipant(session.hostId, message)
-	}
-
-	const handleCommonMessage = (
+	const handleActivityPacket = (
 		participantId: ParticipantId,
 		message: Packet,
 	) => {
-		// Blips and files are symmetric; only connection setup needs host/guest ceremony.
 		switch (message.type) {
 			case 'blip':
-				setParticipantBlip(participantId, message.text)
+				setPeerBlip(participantId, message.text)
 				return true
 			case 'media-state':
-				setMediaPresence(participantId, {
-					cameraEnabled: message.cameraEnabled,
-					microphoneEnabled: message.microphoneEnabled,
-					screenEnabled: message.screenEnabled,
-				})
+				setMediaPresence(participantId, message)
 				return true
 			case 'file-start':
-				fileTransfers.handleFileStart(participantId, message)
+				files.handleFileStart(participantId, message)
 				return true
 			case 'file-chunk':
-				fileTransfers.handleFileChunk(message)
+				files.handleFileChunk(participantId, message)
 				return true
 			case 'file-end':
-				fileTransfers.handleFileEnd(message)
+				files.handleFileEnd(participantId, message)
 				return true
 			default:
 				return false
 		}
 	}
 
-	const beaconAuth = createBeaconAuth({
-		closeLink,
-		linkStillCurrent: (link) => links.get(link.id) === link,
-		roomKeys: () => session.keys,
-		verifyLink,
-	})
-
-	const blips = createRoomBlips({
-		getComposerText: () => state.blipComposer.text,
-		getLocalParticipantId: () => session.selfId,
-		openParticipantLinks: participantLinksOpen,
-		participantById,
-		sendToLinks,
-		setBlipIssue,
-		setComposerText: (text) => setState('blipComposer', 'text', text),
-		setParticipantBlip,
-	})
-
-	const fileTransfers = createRoomFileTransfers({
-		localParticipantId: () => session.selfId,
-		markLocalSendingFilesError,
-		openParticipantLinks: participantLinksOpen,
-		sendToLinks,
-		setBlipIssue,
-		upsertParticipantFile,
-	})
-
-	const mesh = createRoomMesh({
-		closeLink,
-		createMeshLink,
-		hostParticipantId: () => session.hostId,
-		isSelfGuest: session.isGuest,
-		linkByParticipantId,
-		localParticipantId: () => session.selfId,
-		participantIds,
-		participantLink,
-		sendToHost,
-	})
-
-	const media = createRoomMediaController({
-		getSelfMedia: () => state.selfMedia,
-		linkedPeers,
-		publishLocalMediaState,
-		setSelfMedia: (selfMedia) => setState('selfMedia', selfMedia),
-		setSelfMediaField: (key, value) => setState('selfMedia', key, value),
-	})
-
 	return {
-		auth: beaconAuth,
-		blips,
-		files: fileTransfers,
-		links: {
-			adopt: adoptLink,
-			bind: (events: RoomLinkEvents) => {
-				if (linkEvents != null)
-					throw new Error('Room link events already bound')
-				linkEvents = events
+		auth,
+		closeRoom,
+		dismissFileTransferIssue: () => setSelf('fileTransferIssue', null),
+		connections: {
+			admissions: () => [...admissions],
+			assign: assignConnection,
+			bind: (handlers: ConnectionCallbacks) => {
+				if (connectionEvents != null) {
+					throw new Error('Room connection events already bound')
+				}
+				connectionEvents = handlers
 			},
-			close: closeLink,
-			closeAll: closeAllLinks,
-			closePending: closePendingLink,
-			closeSiblingAdmissions: closeSiblingAdmissionLinks,
-			countOpenParticipants: openParticipantLinkCount,
-			create: createLink,
-			exchanges: beaconExchanges,
-			forParticipant: participantLink,
-			linkedRtc: linkedPeers,
-			notifyChanged: notifyLinksChanged,
-			openParticipants: participantLinksOpen,
-			pending: pendingLink,
-			records: links,
-			remove: removeLink,
+			close: closeConnection,
+			closeAdmissions,
+			createAdmission,
+			isCurrent: connectionIsCurrent,
+			openPeerConnections: connectedPeerConnections,
+			peerByConnection,
+			manualAdmission,
+			remove: removeConnection,
 		},
-		media,
+		files: {
+			sendFiles: files.sendFiles,
+		},
+		membership,
+		media: {
+			enable: media.enable,
+			toggleCamera: media.toggleCamera,
+			toggleMicrophone: media.toggleMicrophone,
+			toggleScreen: media.toggleScreen,
+		},
 		mesh,
 		packets: {
-			broadcast: broadcastPacket,
-			broadcastMembershipChange,
-			handleCommon: handleCommonMessage,
-			publishLocalMediaState,
-			sendLocalMediaStateToRtc: sendLocalMediaStateToPeer,
-			sendToHost,
-			sendToLinks,
+			broadcastRoster,
+			handleActivity: handleActivityPacket,
+			sendPortraitState,
 			sendToParticipant,
 		},
-		participants: {
+		peers: {
+			add: addPeer,
+			all: peers,
 			allocateId: allocateParticipantId,
-			get: participantById,
-			ids: participantIds,
-			records: participants,
-			remove: removeParticipant,
-			replace: replaceParticipants,
-			roster: roomRoster,
-			selfActivity,
-			setBlip: setParticipantBlip,
-			setIds: setParticipantIds,
-			setRecords: setParticipants,
-			upsertFile: upsertParticipantFile,
-			views: peers,
+			byId: peerById,
+			remove: removePeer,
+			replaceRoster,
 		},
-		relay,
-		session,
-		ui: { setState, state },
+		relay: {
+			active: relay.active,
+			start: relay.start,
+		},
+		rendezvous,
+		roster,
+		localRoomRole,
+		sendBlip,
+		self,
+		setBlipDraft: (text: string) => setSelf('blipDraft', text),
+		setMembership,
+		resetForHosting,
+		resetForJoining,
+		dispose,
+		setState,
+		state,
 	}
 }
 
