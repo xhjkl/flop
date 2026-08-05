@@ -18,15 +18,15 @@ export const createGuestFlow = (
 	host: HostFlow,
 ) => {
 	const applyRoster = (roster: Roster) => {
-		const membership = room.membership()
-		if (membership == null) return
+		const identity = room.identity()
+		if (identity == null) return
 		if (
-			!roster.includes(membership.hostId) ||
-			!roster.includes(membership.selfId)
+			!roster.includes(identity.hostId) ||
+			!roster.includes(identity.selfId)
 		) {
 			log('warn', 'room', 'roster.missing-required-participant', {
-				hostId: membership.hostId,
-				selfId: membership.selfId,
+				hostId: identity.hostId,
+				selfId: identity.selfId,
 			})
 			room.closeRoom()
 			return
@@ -63,8 +63,8 @@ export const createGuestFlow = (
 	) => {
 		let assigned = false
 		batch(() => {
-			// Assignment observes the new membership and its host peer from this roster.
-			room.setMembership({ hostId: message.hostId, selfId: message.selfId })
+			// Assignment observes the new identity and its host peer from this roster.
+			room.setIdentity({ hostId: message.hostId, selfId: message.selfId })
 			room.peers.replaceRoster(message.roster)
 			assigned = room.connections.assign(connection, message.hostId)
 		})
@@ -94,7 +94,7 @@ export const createGuestFlow = (
 	const handleMessage = (connection: RoomConnection, message: Packet) => {
 		const senderId =
 			room.connections.peerByConnection(connection)?.id ??
-			room.membership()?.hostId ??
+			room.identity()?.hostId ??
 			null
 		if (senderId != null && room.packets.handleActivity(senderId, message))
 			return

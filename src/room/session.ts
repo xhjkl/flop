@@ -8,7 +8,7 @@ import {
 	newParticipantId,
 	type Packet,
 	type ParticipantId,
-	type RoomMembership,
+	type RoomIdentity,
 	type Roster,
 } from '../protocol'
 import type { createBeaconClient } from '../rendezvous/beacon'
@@ -49,7 +49,7 @@ type ConnectionCallbacks = {
 	onOpen: (connection: RoomConnection) => void
 }
 
-/** Room state with one owner for membership, self activity, peers, and connections. */
+/** Room state with one owner for identity, self activity, peers, and connections. */
 export const createRoomSession = (
 	createRtc: (options: RtcPeerOptions) => RtcPeer = createRtcPeer,
 ) => {
@@ -57,28 +57,35 @@ export const createRoomSession = (
 	const admissions = new Set<RoomConnection>()
 	let connectionEvents: ConnectionCallbacks | null = null
 	let rendezvousAttempt: OwnedRendezvousAttempt | null = null
-	const [membership, setMembership] = createSignal<RoomMembership | null>({
+	const [identity, setIdentity] = createSignal<RoomIdentity | null>({
 		hostId: initialSelfId,
 		selfId: initialSelfId,
 	})
 	const [peers, setPeers] = createSignal<RoomPeer[]>([])
+	// Native media tracks mutate in place, so every committed snapshot must notify consumers.
+	const [selfMedia, setSelfMedia] = createSignal<SelfMedia>(
+		{ status: 'idle' },
+		{ equals: false },
+	)
 	const [self, setSelf] = createStore<{
 		blip: string | null
 		blipDraft: string
 		fileTransferIssue: FileTransferIssue | null
 		files: SharedFile[]
-		media: SelfMedia
+		readonly media: SelfMedia
 	}>({
 		blip: null,
 		blipDraft: '',
 		fileTransferIssue: null,
 		files: [],
-		media: { status: 'idle' },
+		get media() {
+			return selfMedia()
+		},
 	})
 	const [state, setState] = createStore<{
 		entry: RoomEntryState
 		relayMetering: RelayMetering | null
-		/** Last known host identity retained through membership gaps for color continuity. */
+		/** Last known host retained through identity gaps for color continuity. */
 		themeSeed: string
 	}>({
 		entry: initialHostEntry(),
@@ -87,7 +94,7 @@ export const createRoomSession = (
 	})
 
 	const localRoomRole = (): LocalRoomRole | null => {
-		const current = membership()
+		const current = identity()
 		if (current == null) return null
 		return current.selfId === current.hostId ? 'host' : 'guest'
 	}
@@ -335,14 +342,14 @@ export const createRoomSession = (
 	}
 
 	const roster = () => {
-		const selfId = membership()?.selfId
+		const selfId = identity()?.selfId
 		return selfId == null ? [] : [selfId, ...peers().map((peer) => peer.id)]
 	}
 
 	const allocateParticipantId = () => {
 		while (true) {
 			const id = newParticipantId()
-			if (id === membership()?.selfId || id === membership()?.hostId) continue
+			if (id === identity()?.selfId || id === identity()?.hostId) continue
 			if (peerById(id) != null) continue
 			return id
 		}
@@ -376,7 +383,7 @@ export const createRoomSession = (
 						itemIndex === index ? nextFile : file,
 					)
 		}
-		if (participantId === membership()?.selfId) {
+		if (participantId === identity()?.selfId) {
 			setSelf('files', upsert)
 			return
 		}
@@ -493,7 +500,7 @@ export const createRoomSession = (
 
 	const files = createRoomFileTransfers({
 		connections: connectedPeerConnections,
-		localParticipantId: () => membership()?.selfId ?? null,
+		identity,
 		sendPacket,
 		setIssue: (issue) => setSelf('fileTransferIssue', issue),
 		upsertFile,
@@ -509,7 +516,7 @@ export const createRoomSession = (
 	}
 
 	const replaceRoster = (nextRoster: Roster) => {
-		const selfId = membership()?.selfId ?? null
+		const selfId = identity()?.selfId ?? null
 		const remoteIds = nextRoster.filter((id) => id !== selfId)
 		const retained = new Set(remoteIds)
 		for (const peer of peers()) {
@@ -529,10 +536,10 @@ export const createRoomSession = (
 		closeConnection,
 		connectionFor: (id) => peerById(id)?.connection ?? null,
 		createConnection: connectPeer,
-		membership,
+		identity,
 		roster,
 		sendToHost: (packet) => {
-			const hostId = membership()?.hostId
+			const hostId = identity()?.hostId
 			return hostId == null ? false : sendToParticipant(hostId, packet)
 		},
 	})
@@ -546,7 +553,7 @@ export const createRoomSession = (
 			})
 		},
 		selfMedia: () => self.media,
-		setSelfMedia: (selfMedia) => setSelf('media', selfMedia),
+		setSelfMedia,
 	})
 
 	const sendPortraitState = (connection: RoomConnection) => {
@@ -564,7 +571,7 @@ export const createRoomSession = (
 		closeConnections()
 
 		const selfId = newParticipantId()
-		setMembership({ hostId: selfId, selfId })
+		setIdentity({ hostId: selfId, selfId })
 		replaceRoster([selfId])
 		// Room churn must not replace the live capture or restart its preview.
 		setSelf({
@@ -585,7 +592,7 @@ export const createRoomSession = (
 		stopRendezvous()
 		closeConnections()
 
-		setMembership(null)
+		setIdentity(null)
 		replaceRoster([])
 		// Preserve live capture while this same person enters another room.
 		setSelf({
@@ -605,7 +612,7 @@ export const createRoomSession = (
 		})
 		closeConnections()
 		replaceRoster([])
-		setMembership(null)
+		setIdentity(null)
 		setState('entry', { side: 'closed' })
 	}
 
@@ -616,7 +623,7 @@ export const createRoomSession = (
 		relay.clear()
 		closeConnections()
 		replaceRoster([])
-		setMembership(null)
+		setIdentity(null)
 		media.dispose()
 	}
 
@@ -670,7 +677,7 @@ export const createRoomSession = (
 		files: {
 			sendFiles: files.sendFiles,
 		},
-		membership,
+		identity,
 		media: {
 			enable: media.enable,
 			toggleCamera: media.toggleCamera,
@@ -702,7 +709,7 @@ export const createRoomSession = (
 		sendBlip,
 		self,
 		setBlipDraft: (text: string) => setSelf('blipDraft', text),
-		setMembership,
+		setIdentity,
 		resetForHosting,
 		resetForJoining,
 		dispose,

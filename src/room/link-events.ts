@@ -18,9 +18,9 @@ export const createRoomLinkEvents = (
 
 		room.connections.remove(connection)
 
-		const membership = room.membership()
+		const identity = room.identity()
 		if (room.localRoomRole() === 'guest') {
-			if (peer.id === membership?.hostId) {
+			if (peer.id === identity?.hostId) {
 				room.closeRoom()
 			} else {
 				room.mesh.connectMissingPeers()
@@ -35,7 +35,7 @@ export const createRoomLinkEvents = (
 			room.connections.openPeerConnections().length === 0 &&
 			room.connections.manualAdmission('host') == null
 		) {
-			void host.refreshInvite()
+			void host.refreshManualInvite()
 		}
 		return true
 	}
@@ -123,17 +123,17 @@ export const createRoomLinkEvents = (
 		room.connections.remove(connection)
 		if (origin.kind === 'mesh') return
 
-		const membership = room.membership()
+		const identity = room.identity()
 		if (origin.localRole === 'host') {
 			if (origin.kind === 'manual' && room.localRoomRole() === 'host') {
 				// Hosts keep one manual admission ready whenever its channel closes naturally.
-				void host.refreshInvite()
+				void host.refreshManualInvite()
 			}
 			return
 		}
 
-		if (origin.kind === 'beacon' && membership == null) return
-		if (origin.kind === 'manual' && membership == null) {
+		if (origin.kind === 'beacon' && identity == null) return
+		if (origin.kind === 'manual' && identity == null) {
 			const inviteText =
 				room.state.entry.side === 'guest' ? room.state.entry.inviteText : ''
 			log('warn', 'room', 'manual.reply.direct-connection.failed', {

@@ -3,7 +3,7 @@ import type {
 	OfferDescription,
 } from '../../contracts/signal'
 import { log } from '../log'
-import type { Packet, ParticipantId, RoomMembership } from '../protocol'
+import type { Packet, ParticipantId, RoomIdentity } from '../protocol'
 import { newSignalExchangeId } from '../random'
 import type { RoomConnection } from './link'
 
@@ -20,7 +20,7 @@ export const createRoomMesh = (options: {
 		participantId: ParticipantId,
 		exchangeId: MeshSignalPacket['exchangeId'],
 	) => RoomConnection | null
-	membership: () => RoomMembership | null
+	identity: () => RoomIdentity | null
 	roster: () => ParticipantId[]
 	sendToHost: (message: Packet) => boolean
 }) => {
@@ -33,7 +33,7 @@ export const createRoomMesh = (options: {
 		participantId: ParticipantId,
 		connection: RoomConnection,
 		delayMs: number,
-		membership: RoomMembership,
+		identity: RoomIdentity,
 	) => {
 		const scheduled = retries.get(participantId)
 		if (scheduled?.connection === connection) clearTimeout(scheduled.timer)
@@ -41,14 +41,14 @@ export const createRoomMesh = (options: {
 		const timer = setTimeout(() => {
 			if (retries.get(participantId)?.timer !== timer) return
 			retries.delete(participantId)
-			if (options.membership() !== membership) return
+			if (options.identity() !== identity) return
 
 			const current = options.connectionFor(participantId)
 			if (current === connection && !connection.connected) {
 				options.closeConnection(connection)
 			}
 			if (
-				membership.selfId !== membership.hostId &&
+				identity.selfId !== identity.hostId &&
 				options.roster().includes(participantId) &&
 				options.connectionFor(participantId) == null
 			) {
@@ -61,26 +61,21 @@ export const createRoomMesh = (options: {
 	const retryFailedOffer = (
 		participantId: ParticipantId,
 		connection: RoomConnection,
-		membership: RoomMembership,
+		identity: RoomIdentity,
 	) => {
 		if (
-			options.membership() !== membership ||
+			options.identity() !== identity ||
 			options.connectionFor(participantId) !== connection
 		) {
 			return false
 		}
 		options.closeConnection(connection)
-		scheduleOfferRetry(
-			participantId,
-			connection,
-			MESH_RETRY_DELAY_MS,
-			membership,
-		)
+		scheduleOfferRetry(participantId, connection, MESH_RETRY_DELAY_MS, identity)
 		return true
 	}
 
 	const offerConnection = async (participantId: ParticipantId) => {
-		const membership = options.membership()
+		const identity = options.identity()
 		const scheduled = retries.get(participantId)
 		if (scheduled != null) {
 			if (options.connectionFor(participantId) === scheduled.connection) return
@@ -88,9 +83,9 @@ export const createRoomMesh = (options: {
 			retries.delete(participantId)
 		}
 		if (
-			membership == null ||
-			membership.selfId === membership.hostId ||
-			membership.selfId < participantId ||
+			identity == null ||
+			identity.selfId === identity.hostId ||
+			identity.selfId < participantId ||
 			!options.roster().includes(participantId) ||
 			options.connectionFor(participantId) != null
 		) {
@@ -104,7 +99,7 @@ export const createRoomMesh = (options: {
 			participantId,
 			connection,
 			MESH_NEGOTIATION_TIMEOUT_MS,
-			membership,
+			identity,
 		)
 
 		try {
@@ -117,19 +112,19 @@ export const createRoomMesh = (options: {
 				!options.sendToHost({
 					exchangeId,
 					type: 'peer-signal',
-					from: membership.selfId,
+					from: identity.selfId,
 					to: participantId,
 					signal,
 				})
 			) {
-				if (retryFailedOffer(participantId, connection, membership)) {
+				if (retryFailedOffer(participantId, connection, identity)) {
 					log('warn', 'room', 'mesh.offer.send.failed', {
 						participantId,
 					})
 				}
 			}
 		} catch (error) {
-			if (retryFailedOffer(participantId, connection, membership)) {
+			if (retryFailedOffer(participantId, connection, identity)) {
 				log('warn', 'room', 'mesh.offer.failed', {
 					error,
 					participantId,
@@ -140,17 +135,17 @@ export const createRoomMesh = (options: {
 
 	const connectMissingPeers = () => {
 		// The lexicographically larger guest offers, so every pair creates one edge.
-		const membership = options.membership()
-		if (membership == null || membership.selfId === membership.hostId) {
+		const identity = options.identity()
+		if (identity == null || identity.selfId === identity.hostId) {
 			return
 		}
 
 		for (const participantId of options.roster()) {
 			if (
-				participantId === membership.selfId ||
-				participantId === membership.hostId ||
+				participantId === identity.selfId ||
+				participantId === identity.hostId ||
 				options.connectionFor(participantId) != null ||
-				membership.selfId < participantId
+				identity.selfId < participantId
 			) {
 				continue
 			}
@@ -164,21 +159,21 @@ export const createRoomMesh = (options: {
 		signal: OfferDescription,
 	) => {
 		// The target guest answers, then the host carries that answer back.
-		const membership = options.membership()
-		if (membership == null || membership.selfId === membership.hostId) {
+		const identity = options.identity()
+		if (identity == null || identity.selfId === identity.hostId) {
 			return
 		}
-		if (message.to !== membership.selfId) {
+		if (message.to !== identity.selfId) {
 			log('warn', 'room', 'mesh.offer.wrong-target', {
 				from: message.from,
 				to: message.to,
 			})
 			return
 		}
-		if (message.from < membership.selfId) {
+		if (message.from < identity.selfId) {
 			log('warn', 'room', 'mesh.offer.wrong-dialer', {
 				from: message.from,
-				to: membership.selfId,
+				to: identity.selfId,
 			})
 			return
 		}
@@ -211,7 +206,7 @@ export const createRoomMesh = (options: {
 				!options.sendToHost({
 					exchangeId: message.exchangeId,
 					type: 'peer-signal',
-					from: membership.selfId,
+					from: identity.selfId,
 					to: message.from,
 					signal: answer,
 				})
@@ -235,19 +230,19 @@ export const createRoomMesh = (options: {
 		signal: AnswerDescription,
 	) => {
 		// The dialing guest completes the direct edge here.
-		const membership = options.membership()
-		if (membership == null || membership.selfId === membership.hostId) return
-		if (message.to !== membership.selfId) {
+		const identity = options.identity()
+		if (identity == null || identity.selfId === identity.hostId) return
+		if (message.to !== identity.selfId) {
 			log('warn', 'room', 'mesh.answer.wrong-target', {
 				from: message.from,
 				to: message.to,
 			})
 			return
 		}
-		if (membership.selfId < message.from) {
+		if (identity.selfId < message.from) {
 			log('warn', 'room', 'mesh.answer.wrong-dialer', {
 				from: message.from,
-				to: membership.selfId,
+				to: identity.selfId,
 			})
 			return
 		}
@@ -280,7 +275,7 @@ export const createRoomMesh = (options: {
 		try {
 			await connection.rtc.acceptAnswer(signal)
 		} catch (error) {
-			if (retryFailedOffer(message.from, connection, membership)) {
+			if (retryFailedOffer(message.from, connection, identity)) {
 				log('warn', 'room', 'mesh.answer.accept.failed', {
 					error,
 					from: message.from,

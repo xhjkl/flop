@@ -12,8 +12,8 @@ import { initialHostEntry } from './state'
 
 export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 	const sendHostWelcome = (participantId: ParticipantId) => {
-		const membership = room.membership()
-		if (membership == null || membership.selfId !== membership.hostId) {
+		const identity = room.identity()
+		if (identity == null || identity.selfId !== identity.hostId) {
 			log('error', 'room', 'welcome.missing-local-host-id', {
 				participantId,
 			})
@@ -22,7 +22,7 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 
 		if (
 			!room.packets.sendToParticipant(participantId, {
-				hostId: membership.hostId,
+				hostId: identity.hostId,
 				roster: room.roster(),
 				selfId: participantId,
 				type: 'welcome',
@@ -53,7 +53,7 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 				room.packets.broadcastRoster()
 				break
 			case 'peer-signal': {
-				const selfId = room.membership()?.selfId ?? null
+				const selfId = room.identity()?.selfId ?? null
 				if (message.to === selfId) {
 					log('warn', 'room', 'mesh.signal.addressed-to-host', {
 						from: participantId,
@@ -88,7 +88,7 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 	}
 
 	const admitPeer = (connection: RoomConnection) => {
-		// Membership must exist before assignment can make this connection visible.
+		// Identity must exist before assignment can make this connection visible.
 		const participantId = room.peers.allocateId()
 		room.peers.add(participantId)
 		if (!room.connections.assign(connection, participantId)) {
@@ -134,7 +134,7 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 						manualPhase: 'waiting-for-reply',
 					})
 				}
-				void refreshInvite().then(() => {
+				void refreshManualInvite().then(() => {
 					const nextEntry = room.state.entry
 					if (nextEntry.side !== 'host') return
 					room.setState('entry', {
@@ -205,7 +205,7 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 		return prepareManualInvite(attempt, secret)
 	}
 
-	const refreshInvite = () => {
+	const refreshManualInvite = () => {
 		if (room.localRoomRole() !== 'host') return startRoom()
 
 		const current = room.rendezvous.current
@@ -229,7 +229,7 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 		const owner = room.connections.peerByConnection(connection)
 		if (owner != null) {
 			if (!handleParticipantPacket(owner.id, message)) {
-				void refreshInvite()
+				void refreshManualInvite()
 			}
 			return
 		}
@@ -245,7 +245,7 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 		if (participantId == null) return
 		handleParticipantPacket(participantId, message)
 		// Assignment keeps this connection while only the manual offer is replaced.
-		void refreshInvite()
+		void refreshManualInvite()
 	}
 
 	const acceptReplyCode = async (replyText: string) => {
@@ -304,7 +304,7 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 	return {
 		acceptReplyCode,
 		handleMessage,
-		refreshInvite,
+		refreshManualInvite,
 		startRoom,
 	}
 }

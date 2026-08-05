@@ -25,17 +25,6 @@ const hasActiveSelfPreview = (media: SelfMedia) => {
 	)
 }
 
-const hasSelfMediaWarning = (status: SelfMedia['status']) => {
-	return (
-		status === 'busy' ||
-		status === 'denied' ||
-		status === 'interrupted' ||
-		status === 'missing' ||
-		status === 'unsupported' ||
-		status === 'error'
-	)
-}
-
 const selfMediaNotice = (media: SelfMedia) => {
 	let title: string
 	let issue: string
@@ -48,6 +37,7 @@ const selfMediaNotice = (media: SelfMedia) => {
 					'Send an invite to another device. Once connected, drop files here to send them directly. Turn on camera and microphone when you want peers to see or hear you.',
 				],
 				title: 'welcome to flop',
+				warning: false,
 			}
 		case 'requesting':
 			return {
@@ -57,6 +47,7 @@ const selfMediaNotice = (media: SelfMedia) => {
 					'Your browser should be asking for permission now. Once allowed, this card becomes your live portrait.',
 				],
 				title: 'Allow cam and mic',
+				warning: false,
 			}
 		case 'denied':
 			title = 'Access denied'
@@ -98,6 +89,7 @@ const selfMediaNotice = (media: SelfMedia) => {
 			'After changing your browser or device setting, try again. You can still use the room without camera or microphone.',
 		],
 		title,
+		warning: true,
 	}
 }
 
@@ -271,7 +263,7 @@ const FileChip = (props: { file: SharedFile }) => {
 }
 
 const PortraitActivity = (props: {
-	blip?: string | null
+	blip: string | null
 	files: SharedFile[]
 }) => {
 	const blip = () => props.blip?.trim() || null
@@ -422,7 +414,7 @@ export const PeerPortraitCard = (props: { peer: RoomPeer }) => {
 /** Keyboard- and touch-accessible counterpart to room-wide file dropping. */
 const FilePickerButton = (props: { onSelect: (files: File[]) => void }) => {
 	let input: HTMLInputElement | null = null
-	const selected = (event: Event & { currentTarget: HTMLInputElement }) => {
+	const selectFiles = (event: Event & { currentTarget: HTMLInputElement }) => {
 		const files = Array.from(event.currentTarget.files ?? [])
 		event.currentTarget.value = ''
 		if (files.length > 0) props.onSelect(files)
@@ -436,9 +428,8 @@ const FilePickerButton = (props: { onSelect: (files: File[]) => void }) => {
 				aria-label="send files"
 				onClick={() => input?.click()}
 			>
-				<span class="self-toggle-label">file</span>
-				<span class="self-file-picker-icon" aria-hidden="true">
-					↑
+				<span class="self-file-picker-glyph" aria-hidden="true">
+					⬆︎
 				</span>
 			</button>
 			<input
@@ -448,7 +439,7 @@ const FilePickerButton = (props: { onSelect: (files: File[]) => void }) => {
 				type="file"
 				multiple
 				hidden
-				onChange={selected}
+				onChange={selectFiles}
 			/>
 		</>
 	)
@@ -480,7 +471,7 @@ export const SelfPortraitCard = (props: {
 			classList={{
 				'is-live': props.media.status === 'live',
 				'is-setup': props.media.status !== 'live',
-				'is-warning': hasSelfMediaWarning(props.media.status),
+				'is-warning': notice()?.warning === true,
 			}}
 		>
 			<Show when={props.media.status === 'live'}>
@@ -514,19 +505,22 @@ export const SelfPortraitCard = (props: {
 						</div>
 					)}
 				</Show>
-				<div
-					class="self-media-actions"
-					classList={{
-						'card-actions': liveMedia() == null,
-						'self-screen-control': liveMedia() != null,
-					}}
-				>
+				<PortraitActivity blip={null} files={props.files} />
+				<div class="self-controls">
+					<BlipComposer
+						draft={props.blipDraft}
+						fileTransferIssue={props.fileTransferIssue}
+						onSend={props.onSendBlip}
+						onDismissIssue={props.onDismissFileTransferIssue}
+						onSetText={props.onSetBlipDraft}
+					/>
 					<FilePickerButton onSelect={props.onSendFiles} />
 					<Show
 						when={liveMedia()}
 						fallback={
 							<button
 								type="button"
+								class="self-media-enable"
 								onClick={props.onEnableSelfMedia}
 								disabled={notice()?.actionDisabled ?? true}
 							>
@@ -544,33 +538,25 @@ export const SelfPortraitCard = (props: {
 							onPress={props.onToggleScreen}
 						/>
 					</Show>
+					<Show when={liveMedia()}>
+						<div class="self-live-controls">
+							<ToggleButton
+								accessibleName="camera"
+								label="cam"
+								enabled={camera()?.enabled === true}
+								disabled={camera() == null}
+								onPress={props.onToggleCamera}
+							/>
+							<ToggleButton
+								accessibleName="microphone"
+								label="mic"
+								enabled={microphone()?.enabled === true}
+								disabled={microphone() == null}
+								onPress={props.onToggleMicrophone}
+							/>
+						</div>
+					</Show>
 				</div>
-				<PortraitActivity files={props.files} />
-				<BlipComposer
-					draft={props.blipDraft}
-					fileTransferIssue={props.fileTransferIssue}
-					onSend={props.onSendBlip}
-					onDismissIssue={props.onDismissFileTransferIssue}
-					onSetText={props.onSetBlipDraft}
-				/>
-				<Show when={liveMedia()}>
-					<div class="self-live-controls">
-						<ToggleButton
-							accessibleName="camera"
-							label="cam"
-							enabled={camera()?.enabled === true}
-							disabled={camera() == null}
-							onPress={props.onToggleCamera}
-						/>
-						<ToggleButton
-							accessibleName="microphone"
-							label="mic"
-							enabled={microphone()?.enabled === true}
-							disabled={microphone() == null}
-							onPress={props.onToggleMicrophone}
-						/>
-					</div>
-				</Show>
 			</div>
 		</article>
 	)

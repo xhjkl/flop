@@ -14,8 +14,8 @@ export type ParticipantId = string & {
 /** Host-owned room membership in stable presentation order. */
 export type Roster = ParticipantId[]
 
-/** Local participant identity and the host anchoring its room membership. */
-export type RoomMembership = {
+/** Local participant identity and the host anchoring its current room. */
+export type RoomIdentity = {
 	readonly hostId: ParticipantId
 	readonly selfId: ParticipantId
 }
@@ -48,7 +48,7 @@ export type Packet =
 			type: 'file-chunk'
 	  }
 	| { id: string; type: 'file-end' }
-	| (RoomMembership & { roster: Roster; type: 'welcome' })
+	| (RoomIdentity & { roster: Roster; type: 'welcome' })
 	| { type: 'roster'; roster: Roster }
 	| {
 			exchangeId: SignalExchangeId

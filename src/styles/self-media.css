@@ -44,17 +44,8 @@
 	justify-items: center;
 }
 
-.self-card.is-setup :is(.card-actions, .blip-composer, .portrait-activity) {
+.self-card.is-setup :is(.self-controls, .portrait-activity) {
 	inline-size: min(100%, var(--action-inline));
-}
-
-.self-card.is-setup .card-actions {
-	align-content: start;
-	order: 1;
-}
-
-.self-card.is-setup .card-actions button {
-	inline-size: 100%;
 }
 
 .self-card.is-warning {
@@ -79,7 +70,6 @@
 }
 
 .self-live-shell {
-	inline-size: 100%;
 	display: grid;
 	gap: var(--space-touch);
 	justify-items: stretch;
@@ -93,22 +83,64 @@
 	pointer-events: auto;
 }
 
-.self-live-shell .portrait-activity {
-	justify-self: stretch;
-}
+.self-controls {
+	--file-control-inline: 3rem;
 
-.self-live-shell .self-media-actions {
-	order: -1;
-}
-
-.self-screen-control {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
 	gap: var(--space-touch);
-	justify-self: stretch;
+}
+
+.self-file-picker {
+	inline-size: var(--file-control-inline);
+	min-block-size: var(--control-pill-block);
+}
+
+.self-card.is-setup .self-controls {
+	grid-template-columns: minmax(0, 1fr) var(--file-control-inline);
+}
+
+.self-card.is-setup .blip-composer {
+	grid-column: 1;
+	grid-row: 1;
+}
+
+.self-card.is-setup .self-file-picker {
+	grid-column: 2;
+	grid-row: 1;
+	align-self: end;
+}
+
+.self-card.is-setup .self-media-enable {
+	grid-column: 1 / -1;
+	grid-row: 2;
+	inline-size: 100%;
+}
+
+.self-card.is-live .self-controls {
+	grid-template-columns:
+		minmax(0, 1fr) var(--file-control-inline)
+		minmax(0, 1fr);
+}
+
+.self-card.is-live .self-file-picker {
+	grid-column: 2;
+	grid-row: 1;
+}
+
+.self-card.is-live .self-controls > .self-toggle:not(.self-file-picker) {
+	grid-column: 3;
+	grid-row: 1;
+	inline-size: 100%;
+}
+
+.self-card.is-live .blip-composer {
+	grid-column: 1 / -1;
+	grid-row: 2;
 }
 
 .self-live-controls {
+	grid-column: 1 / -1;
+	grid-row: 3;
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 	gap: var(--space-touch);
@@ -141,22 +173,13 @@
 		inset 0 -1px 0 color-mix(in oklch, black 28%, transparent);
 }
 
-.self-screen-control .self-toggle:not(.self-file-picker) {
-	grid-column: 2;
-	inline-size: 100%;
-}
-
-.self-screen-control .self-file-picker {
-	grid-column: 1;
-}
-
-.self-file-picker-icon {
-	display: inline-grid;
+.self-file-picker-glyph {
+	display: grid;
 	place-items: center;
-	inline-size: var(--toggle-track-inline);
-	block-size: var(--toggle-track-block);
-	border-radius: var(--radius-pill);
-	background: color-mix(in oklch, var(--chalk) 16%, transparent);
+	margin: auto;
+	font-family: system-ui, sans-serif;
+	font-size: var(--text-body);
+	line-height: 1;
 }
 
 .self-toggle-label {

@@ -22,7 +22,7 @@ type LiveSelfMedia = {
 	status: 'live'
 }
 
-/** Local media is either absent, failed, or one live browser-owned capture. */
+/** Local media while idle, requesting permission, failed, or actively captured. */
 export type SelfMedia =
 	| { status: 'idle' | 'requesting' | SelfMediaFailure }
 	| LiveSelfMedia

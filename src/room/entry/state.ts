@@ -1,4 +1,4 @@
-/** Failure codes rendered by the connection card. */
+/** Notice codes rendered by the connection card. */
 export type EntryIssue =
 	| 'direct-connection-failed'
 	| 'discovery-unreachable'

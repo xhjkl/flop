@@ -1,6 +1,6 @@
 import { base64ToBytes, bytesToBase64 } from '../../binary'
 import { log } from '../../log'
-import type { Packet, ParticipantId } from '../../protocol'
+import type { Packet, ParticipantId, RoomIdentity } from '../../protocol'
 import { randomHex } from '../../random'
 import type { RoomConnection } from '../link'
 import type { FileTransferIssue, SharedFile } from '../participant'
@@ -20,7 +20,7 @@ const FILE_BUFFER_LOW_BYTES = 512 * 1024
 /** In-flight file bytes; completed downloads are owned by their room peer. */
 export const createRoomFileTransfers = (options: {
 	connections: () => RoomConnection[]
-	localParticipantId: () => ParticipantId | null
+	identity: () => RoomIdentity | null
 	sendPacket: (connections: RoomConnection[], packet: Packet) => number
 	setIssue: (issue: FileTransferIssue | null) => void
 	upsertFile: (participantId: ParticipantId, nextFile: SharedFile) => void
@@ -159,13 +159,14 @@ export const createRoomFileTransfers = (options: {
 	const sendFile = async (
 		file: File,
 		connections: RoomConnection[],
-		participantId: ParticipantId,
+		identity: RoomIdentity,
 	) => {
 		// Recipient connections are fixed at drop time so progress has a stable denominator.
 		const id = randomHex(12)
-		// Membership identity invalidates asynchronous file work when the room changes.
-		const belongsToCurrentRoom = () =>
-			options.localParticipantId() === participantId
+		const participantId = identity.selfId
+		// Every room transition replaces RoomIdentity; reference equality rejects stale work even when participant ids repeat.
+		const belongsToCurrentRoom = () => options.identity() === identity
+		if (!belongsToCurrentRoom()) throw new Error('File room changed')
 
 		options.upsertFile(participantId, {
 			id,
@@ -262,19 +263,19 @@ export const createRoomFileTransfers = (options: {
 		if (files.length === 0) return
 		options.setIssue(null)
 
-		const participantId = options.localParticipantId()
+		const identity = options.identity()
 		const connections = options.connections()
-		if (participantId == null || connections.length === 0) {
+		if (identity == null || connections.length === 0) {
 			options.setIssue('no-peers')
 			return
 		}
 
 		try {
 			for (const file of files) {
-				await sendFile(file, connections, participantId)
+				await sendFile(file, connections, identity)
 			}
 		} catch (error) {
-			if (options.localParticipantId() !== participantId) return
+			if (options.identity() !== identity) return
 			log('warn', 'room', 'file.send.failed', { error })
 			options.setIssue('stopped')
 		}

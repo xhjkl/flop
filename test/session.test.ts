@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createRoot, mapArray, onCleanup } from 'solid-js'
+import { createMemo, createRoot, mapArray, onCleanup } from 'solid-js'
 import {
 	type OfferDescription,
 	parseSignalExchangeId,
@@ -9,6 +9,7 @@ import { encodePacket, parseParticipantId } from '../src/protocol'
 import type { GuestFlow } from '../src/room/entry/guest'
 import type { HostFlow } from '../src/room/entry/host'
 import { createRoomLinkEvents } from '../src/room/link-events'
+import { selfMediaDeviceTrack } from '../src/room/media'
 import { createRoomSession } from '../src/room/session'
 import type { RtcPeer, RtcPeerOptions } from '../src/webrtc'
 
@@ -130,7 +131,7 @@ const hostFlow = (
 ): HostFlow => ({
 	acceptReplyCode: async () => {},
 	handleMessage: () => options.onMessage?.(),
-	refreshInvite: async () => options.onRestart?.(),
+	refreshManualInvite: async () => options.onRestart?.(),
 	startRoom: async () => {},
 })
 
@@ -173,9 +174,9 @@ test('starting a host room releases the old room and local activity', () => {
 			assert.equal(room.self.files.length, 0)
 			assert.equal(rtc.closed.includes(admission.rtc), true)
 			assert.equal(rtc.closed.includes(assigned.rtc), true)
-			const membership = room.membership()
-			assert.ok(membership != null)
-			assert.equal(membership.selfId, membership.hostId)
+			const identity = room.identity()
+			assert.ok(identity != null)
+			assert.equal(identity.selfId, identity.hostId)
 		} finally {
 			room.dispose()
 			dispose()
@@ -201,7 +202,7 @@ test('joining another room preserves the visible committed blip', () => {
 	})
 })
 
-test('closing a room clears its membership and roster', () => {
+test('closing a room clears its identity and roster', () => {
 	createRoot((dispose) => {
 		const room = createRoomSession(fakeRtcHarness().create)
 		const peerId = participantId('0000000000000002')
@@ -209,11 +210,11 @@ test('closing a room clears its membership and roster', () => {
 		try {
 			room.peers.add(peerId)
 			assert.equal(room.localRoomRole(), 'host')
-			assert.deepEqual(room.roster(), [room.membership()?.selfId, peerId])
+			assert.deepEqual(room.roster(), [room.identity()?.selfId, peerId])
 
 			room.closeRoom()
 
-			assert.equal(room.membership(), null)
+			assert.equal(room.identity(), null)
 			assert.equal(room.localRoomRole(), null)
 			assert.deepEqual(room.roster(), [])
 			assert.deepEqual(room.peers.all(), [])
@@ -267,6 +268,50 @@ test('an admission receives local media only after participant assignment', asyn
 	})
 })
 
+test('camera and microphone toggles update reactive media state', async () => {
+	await withFakeDeviceCapture(async () => {
+		let dispose = () => {}
+		const observed = createRoot((disposeRoot) => {
+			dispose = disposeRoot
+			const room = createRoomSession(fakeRtcHarness().create)
+			return {
+				cameraEnabled: createMemo(
+					() =>
+						selfMediaDeviceTrack(room.self.media, 'video')?.enabled === true,
+				),
+				microphoneEnabled: createMemo(
+					() =>
+						selfMediaDeviceTrack(room.self.media, 'audio')?.enabled === true,
+				),
+				room,
+			}
+		})
+
+		try {
+			await observed.room.media.enable()
+			assert.equal(observed.cameraEnabled(), true)
+			assert.equal(observed.microphoneEnabled(), true)
+
+			observed.room.media.toggleCamera()
+			assert.equal(observed.cameraEnabled(), false)
+			assert.equal(observed.microphoneEnabled(), true)
+
+			observed.room.media.toggleMicrophone()
+			assert.equal(observed.microphoneEnabled(), false)
+
+			observed.room.media.toggleCamera()
+			assert.equal(observed.cameraEnabled(), true)
+			assert.equal(observed.microphoneEnabled(), false)
+
+			observed.room.media.toggleMicrophone()
+			assert.equal(observed.microphoneEnabled(), true)
+		} finally {
+			observed.room.dispose()
+			dispose()
+		}
+	})
+})
+
 test('admissions and connection replacement keep peer rows mounted', () => {
 	createRoot((dispose) => {
 		try {
@@ -284,7 +329,7 @@ test('admissions and connection replacement keep peer rows mounted', () => {
 			})
 			assert.deepEqual(renderedPeerIds(), [guestId])
 			const peerRow = room.peers.byId(guestId)
-			const selfId = room.membership()?.selfId
+			const selfId = room.identity()?.selfId
 			assert.ok(peerRow != null)
 			assert.ok(selfId != null)
 			room.peers.replaceRoster([selfId, guestId])
@@ -352,7 +397,7 @@ test('admissions and connection replacement keep peer rows mounted', () => {
 	})
 })
 
-test('a file read finishing after reset cannot update the next room', async () => {
+test('stale file work cannot update a successor with the same participant id', async () => {
 	let dispose = () => {}
 	const room = createRoot((disposeRoot) => {
 		dispose = disposeRoot
@@ -368,6 +413,8 @@ test('a file read finishing after reset cannot update the next room', async () =
 	} as unknown as File
 
 	try {
+		const originalIdentity = room.identity()
+		assert.ok(originalIdentity != null)
 		room.peers.add(peerId)
 		const connection = room.connections.createAdmission({
 			kind: 'manual',
@@ -379,7 +426,59 @@ test('a file read finishing after reset cannot update the next room', async () =
 		const sending = room.files.sendFiles([file])
 		assert.equal(room.self.files[0]?.state, 'sending')
 		room.resetForHosting()
+		room.setIdentity({
+			hostId: originalIdentity.selfId,
+			selfId: originalIdentity.selfId,
+		})
 		chunk.resolve(new Uint8Array([1]).buffer)
+		await sending
+
+		assert.equal(room.self.fileTransferIssue, null)
+		assert.equal(room.self.files.length, 0)
+	} finally {
+		room.dispose()
+		dispose()
+	}
+})
+
+test('stale file batches cannot start their next file in a successor room', async () => {
+	let dispose = () => {}
+	const room = createRoot((disposeRoot) => {
+		dispose = disposeRoot
+		return createRoomSession(fakeRtcHarness(true).create)
+	})
+	const peerId = participantId('0000000000000002')
+	const file = (name: string, size: number) =>
+		({
+			name,
+			size,
+			slice: () => {
+				throw new Error('Stale file bytes must not be read')
+			},
+			type: 'text/plain',
+		}) as unknown as File
+
+	try {
+		const originalIdentity = room.identity()
+		assert.ok(originalIdentity != null)
+		room.peers.add(peerId)
+		const connection = room.connections.createAdmission({
+			kind: 'manual',
+			localRole: 'host',
+		})
+		assert.equal(room.connections.assign(connection, peerId), true)
+		connection.connected = true
+
+		const sending = room.files.sendFiles([
+			file('already-sent.txt', 0),
+			file('must-not-start.txt', 1),
+		])
+		assert.equal(room.self.files[0]?.state, 'sent')
+		room.resetForHosting()
+		room.setIdentity({
+			hostId: originalIdentity.selfId,
+			selfId: originalIdentity.selfId,
+		})
 		await sending
 
 		assert.equal(room.self.fileTransferIssue, null)
@@ -438,7 +537,7 @@ test('mesh reset invalidates a late failed offer before it can schedule work', a
 		const hostId = participantId('0000000000000001')
 		const targetId = participantId('0000000000000002')
 		const selfId = participantId('0000000000000003')
-		room.setMembership({ hostId, selfId })
+		room.setIdentity({ hostId, selfId })
 		room.peers.add(hostId)
 		room.peers.add(targetId)
 
@@ -513,7 +612,7 @@ test('connection origin keeps rendezvous and mesh packet routing stable', async 
 			encodePacket({ roster: [], type: 'roster' }),
 		)
 
-		room.setMembership({ hostId: guestRoutedId, selfId })
+		room.setIdentity({ hostId: guestRoutedId, selfId })
 		events.onOpen(guestRendezvous)
 		room.peers.add(meshPeerId)
 		await room.mesh.handleSignal({
