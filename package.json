@@ -3,7 +3,7 @@
 	"version": "0.0.0",
 	"license": "UNLICENSED",
 	"type": "module",
-	"packageManager": "bun@1.3.14",
+	"packageManager": "bun@1.4.2",
 	"scripts": {
 		"dev": "vite",
 		"check": "biome check README.md package.json vite.config.ts contracts src test worker",
