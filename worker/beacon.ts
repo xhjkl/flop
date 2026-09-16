@@ -47,7 +47,7 @@ const parseMessage = (message: unknown) => {
 }
 
 const attachment = (socket: WebSocket) => {
-	const attachment = socket.deserializeAttachment()
+	const attachment: unknown = socket.deserializeAttachment()
 	return typeof attachment === 'object' && attachment != null
 		? attachment
 		: null
@@ -80,7 +80,7 @@ const sendSocket = (socket: WebSocket, message: ServerBeaconMessage) => {
 
 /** Room-scoped WebSocket fanout for WebRTC signaling only. */
 export class RendezvousRoom extends DurableObject {
-	fetch(request: Request) {
+	override fetch(request: Request) {
 		if (request.headers.get('upgrade') !== 'websocket') {
 			return websocketResponse()
 		}
@@ -103,7 +103,7 @@ export class RendezvousRoom extends DurableObject {
 		return new Response(null, { status: 101, webSocket: client })
 	}
 
-	webSocketMessage(socket: WebSocket, data: unknown) {
+	override webSocketMessage(socket: WebSocket, data: unknown) {
 		const message = parseMessage(data)
 		if (message == null) {
 			socket.close(1003, 'invalid message')
@@ -170,7 +170,7 @@ export class RendezvousRoom extends DurableObject {
 		this.broadcastPeers()
 	}
 
-	webSocketClose(socket: WebSocket) {
+	override webSocketClose(socket: WebSocket) {
 		this.broadcastPeers(socket)
 	}
 

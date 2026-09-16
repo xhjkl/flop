@@ -241,7 +241,7 @@ export const issueRelayCredentials = async (request: Request, env: Env) => {
 
 /** Global relay cashier; reserves TURN budget before credentials are minted. */
 export class RelayGate extends DurableObject {
-	async fetch(request: Request) {
+	override async fetch(request: Request) {
 		if (request.method !== 'POST') {
 			return json({ error: 'method not allowed' }, { status: 405 })
 		}
