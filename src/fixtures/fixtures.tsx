@@ -159,7 +159,7 @@ const guestJoin = (
 		hostPresent?: boolean | null
 		inviteText?: string
 		issue?: GuestJoinState['issue']
-		relayFallbackSecondsLeft?: number | null
+		relayFallbackEndsAt?: number | null
 		replyCode?: string
 		status?: GuestJoinState['status']
 	} = {},
@@ -174,7 +174,7 @@ const guestJoin = (
 		return {
 			...base,
 			hostPresent: overrides.hostPresent ?? null,
-			relayFallbackSecondsLeft: overrides.relayFallbackSecondsLeft ?? null,
+			relayFallbackEndsAt: overrides.relayFallbackEndsAt ?? null,
 			status,
 		}
 	}
@@ -298,7 +298,7 @@ export const uiFixtures: UiFixture[] = [
 				status: 'discovering-host',
 				inviteText: SAMPLE_INVITE_LINK,
 				hostPresent: true,
-				relayFallbackSecondsLeft: 5,
+				relayFallbackEndsAt: Date.now() + 5_000,
 			}),
 		}),
 	),
@@ -312,7 +312,7 @@ export const uiFixtures: UiFixture[] = [
 				status: 'discovering-host',
 				inviteText: SAMPLE_INVITE_LINK,
 				hostPresent: true,
-				relayFallbackSecondsLeft: 0,
+				relayFallbackEndsAt: 0,
 			}),
 		}),
 	),

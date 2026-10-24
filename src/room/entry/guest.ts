@@ -126,7 +126,7 @@ export const createGuestFlow = (
 			...initialGuestEntry(),
 			hostPresent: null,
 			inviteText: inviteLinkFromSecret(secret),
-			relayFallbackSecondsLeft: null,
+			relayFallbackEndsAt: null,
 			status: 'discovering-host',
 		})
 		void beacon.start(attempt)
@@ -153,7 +153,7 @@ export const createGuestFlow = (
 				room.setState('entry', {
 					...entry,
 					issue: null,
-					relayFallbackSecondsLeft: null,
+					relayFallbackEndsAt: null,
 				})
 				void beacon.start(attempt)
 			} catch (error) {
@@ -168,7 +168,7 @@ export const createGuestFlow = (
 						error instanceof RelayQuotaExceededError
 							? 'relay-quota-exceeded'
 							: 'relay-unavailable',
-					relayFallbackSecondsLeft: null,
+					relayFallbackEndsAt: null,
 				})
 			}
 		})()

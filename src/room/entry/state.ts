@@ -29,8 +29,8 @@ export type GuestJoinState =
 	| (GuestJoinBase & {
 			/** Whether the latest discovery membership contains a host. */
 			hostPresent: boolean | null
-			/** Null before a host is reachable; zero makes relay immediately available. */
-			relayFallbackSecondsLeft: number | null
+			/** `Date.now()` time relay becomes available; null before a host is reachable. */
+			relayFallbackEndsAt: number | null
 			status: 'discovering-host'
 	  })
 	| (GuestJoinBase & { replyCode: string; status: 'reply-ready' })

@@ -27,64 +27,21 @@ const BEACON_CANDIDATE_TTL_MS = 45_000
 export const createBeaconFlow = (room: RoomSession) => {
 	const candidateTimeouts = new WeakMap<RoomConnection, () => void>()
 	const hostDiscovery = () => asHostDiscovery(room.state.entry)
-	let cancelRelayFallback: (() => void) | null = null
-	let relayFallbackEndsAt = 0
-
-	const setGuestRelayFallbackSeconds = (seconds: number | null) => {
+	const setGuestRelayFallbackEndsAt = (endsAt: number | null) => {
 		const entry = hostDiscovery()
 		if (entry == null) return
 		room.setState('entry', {
 			...entry,
-			relayFallbackSecondsLeft: seconds,
+			relayFallbackEndsAt: endsAt,
 		})
 	}
 
-	const stopRelayFallback = () => {
-		cancelRelayFallback?.()
-		cancelRelayFallback = null
-	}
-
-	const hideRelayFallback = () => {
-		stopRelayFallback()
-		setGuestRelayFallbackSeconds(null)
-	}
-
-	const updateRelayFallback = () => {
-		if (hostDiscovery() == null) {
-			return
-		}
-		if (room.relay.active()) {
-			hideRelayFallback()
-			return
-		}
-
-		const secondsLeft = Math.max(
-			0,
-			Math.ceil((relayFallbackEndsAt - Date.now()) / 1000),
-		)
-		setGuestRelayFallbackSeconds(secondsLeft)
-		if (secondsLeft === 0) return
-
-		const attempt = room.rendezvous.current
-		if (attempt?.localRole !== 'guest') return
-		cancelRelayFallback = attempt.scheduleTimeout(() => {
-			cancelRelayFallback = null
-			updateRelayFallback()
-		}, 1000)
-	}
-
+	// The deadline is armed once per sighting of the host; the UI counts down to it.
 	const startRelayFallback = () => {
-		if (room.relay.active() || cancelRelayFallback != null) return
-		if (hostDiscovery()?.relayFallbackSecondsLeft === 0) return
+		if (room.relay.active()) return
+		if (hostDiscovery()?.relayFallbackEndsAt != null) return
 
-		relayFallbackEndsAt = Date.now() + RELAY_FALLBACK_WAIT_SECONDS * 1000
-		setGuestRelayFallbackSeconds(RELAY_FALLBACK_WAIT_SECONDS)
-		const attempt = room.rendezvous.current
-		if (attempt?.localRole !== 'guest') return
-		cancelRelayFallback = attempt.scheduleTimeout(() => {
-			cancelRelayFallback = null
-			updateRelayFallback()
-		}, 1000)
+		setGuestRelayFallbackEndsAt(Date.now() + RELAY_FALLBACK_WAIT_SECONDS * 1000)
 	}
 
 	const candidates = (role: LocalRoomRole) => {
@@ -183,10 +140,7 @@ export const createBeaconFlow = (room: RoomSession) => {
 
 	const setGuestPeers = (peers: BeaconPeer[]) => {
 		const entry = hostDiscovery()
-		if (entry == null) {
-			stopRelayFallback()
-			return
-		}
+		if (entry == null) return
 
 		const hostPresent = peers.some((peer) => peer.role === 'host')
 		room.setState('entry', {
@@ -195,7 +149,7 @@ export const createBeaconFlow = (room: RoomSession) => {
 			issue: null,
 		})
 		if (hostPresent) startRelayFallback()
-		else hideRelayFallback()
+		else setGuestRelayFallbackEndsAt(null)
 	}
 
 	const createOffer = async (
@@ -300,7 +254,6 @@ export const createBeaconFlow = (room: RoomSession) => {
 	}
 
 	const start = async (attempt: RendezvousAttempt) => {
-		stopRelayFallback()
 		if (attempt.secret == null) return
 		try {
 			const keys = await deriveRoomKeys(attempt.secret)

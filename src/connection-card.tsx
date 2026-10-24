@@ -8,6 +8,7 @@ import {
 } from './room/entry/state'
 import { RELAY_FALLBACK_WAIT_SECONDS } from './room/relay'
 import { entryIssueCopy, hostInviteLinkFailureCopy } from './ui/copy'
+import { createCountdown } from './ui/countdown'
 import { createPulse } from './ui/pulse'
 import { encodeQrCode } from './ui/qr-code'
 
@@ -377,18 +378,21 @@ const GuestInvitePane = (props: {
 }
 
 const RelayFallbackControl = (props: {
-	secondsLeft: number
+	endsAt: number
 	onTryRelay: () => void
 }) => {
+	const msLeft = createCountdown(() => props.endsAt)
+	const wholeSecondsLeft = createMemo(() => Math.ceil(msLeft() / 1000))
+
 	return (
 		<Show
-			when={props.secondsLeft <= 0}
+			when={msLeft() <= 0}
 			fallback={
 				<Daisy
-					ariaLabel={`${Math.ceil(props.secondsLeft)} seconds until relay is available`}
+					ariaLabel={`${wholeSecondsLeft()} seconds until relay is available`}
 					max={RELAY_FALLBACK_WAIT_SECONDS}
-					text={`${Math.ceil(props.secondsLeft)}`}
-					value={props.secondsLeft}
+					text={`${wholeSecondsLeft()}`}
+					value={msLeft() / 1000}
 				/>
 			}
 		>
@@ -445,14 +449,14 @@ export const ConnectionCard = (props: {
 		const entry = guestJoin()
 		return entry?.issue == null && hostPresent()
 	}
-	const relayFallbackSecondsLeft = () => {
+	const relayFallbackEndsAt = () => {
 		const entry = hostDiscovery()
 		if (entry == null) return null
 		if (!hostReachable()) return null
 
-		return entry.relayFallbackSecondsLeft
+		return entry.relayFallbackEndsAt
 	}
-	const showRelayFallback = () => relayFallbackSecondsLeft() != null
+	const showRelayFallback = () => relayFallbackEndsAt() != null
 	const hasConnectionCopy = () =>
 		props.entry.side !== 'host' && !showRelayFallback()
 	const hasConnectionEntryLayout = () => {
@@ -477,7 +481,7 @@ export const ConnectionCard = (props: {
 								<strong>reply code</strong>
 								<p>Found the host. Keep this tab open to join the room.</p>
 								<RelayFallbackControl
-									secondsLeft={relayFallbackSecondsLeft() ?? 0}
+									endsAt={relayFallbackEndsAt() ?? 0}
 									onTryRelay={props.onTryRelay}
 								/>
 							</div>
