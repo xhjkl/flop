@@ -75,29 +75,20 @@ const tabToken = () => {
 
 const hostInviteMarker = (value: unknown): HostInviteMarker | null => {
 	if (!isRecord(value)) return null
-	const marker = value
-	if (marker.kind !== 'host-invite') return null
-	if (typeof marker.tab !== 'string') return null
-	if (typeof marker.secret !== 'string') return null
+	if (value.kind !== 'host-invite') return null
+	if (typeof value.tab !== 'string') return null
+	if (typeof value.secret !== 'string') return null
 
-	const secret = parseRoomSecret(marker.secret)
+	const secret = parseRoomSecret(value.secret)
 	if (secret == null) return null
 
-	return { kind: 'host-invite', secret, tab: marker.tab }
+	return { kind: 'host-invite', secret, tab: value.tab }
 }
 
 const currentState = () => {
 	if (typeof window === 'undefined') return {}
-	return isRecord(window.history.state) ? window.history.state : {}
-}
-
-const stateWithMarker = (marker: HostInviteMarker) => {
-	return { ...currentState(), [HISTORY_KEY]: marker }
-}
-
-const stateWithoutMarker = () => {
-	const { [HISTORY_KEY]: _marker, ...state } = currentState()
-	return state
+	const state: unknown = window.history.state
+	return isRecord(state) ? state : {}
 }
 
 const replaceAddress = (state: unknown, url: string) => {
@@ -115,12 +106,6 @@ const currentHashSecret = () => {
 	} catch {
 		return parseRoomSecret(hash)
 	}
-}
-
-const cleanUrl = () => {
-	const url = new URL(window.location.href)
-	url.hash = ''
-	return url.href
 }
 
 const loadedByReload = () => {
@@ -155,14 +140,16 @@ export const hostInviteFromAddressBar = () => {
 
 /** Show the host invite in the address bar without adding a dead room to Back. */
 export const projectHostInvite = (secret: RoomSecret, inviteLink: string) => {
+	const tab = tabToken()
 	const marker = {
 		kind: 'host-invite',
 		secret,
-		tab: tabToken(),
+		tab,
 	} satisfies HostInviteMarker
 
 	writeJson(SESSION_INVITE_KEY, marker)
-	replaceAddress(stateWithMarker(marker), inviteLink)
+	const state = currentState()
+	replaceAddress({ ...state, [HISTORY_KEY]: marker }, inviteLink)
 }
 
 /** Remove only this tab's host-owned projection; guest invite URLs stay intact. */
@@ -171,11 +158,8 @@ export const clearProjectedHostInvite = () => {
 	removeItem(SESSION_INVITE_KEY)
 	if (marker == null) return
 
-	const state = stateWithoutMarker()
-	if (currentHashSecret() !== marker.secret) {
-		replaceAddress(state, window.location.href)
-		return
-	}
-
-	replaceAddress(state, cleanUrl())
+	const { [HISTORY_KEY]: _marker, ...state } = currentState()
+	const url = new URL(window.location.href)
+	if (currentHashSecret() === marker.secret) url.hash = ''
+	replaceAddress(state, url.href)
 }

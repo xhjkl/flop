@@ -1,6 +1,7 @@
 .fixture-shell {
 	block-size: 100dvh;
 	display: grid;
+	grid-template-columns: minmax(0, 1fr);
 	grid-template-rows: auto minmax(0, 1fr);
 	overflow: hidden;
 }
@@ -16,7 +17,7 @@
 	z-index: 1;
 	padding: var(--space-touch) var(--space-page);
 	border-bottom: 1px solid var(--line-inverse);
-	background: var(--pit);
+	background: var(--bg-deep);
 	color: var(--fg-inverse);
 	box-shadow: 0 1px 0 color-mix(in oklch, white 10%, transparent);
 }
@@ -37,7 +38,7 @@
 			color-mix(in oklch, white 12%, transparent),
 			transparent 58%
 		),
-		color-mix(in oklch, var(--chalk) 8%, transparent);
+		color-mix(in oklch, var(--fg-inverse) 8%, transparent);
 	color: var(--fg-inverse);
 }
 

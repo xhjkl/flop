@@ -8,10 +8,11 @@ import {
 } from 'solid-js'
 import { hueFromSeed, themeHueFromSeed } from './hue'
 import { type SelfMedia, selfMediaDeviceTrack } from './room/media'
-import type {
-	FileTransferIssue,
-	RoomPeer,
-	SharedFile,
+import {
+	type FileTransferIssue,
+	isFileTransferActive,
+	type RoomPeer,
+	type SharedFile,
 } from './room/participant'
 import { fileTransferIssueCopy } from './ui/copy'
 import { createPulse } from './ui/pulse'
@@ -97,7 +98,6 @@ type VideoPointerEvent = PointerEvent & { currentTarget: HTMLVideoElement }
 
 const VideoStream = (props: {
 	active: boolean
-	class: string
 	mirrored?: boolean
 	muted?: boolean
 	stream: MediaStream | null
@@ -154,16 +154,14 @@ const VideoStream = (props: {
 		video.srcObject = null
 	})
 
-	const hidden = () => props.stream == null || !props.active
-
 	return (
 		<video
 			ref={(element) => {
 				video = element
 			}}
-			class={`media-video ${props.class}`}
+			class="media-video"
 			classList={{
-				'is-hidden': hidden(),
+				'is-hidden': props.stream == null || !props.active,
 				'is-mirrored': props.mirrored === true,
 			}}
 			autoplay
@@ -210,7 +208,7 @@ const fileChipLabel = (file: SharedFile) => {
 }
 
 const fileProgress = (file: SharedFile) => {
-	if (file.state !== 'sending' && file.state !== 'receiving') return 100
+	if (!isFileTransferActive(file)) return 100
 	if (file.size <= 0) return 100
 
 	return Math.min(100, Math.round((file.transferredBytes / file.size) * 100))
@@ -220,11 +218,7 @@ const FileChip = (props: { file: SharedFile }) => {
 	const body = () => (
 		<>
 			<span>{fileChipLabel(props.file)}</span>
-			<Show
-				when={
-					props.file.state === 'sending' || props.file.state === 'receiving'
-				}
-			>
+			<Show when={isFileTransferActive(props.file)}>
 				<i
 					role="progressbar"
 					aria-label={`${props.file.name} transfer progress`}
@@ -298,12 +292,6 @@ const BlipComposer = (props: {
 	const [editing, setEditing] = createSignal(false)
 	const committed = createPulse(520)
 
-	const markCommitted = () => {
-		setDirty(false)
-		setEditing(false)
-		committed.trigger()
-	}
-
 	const send = () => {
 		if (!dirty()) {
 			setEditing(false)
@@ -311,7 +299,9 @@ const BlipComposer = (props: {
 		}
 
 		props.onSend()
-		markCommitted()
+		setDirty(false)
+		setEditing(false)
+		committed.trigger()
 	}
 
 	const submit = (event: SubmitEvent) => {
@@ -375,15 +365,13 @@ const BlipComposer = (props: {
 }
 export const PeerPortraitCard = (props: { peer: RoomPeer }) => {
 	const connection = () => props.peer.connection
-	const hasVideoTrack = () =>
-		connection()
-			?.mediaStream?.getVideoTracks()
-			.some((track) => track.readyState !== 'ended') === true
-	const videoActive = () =>
-		hasVideoTrack() &&
-		(connection()?.mediaPresence == null ||
-			connection()?.mediaPresence?.cameraEnabled === true ||
-			connection()?.mediaPresence?.screenEnabled === true)
+	const videoActive = () => {
+		const tracks = connection()?.mediaStream?.getVideoTracks() ?? []
+		if (!tracks.some((track) => track.readyState !== 'ended')) return false
+
+		const presence = connection()?.mediaPresence
+		return presence == null || presence.cameraEnabled || presence.screenEnabled
+	}
 
 	return (
 		<article
@@ -400,7 +388,6 @@ export const PeerPortraitCard = (props: { peer: RoomPeer }) => {
 			>
 				<VideoStream
 					active={videoActive()}
-					class="remote-video"
 					stream={connection()?.mediaStream ?? null}
 				/>
 				<div class="peer-activity-shell">
@@ -478,7 +465,6 @@ export const SelfPortraitCard = (props: {
 				<div class="portrait-face self-portrait-face">
 					<VideoStream
 						active={hasActiveSelfPreview(props.media)}
-						class="self-video"
 						mirrored={liveMedia()?.screen.status !== 'sharing'}
 						muted
 						stream={liveMedia()?.publishedStream ?? null}

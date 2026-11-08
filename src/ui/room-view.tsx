@@ -10,19 +10,6 @@ export type RoomViewProps = {
 	room: RoomController
 }
 
-const RELAY_BYTES_PER_GIGABYTE = 1_000_000_000
-
-const relayMinutesLeft = (secondsLeft: number) => {
-	return Math.ceil(Math.max(0, secondsLeft) / 60)
-}
-
-const relayGigabytesLeft = (bytesLeft: number) => {
-	const gigabytes = Math.max(0, bytesLeft) / RELAY_BYTES_PER_GIGABYTE
-	if (gigabytes >= 1) return gigabytes.toFixed(gigabytes % 1 === 0 ? 0 : 1)
-
-	return gigabytes.toFixed(1)
-}
-
 const RelayMeter = (props: {
 	label: string
 	max: number
@@ -43,8 +30,14 @@ const RelayMeter = (props: {
 }
 
 const RelayNoticeCard = (props: { metering: RelayMetering }) => {
-	const minutesLeft = () => relayMinutesLeft(props.metering.secondsLeft)
-	const gigabytesLeft = () => relayGigabytesLeft(props.metering.bytesLeft)
+	const minutesLeft = () =>
+		Math.ceil(Math.max(0, props.metering.secondsLeft) / 60)
+	const gigabytesLeft = () => {
+		const gigabytes = Math.max(0, props.metering.bytesLeft) / 1_000_000_000
+		if (gigabytes >= 1) return gigabytes.toFixed(gigabytes % 1 === 0 ? 0 : 1)
+
+		return gigabytes.toFixed(1)
+	}
 
 	return (
 		<aside

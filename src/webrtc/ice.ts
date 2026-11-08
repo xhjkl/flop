@@ -22,8 +22,8 @@ export const waitForIce = (
 		let timeoutId: ReturnType<typeof setTimeout> | null = null
 
 		const cleanup = () => {
-			pc.removeEventListener('icecandidate', handleCandidate)
-			pc.removeEventListener('icegatheringstatechange', handleChange)
+			pc.removeEventListener('icecandidate', maybeResolve)
+			pc.removeEventListener('icegatheringstatechange', maybeResolve)
 			pc.removeEventListener('signalingstatechange', handleSignalChange)
 			if (timeoutId != null) clearTimeout(timeoutId)
 		}
@@ -35,14 +35,6 @@ export const waitForIce = (
 			resolve()
 		}
 
-		const handleCandidate = () => {
-			maybeResolve()
-		}
-
-		const handleChange = () => {
-			maybeResolve()
-		}
-
 		const handleSignalChange = () => {
 			// Closed peers should not leave callers waiting for ICE that cannot arrive.
 			if (pc.signalingState !== 'closed') return
@@ -50,8 +42,8 @@ export const waitForIce = (
 			resolve()
 		}
 
-		pc.addEventListener('icecandidate', handleCandidate)
-		pc.addEventListener('icegatheringstatechange', handleChange)
+		pc.addEventListener('icecandidate', maybeResolve)
+		pc.addEventListener('icegatheringstatechange', maybeResolve)
 		pc.addEventListener('signalingstatechange', handleSignalChange)
 
 		if (timeoutMs != null) {

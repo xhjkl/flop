@@ -1,29 +1,21 @@
 const DAISY_RADIUS = 10
 
-const clampDaisyValue = (value: number, max: number) => {
-	if (max <= 0) return 0
-	return Math.max(0, Math.min(max, value))
-}
-
-const daisyTextSize = (text: string) => {
-	const characters = Math.max(1, [...text].length)
-	const rem = Math.max(0.4, Math.min(0.58, 1.35 / characters))
-	return `${rem.toFixed(3)}rem`
-}
-
-/** Circular value meter with the number kept legible at every fill level. */
+/** Render a circular meter with the number legible at every fill level. */
 export const Daisy = (props: {
 	ariaLabel: string
 	max: number
 	text: string
 	value: number
 }) => {
-	const value = () => clampDaisyValue(props.value, props.max)
 	const fill = () => {
 		if (props.max <= 0) return 0
-		return value() / props.max
+		return Math.max(0, Math.min(props.max, props.value)) / props.max
 	}
-	const textSize = () => daisyTextSize(props.text)
+	const textSize = () => {
+		const characters = Math.max(1, [...props.text].length)
+		const rem = Math.max(0.4, Math.min(0.58, 1.35 / characters))
+		return `${rem.toFixed(3)}rem`
+	}
 
 	return (
 		<svg

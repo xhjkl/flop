@@ -33,23 +33,22 @@
 	border: 0;
 	background: transparent;
 	padding: 0;
-	color: color-mix(in oklch, var(--ink) 46%, transparent);
+	color: color-mix(in oklch, var(--fg) 46%, transparent);
 	box-shadow: none;
-	text-decoration: none;
 	transition:
 		color var(--motion-tap),
 		transform var(--motion-fast);
 }
 
 .connection-mode-heading button[aria-pressed="true"] {
-	color: var(--fg-strong);
+	color: var(--fg);
 }
 
 .connection-mode-heading button:hover:not(:disabled),
 .connection-mode-heading button:focus-visible {
 	background: transparent;
 	box-shadow: none;
-	color: var(--fg-strong);
+	color: var(--fg);
 	transform: translateY(-1px);
 }
 
@@ -77,13 +76,7 @@
 	min-inline-size: 0;
 }
 
-.relay-notice-card :where(p),
-.connection-card :where(p) {
-	color: var(--fg);
-}
-
 .connection-card {
-	grid-template-rows: auto minmax(0, 1fr) auto;
 	gap: clamp(var(--space-touch), 1.6dvh, var(--space-card));
 }
 
@@ -107,10 +100,9 @@
 
 .connection-issue {
 	border: 1px solid var(--line-warn);
-	border-radius: var(--radius-control);
-	background: color-mix(in oklch, var(--warn) 18%, var(--paper));
+	border-radius: var(--radius);
+	background: color-mix(in oklch, var(--warn) 18%, var(--surface));
 	padding: var(--space-touch) var(--space-field);
-	color: color-mix(in oklch, var(--ink) 78%, var(--warn));
 }
 
 .connection-main {
@@ -122,20 +114,6 @@
 .connection-body.is-field {
 	grid-template-rows: auto;
 	overflow: visible;
-}
-
-.connection-mode-frame {
-	min-block-size: 0;
-	overflow: hidden;
-}
-
-.connection-mode-rail {
-	inline-size: 100%;
-	block-size: 100%;
-	min-block-size: 0;
-	display: grid;
-	grid-template-columns: minmax(0, 1fr);
-	grid-template-rows: minmax(0, 1fr);
 }
 
 .connection-mode-pane {
@@ -152,8 +130,8 @@
 	grid-template-rows: auto minmax(0, 1fr);
 	overflow: hidden;
 	border: 1px solid var(--line);
-	border-radius: var(--radius-card);
-	background: var(--surface-code);
+	border-radius: var(--radius);
+	background: var(--bg-deep);
 }
 
 .connection-copy-head {
@@ -180,21 +158,20 @@
 	color: var(--fg-inverse);
 	font-family: var(--font-code);
 	font-size: var(--text-caption);
-	line-height: var(--leading-copy);
 }
 
 .connection-copy-button {
 	flex: none;
 	padding: var(--space-label) var(--space-touch);
 	border-color: var(--line-inverse);
-	background-color: color-mix(in oklch, var(--chalk) 10%, transparent);
+	background-color: color-mix(in oklch, var(--fg-inverse) 10%, transparent);
 	color: var(--fg-inverse);
 	font-size: var(--text-caption);
 	transition:
 		background-color var(--motion-tap),
 		border-color var(--motion-tap),
 		color var(--motion-tap),
-		transform 160ms ease;
+		transform var(--motion-fast);
 }
 
 .connection-copy-button:hover:not(:disabled),
@@ -206,15 +183,7 @@
 			color-mix(in oklch, white 18%, transparent),
 			transparent 58%
 		),
-		color-mix(in oklch, var(--chalk) 16%, transparent);
-	color: var(--fg-inverse);
-}
-
-.connection-copy-button.is-copied {
-	background-color: var(--surface-pop);
-	color: var(--fg-inverse);
-	transform: scale(1.03);
-	animation: pulse-pop var(--motion-pop);
+		color-mix(in oklch, var(--fg-inverse) 16%, transparent);
 }
 
 @keyframes pulse-pop {
@@ -245,7 +214,6 @@
 	color: var(--fg-inverse);
 	font-family: var(--font-code);
 	font-size: var(--text-caption);
-	line-height: var(--leading-copy);
 }
 
 .connection-copy-body {
@@ -274,7 +242,7 @@
 }
 
 .connection-copy-qr-ink {
-	fill: var(--surface-code);
+	fill: var(--bg-deep);
 }
 
 .connection-copy-block.is-empty .connection-copy-value {
@@ -324,7 +292,7 @@
 .daisy {
 	inline-size: 2.75rem;
 	block-size: 2.75rem;
-	color: var(--fg-strong);
+	color: var(--fg);
 	overflow: visible;
 }
 
@@ -337,7 +305,7 @@
 }
 
 .daisy-track {
-	stroke: color-mix(in oklch, var(--ink) 18%, transparent);
+	stroke: color-mix(in oklch, var(--fg) 18%, transparent);
 }
 
 .daisy-segment {
@@ -352,7 +320,6 @@
 	font-family: var(--font-code);
 	font-size: var(--daisy-value-size, 0.58rem);
 	font-weight: 620;
-	letter-spacing: 0;
 	text-anchor: middle;
 	dominant-baseline: central;
 }

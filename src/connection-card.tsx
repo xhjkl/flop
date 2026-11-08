@@ -186,94 +186,90 @@ const HostInvitePane = (props: {
 	const inviteLinkReady = () => props.entry.inviteLinkPhase === 'ready'
 
 	return (
-		<div class="connection-mode-frame connection-body">
-			<div class="connection-mode-rail">
-				<Show
-					when={props.mode === 'link'}
-					fallback={
-						<div class="connection-mode-pane">
-							<div class="connection-copy">
-								<p>
-									Use this invite code if the link does not bring them in. Send
-									it, then paste their reply code here.
-								</p>
-								<Show when={props.entry.issue}>
-									{(issue) => (
-										<p class="connection-issue" role="status">
-											{entryIssueCopy[issue()]}
-										</p>
-									)}
-								</Show>
-							</div>
-							<div class="connection-main">
-								<ShareTextBlock
-									label="invite code"
-									value={props.entry.inviteCode}
-									placeholder="invite code is being created"
-									copyLabel="copy invite code"
-									shareLabel="share invite code"
-									qr
-								/>
-								<PasteLine
-									label="paste their reply code here to let them in"
-									value={props.entry.replyText}
-									placeholder="paste reply code"
-									disabled={busy()}
-									onChange={props.onSetReplyText}
-									onSubmit={props.onAcceptReplyCode}
-								/>
-							</div>
-							<Show when={props.canBecomeGuest}>
-								<div class="card-actions connection-side-switch connection-action">
-									<button type="button" onClick={props.onBecomeGuest}>
-										join someone else instead
-									</button>
-								</div>
-							</Show>
-						</div>
-					}
-				>
-					<div class="connection-mode-pane">
-						<div class="connection-copy">
-							<Show
-								when={inviteLinkReady()}
-								fallback={
-									<p>
-										Preparing an invite link. When it is ready, send it to
-										another device.
-									</p>
-								}
-							>
-								<p>
-									Send this invite link to another device. If it works, they
-									will appear here automatically.
-								</p>
-							</Show>
-							<Show when={props.entry.inviteLinkPhase === 'failed'}>
+		<Show
+			when={props.mode === 'link'}
+			fallback={
+				<div class="connection-mode-pane connection-body">
+					<div class="connection-copy">
+						<p>
+							Use this invite code if the link does not bring them in. Send it,
+							then paste their reply code here.
+						</p>
+						<Show when={props.entry.issue}>
+							{(issue) => (
 								<p class="connection-issue" role="status">
-									{hostInviteLinkFailureCopy}
+									{entryIssueCopy[issue()]}
 								</p>
-							</Show>
-						</div>
-						<div class="connection-main">
-							<ShareTextBlock
-								label="invite link"
-								value={inviteLinkReady() ? props.entry.inviteLink : ''}
-								placeholder={
-									props.entry.inviteLinkPhase === 'failed'
-										? 'invite link is unavailable'
-										: 'preparing invite link'
-								}
-								copyLabel={inviteLinkReady() ? 'copy link' : 'preparing'}
-								shareLabel="share link"
-								disabled={!inviteLinkReady()}
-								qr={inviteLinkReady()}
-							/>
-						</div>
+							)}
+						</Show>
 					</div>
-				</Show>
+					<div class="connection-main">
+						<ShareTextBlock
+							label="invite code"
+							value={props.entry.inviteCode}
+							placeholder="invite code is being created"
+							copyLabel="copy invite code"
+							shareLabel="share invite code"
+							qr
+						/>
+						<PasteLine
+							label="paste their reply code here to let them in"
+							value={props.entry.replyText}
+							placeholder="paste reply code"
+							disabled={busy()}
+							onChange={props.onSetReplyText}
+							onSubmit={props.onAcceptReplyCode}
+						/>
+					</div>
+					<Show when={props.canBecomeGuest}>
+						<div class="card-actions connection-side-switch connection-action">
+							<button type="button" onClick={props.onBecomeGuest}>
+								join someone else instead
+							</button>
+						</div>
+					</Show>
+				</div>
+			}
+		>
+			<div class="connection-mode-pane connection-body">
+				<div class="connection-copy">
+					<Show
+						when={inviteLinkReady()}
+						fallback={
+							<p>
+								Preparing an invite link. When it is ready, send it to another
+								device.
+							</p>
+						}
+					>
+						<p>
+							Send this invite link to another device. If it works, they will
+							appear here automatically.
+						</p>
+					</Show>
+					<Show when={props.entry.inviteLinkPhase === 'failed'}>
+						<p class="connection-issue" role="status">
+							{hostInviteLinkFailureCopy}
+						</p>
+					</Show>
+				</div>
+				<div class="connection-main">
+					<ShareTextBlock
+						label="invite link"
+						value={inviteLinkReady() ? props.entry.inviteLink : ''}
+						placeholder={
+							props.entry.inviteLinkPhase === 'failed'
+								? 'invite link is unavailable'
+								: 'preparing invite link'
+						}
+						copyLabel={inviteLinkReady() ? 'copy link' : 'preparing'}
+						shareLabel="share link"
+						disabled={!inviteLinkReady()}
+						qr={inviteLinkReady()}
+					/>
+				</div>
 			</div>
-		</div>
+		</Show>
 	)
 }
 
@@ -287,7 +283,6 @@ const GuestInvitePane = (props: {
 }) => {
 	const creating = () => props.entry.status === 'creating-reply'
 	const hasInviteField = () => props.entry.status !== 'discovering-host'
-	const canCreate = () => !creating() && props.entry.inviteText.trim() !== ''
 
 	return (
 		<>
@@ -306,7 +301,7 @@ const GuestInvitePane = (props: {
 						}}
 					>
 						<Show
-							when={props.entry.status !== 'discovering-host'}
+							when={hasInviteField()}
 							fallback={
 								<ShareTextBlock
 									label="invite link"
@@ -332,7 +327,7 @@ const GuestInvitePane = (props: {
 							<button
 								type="button"
 								onClick={() => props.onJoinInvite(props.entry.inviteText)}
-								disabled={!canCreate()}
+								disabled={creating() || props.entry.inviteText.trim() === ''}
 							>
 								{creating() ? 'creating reply code' : 'create reply code'}
 							</button>
@@ -440,14 +435,10 @@ export const ConnectionCard = (props: {
 }) => {
 	const hostInvite = () => (props.entry.side === 'host' ? props.entry : null)
 	const guestJoin = () => (props.entry.side === 'guest' ? props.entry : null)
-	const hostDiscovery = () => {
-		const entry = guestJoin()
-		return entry == null ? null : asHostDiscovery(entry)
-	}
-	const hostPresent = () => hostDiscovery()?.hostPresent === true
+	const hostDiscovery = () => asHostDiscovery(props.entry)
 	const hostReachable = () => {
-		const entry = guestJoin()
-		return entry?.issue == null && hostPresent()
+		const entry = hostDiscovery()
+		return entry?.issue == null && entry?.hostPresent === true
 	}
 	const relayFallbackEndsAt = () => {
 		const entry = hostDiscovery()
@@ -457,8 +448,6 @@ export const ConnectionCard = (props: {
 		return entry.relayFallbackEndsAt
 	}
 	const showRelayFallback = () => relayFallbackEndsAt() != null
-	const hasConnectionCopy = () =>
-		props.entry.side !== 'host' && !showRelayFallback()
 	const hasConnectionEntryLayout = () => {
 		const entry = guestJoin()
 		return (
@@ -508,7 +497,7 @@ export const ConnectionCard = (props: {
 						</Match>
 					</Switch>
 				</header>
-				<Show when={hasConnectionCopy()}>
+				<Show when={props.entry.side !== 'host' && !showRelayFallback()}>
 					<div class="connection-copy">
 						<Switch
 							fallback={

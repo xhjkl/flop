@@ -88,10 +88,8 @@ const rawDataModules = (version: number) => {
 const rawCodewords = (version: number) =>
 	Math.floor(rawDataModules(version) / 8)
 
-const tableIndex = (level: QrLevel) => QR_TABLE_INDEX[level]
-
 const dataCodewords = (version: number, level: QrLevel) => {
-	const row = tableIndex(level)
+	const row = QR_TABLE_INDEX[level]
 	return (
 		rawCodewords(version) -
 		QR_ECC_CODEWORDS[row][version] * QR_ERROR_BLOCKS[row][version]
@@ -191,7 +189,7 @@ const reedSolomonRemainder = (data: number[], divisor: number[]) => {
 
 const interleaveBlocks = (data: number[], version: number, level: QrLevel) => {
 	const blocks: number[][] = []
-	const row = tableIndex(level)
+	const row = QR_TABLE_INDEX[level]
 	const blockCount = QR_ERROR_BLOCKS[row][version]
 	const eccLength = QR_ECC_CODEWORDS[row][version]
 	const rawLength = rawCodewords(version)

@@ -25,7 +25,6 @@
 
 .self-card-copy p {
 	margin: 0;
-	color: var(--fg);
 }
 
 .self-card.is-live {
@@ -35,7 +34,7 @@
 }
 
 .self-card.is-setup .self-copy-shell {
-	inline-size: min(100%, var(--copy-inline));
+	inline-size: min(100%, 24rem);
 	justify-items: center;
 	text-align: center;
 }
@@ -45,7 +44,7 @@
 }
 
 .self-card.is-setup :is(.self-controls, .portrait-activity) {
-	inline-size: min(100%, var(--action-inline));
+	inline-size: min(100%, 18rem);
 }
 
 .self-card.is-warning {
@@ -72,7 +71,6 @@
 .self-live-shell {
 	display: grid;
 	gap: var(--space-touch);
-	justify-items: stretch;
 }
 
 .self-card.is-live .self-live-shell {
@@ -80,7 +78,6 @@
 	inset-block-end: var(--space-page);
 	inset-inline-end: var(--space-page);
 	inline-size: min(calc(100% - (var(--space-page) * 2)), var(--overlay-inline));
-	pointer-events: auto;
 }
 
 .self-controls {
@@ -148,7 +145,6 @@
 
 .self-toggle {
 	--toggle-track-inline: 2.5rem;
-	--toggle-track-block: 1.5rem;
 	--toggle-knob-size: 1.25rem;
 	--toggle-knob-inset: 0.125rem;
 	--toggle-knob-travel: calc(
@@ -178,7 +174,7 @@
 	place-items: center;
 	margin: auto;
 	font-family: system-ui, sans-serif;
-	font-size: var(--text-body);
+	font-size: 1rem;
 	line-height: 1;
 }
 
@@ -190,9 +186,9 @@
 .self-toggle-switch {
 	position: relative;
 	inline-size: var(--toggle-track-inline);
-	block-size: var(--toggle-track-block);
+	block-size: 1.5rem;
 	border-radius: var(--radius-pill);
-	background: color-mix(in oklch, var(--chalk) 16%, transparent);
+	background: color-mix(in oklch, var(--fg-inverse) 16%, transparent);
 	transition:
 		background-color var(--motion-tap),
 		box-shadow var(--motion-tap);
@@ -218,7 +214,7 @@
 
 .self-toggle[aria-pressed="true"] .self-toggle-knob {
 	transform: translateX(var(--toggle-knob-travel));
-	background: var(--ink);
+	background: var(--fg);
 }
 
 .peer-card.is-live {
@@ -242,10 +238,5 @@
 		overflow-x: hidden;
 		overflow-y: auto;
 		scroll-snap-type: y mandatory;
-	}
-
-	.portrait-card {
-		inline-size: 100%;
-		block-size: 100%;
 	}
 }

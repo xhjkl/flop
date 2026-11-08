@@ -10,7 +10,6 @@
 	background: var(--surface-glass);
 	padding: var(--space-touch) var(--space-field);
 	color: var(--fg-inverse);
-	line-height: var(--leading-tight);
 	box-shadow:
 		inset 0 1px 0 color-mix(in oklch, white 18%, transparent),
 		inset 0 -1px 0 color-mix(in oklch, black 26%, transparent),
@@ -25,7 +24,6 @@
 	align-items: center;
 	text-decoration: none;
 	font-size: var(--text-caption);
-	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
@@ -36,10 +34,6 @@
 	inset-inline-start: 0;
 	inline-size: var(--progress);
 	background: var(--surface-pop);
-}
-
-.file-chip span {
-	color: inherit;
 }
 
 .file-chip.is-error {
@@ -54,7 +48,6 @@
 	margin: 0;
 	text-align: center;
 	font-size: var(--text-small);
-	line-height: var(--leading-copy);
 	backdrop-filter: var(--glass-blur);
 	cursor: text;
 	transition:
@@ -88,8 +81,8 @@
 	gap: var(--space-touch);
 	inline-size: 100%;
 	min-block-size: var(--control-pill-block);
-	border: 1px solid color-mix(in oklch, var(--chalk) 38%, var(--room-loud));
-	border-radius: var(--radius-control);
+	border: 1px solid color-mix(in oklch, var(--fg-inverse) 38%, var(--room-loud));
+	border-radius: var(--radius);
 	background:
 		linear-gradient(
 			180deg,
@@ -101,17 +94,16 @@
 	color: var(--fg-inverse);
 	text-align: start;
 	font-size: var(--text-small);
-	line-height: var(--leading-copy);
 	backdrop-filter: var(--glass-blur);
 	box-shadow:
 		inset 0 1px 0 color-mix(in oklch, white 16%, transparent),
 		inset 0 -1px 0 color-mix(in oklch, black 30%, transparent),
-		0 2px 0 color-mix(in oklch, var(--ink) 42%, transparent);
+		0 2px 0 color-mix(in oklch, var(--fg) 42%, transparent);
 }
 
 .file-transfer-issue:hover,
 .file-transfer-issue:focus-visible {
-	border-color: color-mix(in oklch, var(--chalk) 62%, var(--room-loud));
+	border-color: color-mix(in oklch, var(--fg-inverse) 62%, var(--room-loud));
 	background:
 		linear-gradient(
 			180deg,
@@ -122,22 +114,21 @@
 	box-shadow:
 		inset 0 1px 0 color-mix(in oklch, white 22%, transparent),
 		inset 0 -1px 0 color-mix(in oklch, black 34%, transparent),
-		0 3px 0 color-mix(in oklch, var(--ink) 46%, transparent);
+		0 3px 0 color-mix(in oklch, var(--fg) 46%, transparent);
 }
 
 .file-transfer-issue-mark,
 .file-transfer-issue-dismiss {
 	display: inline-grid;
 	place-items: center;
-	flex: none;
 	inline-size: 1.25rem;
 	block-size: 1.25rem;
 	border-radius: 50%;
 }
 
 .file-transfer-issue-mark {
-	border: 1px solid color-mix(in oklch, var(--chalk) 34%, transparent);
-	color: var(--chalk);
+	border: 1px solid color-mix(in oklch, var(--fg-inverse) 34%, transparent);
+	color: var(--fg-inverse);
 	font-size: var(--text-caption);
 	font-style: italic;
 }
@@ -148,8 +139,8 @@
 }
 
 .file-transfer-issue-dismiss {
-	background: color-mix(in oklch, var(--chalk) 16%, transparent);
-	color: var(--chalk);
+	background: color-mix(in oklch, var(--fg-inverse) 16%, transparent);
+	color: var(--fg-inverse);
 	font-size: var(--text-small);
 	line-height: 1;
 }
@@ -159,7 +150,6 @@
 	max-block-size: 5rem;
 	min-inline-size: 0;
 	color: var(--muted-inverse);
-	resize: none;
 	text-align: center;
 	font-size: var(--text-caption);
 	overflow: auto;
@@ -168,7 +158,7 @@
 		background-color var(--motion-tap),
 		border-color var(--motion-tap),
 		color var(--motion-tap),
-		transform 160ms ease;
+		transform var(--motion-fast);
 }
 
 .blip-composer-input.is-editing {
@@ -177,6 +167,7 @@
 	color: var(--fg-inverse);
 }
 
+.connection-copy-button.is-copied,
 .blip-composer-input.is-committed {
 	background-color: var(--surface-pop);
 	color: var(--fg-inverse);
@@ -193,5 +184,4 @@
 	display: grid;
 	gap: var(--space-touch);
 	transform: translateX(-50%);
-	pointer-events: auto;
 }
