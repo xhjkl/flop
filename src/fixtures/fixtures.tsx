@@ -429,6 +429,29 @@ export const uiFixtures: UiFixture[] = [
 		}),
 	),
 	fixture(
+		'blip-overflow',
+		'Blip overflow',
+		room({
+			themeSeed: SAMPLE_INVITE_LINK,
+			selfMedia: liveSelfMedia(),
+			peers: [
+				fixturePeer(OLEG_ID, {
+					blip: 'Please keep the original photos and the full editing notes together so we can pick this up tomorrow without losing any of the details.',
+					connected: true,
+				}),
+				fixturePeer(NADIA_ID, {
+					blip: 'it fits on one line in a wider card',
+					connected: true,
+				}),
+				fixturePeer(HOST_ID, {
+					blip: 'First line of a longer note with enough detail to overflow the portrait.\nSecond line keeps its original line break when copied.\nhttps://flop.local/notes/abcdefghijklmnopqrstuvwxyz0123456789',
+					connected: true,
+				}),
+			],
+			entry: guestJoin({ status: 'connected' }),
+		}),
+	),
+	fixture(
 		'guest-connected-relay',
 		'Guest connected relay',
 		room({

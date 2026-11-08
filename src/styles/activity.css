@@ -45,6 +45,8 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	gap: var(--space-touch);
+	min-inline-size: 0;
 	margin: 0;
 	text-align: center;
 	font-size: var(--text-small);
@@ -54,6 +56,38 @@
 		border-color var(--motion-tap),
 		box-shadow var(--motion-tap),
 		transform var(--motion-fast);
+}
+
+.portrait-blip.is-truncated {
+	text-align: start;
+}
+
+.portrait-blip-text {
+	flex: 1;
+	min-inline-size: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.blip-copy-button {
+	flex: none;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	/* Extending the hit area into the pill padding without growing the row. */
+	margin: calc(-1 * var(--space-touch));
+	padding: var(--space-touch);
+	color: inherit;
+	font-size: var(--text-caption);
+	box-shadow: none;
+}
+
+.blip-copy-button:hover:not(:disabled),
+.blip-copy-button:focus-visible {
+	background: transparent;
+	box-shadow: none;
+	text-decoration: underline;
 }
 
 .portrait-blip:hover {

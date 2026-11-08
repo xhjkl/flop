@@ -3,6 +3,7 @@ import {
 	createSignal,
 	For,
 	type JSX,
+	on,
 	onCleanup,
 	Show,
 } from 'solid-js'
@@ -256,6 +257,76 @@ const FileChip = (props: { file: SharedFile }) => {
 	)
 }
 
+const PortraitBlip = (props: { text: string }) => {
+	let preview: HTMLSpanElement | null = null
+	const [truncated, setTruncated] = createSignal(false)
+	const copied = createPulse(1400)
+	const canCopy = typeof navigator.clipboard?.writeText === 'function'
+
+	createEffect(
+		on(
+			() => props.text,
+			() => {
+				copied.clear()
+				const text = preview
+				const pill = text?.parentElement
+				if (text == null || pill == null) return
+
+				const measure = () => {
+					const style = getComputedStyle(pill)
+					const width =
+						pill.clientWidth -
+						Number.parseFloat(style.paddingInlineStart) -
+						Number.parseFloat(style.paddingInlineEnd)
+					// Measuring the full pill; the copy button must not keep itself visible after a resize.
+					setTruncated(text.scrollWidth > width)
+				}
+
+				measure()
+				const observer = new ResizeObserver(measure)
+				observer.observe(pill)
+				onCleanup(() => observer.disconnect())
+			},
+		),
+	)
+
+	const copy = async () => {
+		const text = props.text
+		try {
+			await navigator.clipboard.writeText(text)
+			if (props.text !== text) return
+			copied.trigger()
+		} catch {}
+	}
+
+	return (
+		<p
+			class="portrait-blip glass-pill"
+			classList={{ 'is-truncated': truncated() }}
+		>
+			<span
+				class="portrait-blip-text"
+				ref={(element) => {
+					preview = element
+				}}
+			>
+				{props.text}
+			</span>
+			<Show when={truncated()}>
+				<button
+					type="button"
+					class="blip-copy-button"
+					aria-label={copied.active() ? 'blip copied' : 'copy blip'}
+					disabled={!canCopy}
+					onClick={() => void copy()}
+				>
+					{copied.active() ? 'copied' : 'copy'}
+				</button>
+			</Show>
+		</p>
+	)
+}
+
 const PortraitActivity = (props: {
 	blip: string | null
 	files: SharedFile[]
@@ -273,9 +344,7 @@ const PortraitActivity = (props: {
 						</Show>
 					)}
 				</For>
-				<Show when={blip()}>
-					{(text) => <p class="portrait-blip glass-pill">{text()}</p>}
-				</Show>
+				<Show when={blip()}>{(text) => <PortraitBlip text={text()} />}</Show>
 			</div>
 		</Show>
 	)
