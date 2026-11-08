@@ -415,9 +415,7 @@ const FilePickerButton = (props: { onSelect: (files: File[]) => void }) => {
 				aria-label="send files"
 				onClick={() => input?.click()}
 			>
-				<span class="self-file-picker-glyph" aria-hidden="true">
-					⬆︎
-				</span>
+				<span class="self-toggle-label">files</span>
 			</button>
 			<input
 				ref={(element) => {
