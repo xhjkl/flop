@@ -16,7 +16,7 @@
 		"test": "bun --conditions=browser test"
 	},
 	"dependencies": {
-		"solid-js": "1"
+		"solid-js": "2"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2",
