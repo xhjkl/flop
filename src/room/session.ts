@@ -1,5 +1,4 @@
-import { createSignal } from 'solid-js'
-import { createStore } from 'solid-js/store'
+import { createMemo, createSignal, createStore } from 'solid-js'
 import type { SignalExchangeId } from '../../contracts/signal'
 import { log } from '../log'
 import {
@@ -49,6 +48,44 @@ type ConnectionCallbacks = {
 	onOpen: (connection: RoomConnection) => void
 }
 
+/** Keep protocol and media reads synchronous while Solid batches their render updates. */
+const createRoomSnapshot = <T>(initial: T) => {
+	let current = { value: initial }
+	const [view, publish] = createSignal(current)
+	return {
+		get current() {
+			return current.value
+		},
+		read: () => view().value,
+		set: (value: T) => {
+			if (value === current.value) return
+			const snapshot = { value }
+			publish(snapshot)
+			current = snapshot
+		},
+	}
+}
+
+/** Stable participant view whose activity and transport can update independently. */
+const createPeerRecord = (id: ParticipantId) => {
+	const [blip, setBlip] = createSignal<string | null>(null)
+	const connection = createRoomSnapshot<RoomConnection | null>(null)
+	const files = createRoomSnapshot<SharedFile[]>([])
+	const view: RoomPeer = {
+		get blip() {
+			return blip()
+		},
+		get connection() {
+			return connection.read()?.view ?? null
+		},
+		get files() {
+			return files.read()
+		},
+		id,
+	}
+	return { connection, files, id, setBlip, view }
+}
+
 /** Room state with one owner for identity, self activity, peers, and connections. */
 export const createRoomSession = (
 	createRtc: (options: RtcPeerOptions) => RtcPeer = createRtcPeer,
@@ -57,41 +94,64 @@ export const createRoomSession = (
 	const admissions = new Set<RoomConnection>()
 	let connectionEvents: ConnectionCallbacks | null = null
 	let rendezvousAttempt: OwnedRendezvousAttempt | null = null
-	const [identity, setIdentity] = createSignal<RoomIdentity | null>({
+	let currentIdentity: RoomIdentity | null = {
 		hostId: initialSelfId,
 		selfId: initialSelfId,
-	})
-	const [peers, setPeers] = createSignal<RoomPeer[]>([])
-	// Native media tracks mutate in place, so every committed snapshot must notify consumers.
-	const [selfMedia, setSelfMedia] = createSignal<SelfMedia>(
-		{ status: 'idle' },
-		{ equals: false },
+	}
+	const identity = () => currentIdentity
+	const setIdentity = (value: RoomIdentity | null) => {
+		currentIdentity = value
+	}
+	const peers = createRoomSnapshot<ReturnType<typeof createPeerRecord>[]>([])
+	const peerViews: () => RoomPeer[] = createMemo(() =>
+		peers.read().map((peer) => peer.view),
 	)
+	const selfMedia = createRoomSnapshot<SelfMedia>({ status: 'idle' })
 	const [self, setSelf] = createStore<{
 		blip: string | null
 		blipDraft: string
 		fileTransferIssue: FileTransferIssue | null
 		files: SharedFile[]
-		readonly media: SelfMedia
 	}>({
 		blip: null,
 		blipDraft: '',
 		fileTransferIssue: null,
 		files: [],
-		get media() {
-			return selfMedia()
+	})
+	const selfView = {
+		get blip() {
+			return self.blip
 		},
-	})
-	const [state, setState] = createStore<{
-		entry: RoomEntryState
-		relayMetering: RelayMetering | null
+		get blipDraft() {
+			return self.blipDraft
+		},
+		get fileTransferIssue() {
+			return self.fileTransferIssue
+		},
+		get files() {
+			return self.files
+		},
+		get media() {
+			return selfMedia.read()
+		},
+	}
+	const entry = createRoomSnapshot<RoomEntryState>(initialHostEntry())
+	const [relayMetering, setRelayMetering] = createSignal<RelayMetering | null>(
+		null,
+	)
+	const [themeSeed, setThemeSeed] = createSignal<string>(initialSelfId)
+	const state = {
+		get entry() {
+			return entry.read()
+		},
+		get relayMetering() {
+			return relayMetering()
+		},
 		/** Last known host retained through identity gaps for color continuity. */
-		themeSeed: string
-	}>({
-		entry: initialHostEntry(),
-		relayMetering: null,
-		themeSeed: initialSelfId,
-	})
+		get themeSeed() {
+			return themeSeed()
+		},
+	}
 
 	const localRoomRole = (): LocalRoomRole | null => {
 		const current = identity()
@@ -99,42 +159,15 @@ export const createRoomSession = (
 		return current.selfId === current.hostId ? 'host' : 'guest'
 	}
 
-	/** Stable peer record whose reactive fields update without changing its reference. */
-	const createPeerRecord = (id: ParticipantId): RoomPeer => {
-		const [blip, setBlip] = createSignal<string | null>(null)
-		const [connection, setConnection] = createSignal<RoomConnection | null>(
-			null,
-		)
-		const [files, setFiles] = createSignal<SharedFile[]>([])
-		return {
-			get blip() {
-				return blip()
-			},
-			set blip(value) {
-				setBlip(value)
-			},
-			get connection() {
-				return connection()
-			},
-			set connection(value) {
-				setConnection(value)
-			},
-			get files() {
-				return files()
-			},
-			set files(value) {
-				setFiles(value)
-			},
-			id,
-		}
-	}
-
 	const peerById = (participantId: ParticipantId) => {
-		return peers().find((peer) => peer.id === participantId) ?? null
+		return peers.current.find((peer) => peer.id === participantId) ?? null
 	}
 
 	const peerByConnection = (connection: RoomConnection) => {
-		return peers().find((peer) => peer.connection === connection) ?? null
+		return (
+			peers.current.find((peer) => peer.connection.current === connection) ??
+			null
+		)
 	}
 
 	const events = () => {
@@ -145,24 +178,24 @@ export const createRoomSession = (
 	}
 
 	const peerConnections = () => {
-		return peers().flatMap((peer) =>
-			peer.connection == null ? [] : [peer.connection],
-		)
+		return peers.current.flatMap((peer) => peer.connection.current ?? [])
 	}
 
 	const allConnections = () => [...admissions, ...peerConnections()]
+	const connectionFor = (id: ParticipantId) =>
+		peerById(id)?.connection.current ?? null
 
 	const relay = createRoomRelay({
 		connections: allConnections,
 		onStatsError: (error, connection) => {
 			log('warn', 'room', 'relay.stats.failed', { error, connection })
 		},
-		setMetering: (metering) => setState('relayMetering', metering),
+		setMetering: setRelayMetering,
 	})
 
 	const createConnection = (origin: ConnectionOrigin) => {
 		let connection: RoomConnection
-		const [connected, setConnected] = createSignal(false)
+		const status = createRoomSnapshot<boolean>(false)
 		const [mediaPresence, setMediaPresence] =
 			createSignal<MediaPresence | null>(null)
 		// The stream object survives track churn, so same-reference writes still notify UI.
@@ -178,7 +211,7 @@ export const createRoomSession = (
 			onMessage: (text) => events().onMessage(connection, text),
 			onRemoteMedia: (stream) => {
 				if (!connectionIsCurrent(connection)) return
-				connection.mediaStream = stream
+				setMediaStream(stream)
 			},
 			onState: (snapshot) => {
 				if (!connectionIsCurrent(connection)) return
@@ -190,25 +223,26 @@ export const createRoomSession = (
 
 		connection = {
 			get connected() {
-				return connected()
+				return status.current
 			},
 			set connected(value) {
-				setConnected(value)
-			},
-			get mediaPresence() {
-				return mediaPresence()
-			},
-			set mediaPresence(value) {
-				setMediaPresence(value)
-			},
-			get mediaStream() {
-				return mediaStream()
-			},
-			set mediaStream(value) {
-				setMediaStream(value)
+				status.set(value)
 			},
 			origin,
 			rtc,
+			setMediaPresence,
+			setMediaStream,
+			view: {
+				get connected() {
+					return status.read()
+				},
+				get mediaPresence() {
+					return mediaPresence()
+				},
+				get mediaStream() {
+					return mediaStream()
+				},
+			},
 		}
 		// Anonymous rendezvous peers receive no camera or microphone before admission.
 		rtc.setLocalMedia(null)
@@ -225,12 +259,12 @@ export const createRoomSession = (
 		if (!admitted && peer == null) return
 
 		connection.connected = false
-		connection.mediaPresence = null
-		connection.mediaStream = null
+		connection.setMediaPresence(null)
+		connection.setMediaStream(null)
 		if (peer != null) {
 			// Partial incoming bytes cannot cross a data-channel replacement.
 			files.abortIncomingFrom(peer.id)
-			peer.connection = null
+			peer.connection.set(null)
 		}
 	}
 
@@ -303,14 +337,16 @@ export const createRoomSession = (
 
 		const peer = peerById(participantId)
 		if (peer == null) return false
-		if (peer.connection === connection) return true
+		const previous = peer.connection.current
+		if (previous === connection) return true
 
 		closeSiblingAdmissions(connection)
-		if (peer.connection != null) closeConnection(peer.connection)
+		if (previous != null) closeConnection(previous)
 		admissions.delete(connection)
-		peer.connection = connection
+		peer.connection.set(connection)
+		const media = selfMedia.current
 		connection.rtc.setLocalMedia(
-			self.media.status === 'live' ? self.media.publishedStream : null,
+			media.status === 'live' ? media.publishedStream : null,
 		)
 		return true
 	}
@@ -328,22 +364,27 @@ export const createRoomSession = (
 		}
 
 		const connection = createConnection({ exchangeId, kind: 'mesh' })
-		if (peer.connection != null) closeConnection(peer.connection)
-		peer.connection = connection
+		const previous = peer.connection.current
+		if (previous != null) closeConnection(previous)
+		peer.connection.set(connection)
+		const media = selfMedia.current
 		connection.rtc.setLocalMedia(
-			self.media.status === 'live' ? self.media.publishedStream : null,
+			media.status === 'live' ? media.publishedStream : null,
 		)
 		return connection
 	}
 
 	const addPeer = (participantId: ParticipantId) => {
 		if (peerById(participantId) != null) return
-		setPeers((current) => [...current, createPeerRecord(participantId)])
+		const peer = createPeerRecord(participantId)
+		peers.set([...peers.current, peer])
 	}
 
 	const roster = () => {
 		const selfId = identity()?.selfId
-		return selfId == null ? [] : [selfId, ...peers().map((peer) => peer.id)]
+		return selfId == null
+			? []
+			: [selfId, ...peers.current.map((peer) => peer.id)]
 	}
 
 	const allocateParticipantId = () => {
@@ -359,7 +400,7 @@ export const createRoomSession = (
 		const blip = text.trim()
 		const value = blip === '' ? null : blip
 		const peer = peerById(participantId)
-		if (peer != null) peer.blip = value
+		peer?.setBlip(value)
 	}
 
 	/** Revoke the browser URL owned by a completed incoming file. */
@@ -368,33 +409,36 @@ export const createRoomSession = (
 	}
 
 	const upsertFile = (participantId: ParticipantId, nextFile: SharedFile) => {
-		const upsert = (files: SharedFile[]) => {
-			const index = files.findIndex((file) => file.id === nextFile.id)
-			const previous = files[index] ?? null
-			if (
-				previous?.state === 'download' &&
-				(nextFile.state !== 'download' || previous.url !== nextFile.url)
-			) {
-				releaseDownload(previous)
-			}
-			return index === -1
-				? [...files, nextFile]
-				: files.map((file, itemIndex) =>
-						itemIndex === index ? nextFile : file,
-					)
-		}
 		if (participantId === identity()?.selfId) {
-			setSelf('files', upsert)
+			setSelf((draft) => {
+				const file = draft.files.find((file) => file.id === nextFile.id)
+				if (file == null) {
+					draft.files.push(nextFile)
+					return
+				}
+				Object.assign(file, nextFile)
+			})
 			return
 		}
 		const peer = peerById(participantId)
-		if (peer != null) peer.files = upsert(peer.files)
+		if (peer == null) return
+
+		const files = peer.files.current
+		const index = files.findIndex((file) => file.id === nextFile.id)
+		const previous = files[index] ?? null
+		if (
+			previous?.state === 'download' &&
+			(nextFile.state !== 'download' || previous.url !== nextFile.url)
+		) {
+			releaseDownload(previous)
+		}
+		const next = files.slice()
+		next[index === -1 ? next.length : index] = nextFile
+		peer.files.set(next)
 	}
 
 	const connectedPeerConnections = () => {
-		return peers().flatMap((peer) =>
-			peer.connection?.connected ? [peer.connection] : [],
-		)
+		return peerConnections().filter((connection) => connection.connected)
 	}
 
 	const sendPacket = (targets: RoomConnection[], packet: Packet) => {
@@ -407,7 +451,7 @@ export const createRoomSession = (
 	}
 
 	const sendToParticipant = (participantId: ParticipantId, packet: Packet) => {
-		const connection = peerById(participantId)?.connection ?? null
+		const connection = connectionFor(participantId)
 		return connection == null ? false : sendPacket([connection], packet) === 1
 	}
 
@@ -419,9 +463,9 @@ export const createRoomSession = (
 		participantId: ParticipantId,
 		presence: MediaPresence,
 	) => {
-		const connection = peerById(participantId)?.connection ?? null
+		const connection = connectionFor(participantId)
 		if (connection == null) return
-		connection.mediaPresence = presence
+		connection.setMediaPresence(presence)
 	}
 
 	const startRendezvous = (
@@ -489,20 +533,30 @@ export const createRoomSession = (
 	})
 
 	const sendBlip = () => {
-		const blip = self.blipDraft.trim()
-		if (blip === '' && self.blip == null) return
+		let text: string | null = null
+		setSelf((draft) => {
+			const blip = draft.blipDraft.trim()
+			if (blip === '' && draft.blip == null) return
 
-		// Commit before publishing so later connections replay the same value.
-		setSelf('blip', blip === '' ? null : blip)
-		sendPacket(connectedPeerConnections(), { type: 'blip', text: blip })
-		setSelf('blipDraft', blip)
+			draft.blip = blip === '' ? null : blip
+			draft.blipDraft = blip
+			text = blip
+		})
+		if (text == null) return
+		sendPacket(connectedPeerConnections(), { type: 'blip', text })
+	}
+
+	const setFileTransferIssue = (issue: FileTransferIssue | null) => {
+		setSelf((draft) => {
+			draft.fileTransferIssue = issue
+		})
 	}
 
 	const files = createRoomFileTransfers({
 		connections: connectedPeerConnections,
 		identity,
 		sendPacket,
-		setIssue: (issue) => setSelf('fileTransferIssue', issue),
+		setIssue: setFileTransferIssue,
 		upsertFile,
 	})
 
@@ -510,31 +564,30 @@ export const createRoomSession = (
 		const peer = peerById(participantId)
 		if (peer == null) return
 
-		for (const file of peer.files) releaseDownload(file)
-		if (peer.connection != null) closeConnection(peer.connection)
-		setPeers((current) => current.filter((item) => item.id !== participantId))
+		for (const file of peer.files.current) releaseDownload(file)
+		const connection = peer.connection.current
+		if (connection != null) closeConnection(connection)
+		peers.set(peers.current.filter((item) => item !== peer))
 	}
 
 	const replaceRoster = (nextRoster: Roster) => {
 		const selfId = identity()?.selfId ?? null
 		const remoteIds = nextRoster.filter((id) => id !== selfId)
 		const retained = new Set(remoteIds)
-		for (const peer of peers()) {
+		for (const peer of peers.current) {
 			if (retained.has(peer.id)) continue
 
-			for (const file of peer.files) releaseDownload(file)
-			if (peer.connection != null) closeConnection(peer.connection)
+			for (const file of peer.files.current) releaseDownload(file)
+			const connection = peer.connection.current
+			if (connection != null) closeConnection(connection)
 		}
-		setPeers((current) =>
-			remoteIds.map(
-				(id) => current.find((peer) => peer.id === id) ?? createPeerRecord(id),
-			),
-		)
+		const next = remoteIds.map((id) => peerById(id) ?? createPeerRecord(id))
+		peers.set(next)
 	}
 
 	const mesh = createRoomMesh({
 		closeConnection,
-		connectionFor: (id) => peerById(id)?.connection ?? null,
+		connectionFor,
 		createConnection: connectPeer,
 		identity,
 		roster,
@@ -552,8 +605,8 @@ export const createRoomSession = (
 				type: 'media-state',
 			})
 		},
-		selfMedia: () => self.media,
-		setSelfMedia,
+		selfMedia: () => selfMedia.current,
+		setSelfMedia: selfMedia.set,
 	})
 
 	const sendPortraitState = (connection: RoomConnection) => {
@@ -574,18 +627,16 @@ export const createRoomSession = (
 		setIdentity({ hostId: selfId, selfId })
 		replaceRoster([selfId])
 		// Room churn must not replace the live capture or restart its preview.
-		setSelf({
-			blip: null,
-			blipDraft: '',
-			fileTransferIssue: null,
-			files: [],
+		setSelf((draft) => {
+			draft.blip = null
+			draft.blipDraft = ''
+			draft.fileTransferIssue = null
+			draft.files = []
 		})
-		setState('themeSeed', selfId)
+		setThemeSeed(selfId)
 	}
 
 	const resetForJoining = (options: { preserveBlip?: boolean } = {}) => {
-		const blip = options.preserveBlip ? self.blip : null
-		const blipDraft = blip ?? ''
 		clearProjectedHostInvite()
 		mesh.reset()
 		relay.clear()
@@ -595,11 +646,11 @@ export const createRoomSession = (
 		setIdentity(null)
 		replaceRoster([])
 		// Preserve live capture while this same person enters another room.
-		setSelf({
-			blip,
-			blipDraft,
-			fileTransferIssue: null,
-			files: [],
+		setSelf((draft) => {
+			if (!options.preserveBlip) draft.blip = null
+			draft.blipDraft = draft.blip ?? ''
+			draft.fileTransferIssue = null
+			draft.files = []
 		})
 	}
 
@@ -613,7 +664,7 @@ export const createRoomSession = (
 		closeConnections()
 		replaceRoster([])
 		setIdentity(null)
-		setState('entry', { side: 'closed' })
+		entry.set({ side: 'closed' })
 	}
 
 	const dispose = () => {
@@ -655,8 +706,10 @@ export const createRoomSession = (
 	return {
 		auth,
 		closeRoom,
-		dismissFileTransferIssue: () => setSelf('fileTransferIssue', null),
+		currentEntry: () => entry.current,
+		dismissFileTransferIssue: () => setFileTransferIssue(null),
 		connections: {
+			all: allConnections,
 			admissions: () => [...admissions],
 			assign: assignConnection,
 			bind: (handlers: ConnectionCallbacks) => {
@@ -668,6 +721,7 @@ export const createRoomSession = (
 			close: closeConnection,
 			closeAdmissions,
 			createAdmission,
+			forPeer: connectionFor,
 			isCurrent: connectionIsCurrent,
 			openPeerConnections: connectedPeerConnections,
 			peerByConnection,
@@ -693,9 +747,8 @@ export const createRoomSession = (
 		},
 		peers: {
 			add: addPeer,
-			all: peers,
+			all: peerViews,
 			allocateId: allocateParticipantId,
-			byId: peerById,
 			remove: removePeer,
 			replaceRoster,
 		},
@@ -707,13 +760,18 @@ export const createRoomSession = (
 		roster,
 		localRoomRole,
 		sendBlip,
-		self,
-		setBlipDraft: (text: string) => setSelf('blipDraft', text),
+		self: selfView,
+		setBlipDraft: (text: string) => {
+			setSelf((draft) => {
+				draft.blipDraft = text
+			})
+		},
+		setEntry: entry.set,
 		setIdentity,
 		resetForHosting,
 		resetForJoining,
 		dispose,
-		setState,
+		setThemeSeed,
 		state,
 	}
 }

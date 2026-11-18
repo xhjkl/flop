@@ -1,4 +1,3 @@
-import { batch } from 'solid-js'
 import { log } from '../../log'
 import { decodeSignal, encodeSignal } from '../../manual-signal-codec'
 import type { Packet, Roster } from '../../protocol'
@@ -10,7 +9,11 @@ import type { RendezvousAttempt, RoomSession } from '../session'
 import type { BeaconFlow } from './beacon'
 import type { HostFlow } from './host'
 import { scheduleAdmissionTimeout } from './manual'
-import { asHostDiscovery, initialGuestEntry } from './state'
+import {
+	asHostDiscovery,
+	initialGuestEntry,
+	type RoomEntryState,
+} from './state'
 
 export const createGuestFlow = (
 	room: RoomSession,
@@ -41,9 +44,11 @@ export const createGuestFlow = (
 		promise: Promise<void>
 	} | null = null
 
-	const hostDiscoveryAttempt = () => {
+	const hostDiscoveryAttempt = (
+		entry = asHostDiscovery(room.currentEntry()),
+	) => {
 		const attempt = room.rendezvous.current
-		return asHostDiscovery(room.state.entry) != null &&
+		return entry != null &&
 			attempt?.localRole === 'guest' &&
 			attempt.secret != null
 			? attempt
@@ -53,7 +58,7 @@ export const createGuestFlow = (
 	const stillDiscoveringHost = (attempt: RendezvousAttempt) => {
 		return (
 			room.rendezvous.isCurrent(attempt) &&
-			asHostDiscovery(room.state.entry) != null
+			asHostDiscovery(room.currentEntry()) != null
 		)
 	}
 
@@ -61,13 +66,10 @@ export const createGuestFlow = (
 		connection: RoomConnection,
 		message: Extract<Packet, { type: 'welcome' }>,
 	) => {
-		let assigned = false
-		batch(() => {
-			// Assignment observes the new identity and its host peer from this roster.
-			room.setIdentity({ hostId: message.hostId, selfId: message.selfId })
-			room.peers.replaceRoster(message.roster)
-			assigned = room.connections.assign(connection, message.hostId)
-		})
+		// Assignment observes the new identity and its host peer from this roster.
+		room.setIdentity({ hostId: message.hostId, selfId: message.selfId })
+		room.peers.replaceRoster(message.roster)
+		const assigned = room.connections.assign(connection, message.hostId)
 		if (!assigned) {
 			log('error', 'room', 'guest.welcome.assign-host-connection.failed', {
 				connection,
@@ -79,9 +81,9 @@ export const createGuestFlow = (
 
 		// Assignment moves the host out of attempt-owned admissions before they close.
 		room.rendezvous.stop()
-		room.setState('themeSeed', message.hostId)
-		const entry = room.state.entry
-		room.setState('entry', {
+		room.setThemeSeed(message.hostId)
+		const entry = room.currentEntry()
+		room.setEntry({
 			side: 'guest',
 			inviteText: entry.side === 'guest' ? entry.inviteText : '',
 			issue: null,
@@ -122,7 +124,7 @@ export const createGuestFlow = (
 	const joinRoomWithInviteLink = (secret: RoomSecret) => {
 		room.resetForJoining({ preserveBlip: true })
 		const attempt = room.rendezvous.start('guest', secret)
-		room.setState('entry', {
+		room.setEntry({
 			...initialGuestEntry(),
 			hostPresent: null,
 			inviteText: inviteLinkFromSecret(secret),
@@ -148,9 +150,9 @@ export const createGuestFlow = (
 				room.relay.start(iceServers, () =>
 					room.closeRoom({ preserveRelayMetering: true }),
 				)
-				const entry = asHostDiscovery(room.state.entry)
+				const entry = asHostDiscovery(room.currentEntry())
 				if (entry == null) return
-				room.setState('entry', {
+				room.setEntry({
 					...entry,
 					issue: null,
 					relayFallbackEndsAt: null,
@@ -160,9 +162,9 @@ export const createGuestFlow = (
 				if (!stillDiscoveringHost(startingAttempt)) return
 				log('warn', 'room', 'relay.start.failed', { error })
 
-				const entry = asHostDiscovery(room.state.entry)
+				const entry = asHostDiscovery(room.currentEntry())
 				if (entry == null) return
-				room.setState('entry', {
+				room.setEntry({
 					...entry,
 					issue:
 						error instanceof RelayQuotaExceededError
@@ -179,19 +181,16 @@ export const createGuestFlow = (
 		return promise
 	}
 
-	const canClaimInviteAsHost = () => {
-		const entry = asHostDiscovery(room.state.entry)
-		return (
-			hostDiscoveryAttempt() != null &&
-			entry != null &&
-			entry.issue == null &&
-			entry.hostPresent === false
-		)
+	const claimableInvite = (entry: RoomEntryState) => {
+		const discovery = asHostDiscovery(entry)
+		if (discovery?.hostPresent !== false || discovery.issue != null) return null
+		return hostDiscoveryAttempt(discovery)?.secret ?? null
 	}
 
+	const canClaimInviteAsHost = () => claimableInvite(room.state.entry) != null
+
 	const claimInviteLinkAsHost = () => {
-		if (!canClaimInviteAsHost()) return
-		const secret = hostDiscoveryAttempt()?.secret ?? null
+		const secret = claimableInvite(room.currentEntry())
 		if (secret == null) return
 
 		void host.startRoom(secret)
@@ -199,7 +198,7 @@ export const createGuestFlow = (
 
 	const becomeGuest = () => {
 		room.resetForJoining()
-		room.setState('entry', initialGuestEntry())
+		room.setEntry(initialGuestEntry())
 	}
 
 	const watchReplyAdmission = (
@@ -213,17 +212,18 @@ export const createGuestFlow = (
 			isUnassigned: (candidate) =>
 				room.connections.isCurrent(candidate) &&
 				room.connections.peerByConnection(candidate) == null,
-			stillWaiting: () =>
-				room.state.entry.side === 'guest' &&
-				room.state.entry.status === 'reply-ready',
+			stillWaiting: () => {
+				const entry = room.currentEntry()
+				return entry.side === 'guest' && entry.status === 'reply-ready'
+			},
 			onTimeout: () => {
 				log('warn', 'room', 'manual.admission.waiting', {
 					connection,
 					nextStep: 'resend-reply-or-fresh-invite',
 				})
-				const entry = room.state.entry
+				const entry = room.currentEntry()
 				if (entry.side !== 'guest') return
-				room.setState('entry', {
+				room.setEntry({
 					...entry,
 					issue: 'reply-still-waiting',
 				})
@@ -242,7 +242,7 @@ export const createGuestFlow = (
 
 		room.resetForJoining({ preserveBlip: true })
 		const attempt = room.rendezvous.start('guest', null)
-		room.setState('entry', {
+		room.setEntry({
 			...initialGuestEntry(),
 			inviteText: inviteInput,
 			status: 'creating-reply',
@@ -268,7 +268,7 @@ export const createGuestFlow = (
 				return
 			}
 
-			room.setState('entry', {
+			room.setEntry({
 				...initialGuestEntry(),
 				inviteText: inviteInput,
 				replyCode,
@@ -280,7 +280,7 @@ export const createGuestFlow = (
 			if (connection != null) room.connections.close(connection)
 			if (!room.rendezvous.isCurrent(attempt)) return
 			room.rendezvous.stop()
-			room.setState('entry', {
+			room.setEntry({
 				...initialGuestEntry(),
 				inviteText: inviteInput,
 				issue: 'invite-invalid',

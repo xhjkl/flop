@@ -1,12 +1,5 @@
-import {
-	createEffect,
-	createSignal,
-	For,
-	type JSX,
-	on,
-	onCleanup,
-	Show,
-} from 'solid-js'
+import type { JSX } from '@solidjs/web'
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import { hueFromSeed, themeHueFromSeed } from './hue'
 import { type SelfMedia, selfMediaDeviceTrack } from './room/media'
 import {
@@ -136,18 +129,16 @@ const VideoStream = (props: {
 		event.currentTarget.style.removeProperty('object-position')
 	}
 
-	createEffect(() => {
-		const stream = props.stream ?? null
-		const element = video
-		if (element == null) return
+	createEffect(
+		() => ({ active: props.active, stream: props.stream }),
+		({ active, stream }) => {
+			const element = video
+			if (element == null) return
 
-		if (element.srcObject !== stream) {
-			element.srcObject = stream
-		}
-		if (stream != null && props.active) {
-			void element.play().catch(() => {})
-		}
-	})
+			if (element.srcObject !== stream) element.srcObject = stream
+			if (stream != null && active) void element.play().catch(() => {})
+		},
+	)
 
 	onCleanup(() => {
 		if (video == null) return
@@ -160,11 +151,13 @@ const VideoStream = (props: {
 			ref={(element) => {
 				video = element
 			}}
-			class="media-video"
-			classList={{
-				'is-hidden': props.stream == null || !props.active,
-				'is-mirrored': props.mirrored === true,
-			}}
+			class={[
+				'media-video',
+				{
+					'is-hidden': props.stream == null || !props.active,
+					'is-mirrored': props.mirrored === true,
+				},
+			]}
 			autoplay
 			muted={props.muted}
 			playsinline
@@ -237,8 +230,10 @@ const FileChip = (props: { file: SharedFile }) => {
 			when={props.file.state === 'download' ? props.file : null}
 			fallback={
 				<span
-					class="file-chip glass-pill"
-					classList={{ 'is-error': props.file.state === 'failed' }}
+					class={[
+						'file-chip glass-pill',
+						{ 'is-error': props.file.state === 'failed' },
+					]}
 				>
 					{body()}
 				</span>
@@ -264,30 +259,28 @@ const PortraitBlip = (props: { text: string }) => {
 	const canCopy = typeof navigator.clipboard?.writeText === 'function'
 
 	createEffect(
-		on(
-			() => props.text,
-			() => {
-				copied.clear()
-				const text = preview
-				const pill = text?.parentElement
-				if (text == null || pill == null) return
+		() => props.text,
+		() => {
+			copied.clear()
+			const text = preview
+			const pill = text?.parentElement
+			if (text == null || pill == null) return
 
-				const measure = () => {
-					const style = getComputedStyle(pill)
-					const width =
-						pill.clientWidth -
-						Number.parseFloat(style.paddingInlineStart) -
-						Number.parseFloat(style.paddingInlineEnd)
-					// Measuring the full pill; the copy button must not keep itself visible after a resize.
-					setTruncated(text.scrollWidth > width)
-				}
+			const measure = () => {
+				const style = getComputedStyle(pill)
+				const width =
+					pill.clientWidth -
+					Number.parseFloat(style.paddingInlineStart) -
+					Number.parseFloat(style.paddingInlineEnd)
+				// Measuring the full pill; the copy button must not keep itself visible after a resize.
+				setTruncated(text.scrollWidth > width)
+			}
 
-				measure()
-				const observer = new ResizeObserver(measure)
-				observer.observe(pill)
-				onCleanup(() => observer.disconnect())
-			},
-		),
+			measure()
+			const observer = new ResizeObserver(measure)
+			observer.observe(pill)
+			return () => observer.disconnect()
+		},
 	)
 
 	const copy = async () => {
@@ -300,10 +293,7 @@ const PortraitBlip = (props: { text: string }) => {
 	}
 
 	return (
-		<p
-			class="portrait-blip glass-pill"
-			classList={{ 'is-truncated': truncated() }}
-		>
+		<p class={['portrait-blip glass-pill', { 'is-truncated': truncated() }]}>
 			<span
 				class="portrait-blip-text"
 				ref={(element) => {
@@ -414,11 +404,10 @@ const BlipComposer = (props: {
 				enterkeyhint="done"
 				placeholder="tap to edit blip"
 				rows={1}
-				class="blip-composer-input glass-pill"
-				classList={{
-					'is-editing': editing(),
-					'is-committed': committed.active(),
-				}}
+				class={[
+					'blip-composer-input glass-pill',
+					{ 'is-editing': editing(), 'is-committed': committed.active() },
+				]}
 				onFocus={() => setEditing(true)}
 				onInput={(event) => {
 					setDirty(true)
@@ -444,15 +433,16 @@ export const PeerPortraitCard = (props: { peer: RoomPeer }) => {
 
 	return (
 		<article
-			class="portrait-card peer-card"
-			classList={{ 'is-live': connection()?.connected === true }}
+			class={[
+				'portrait-card peer-card',
+				{ 'is-live': connection()?.connected === true },
+			]}
 		>
 			<div
-				class="portrait-face peer-face"
-				classList={{
-					'has-video': videoActive(),
-					'is-empty': !videoActive(),
-				}}
+				class={[
+					'portrait-face peer-face',
+					{ 'has-video': videoActive(), 'is-empty': !videoActive() },
+				]}
 				style={{ '--card-h': `${hueFromSeed(props.peer.id)}` }}
 			>
 				<VideoStream
@@ -521,12 +511,14 @@ export const SelfPortraitCard = (props: {
 
 	return (
 		<article
-			class="portrait-card self-card"
-			classList={{
-				'is-live': props.media.status === 'live',
-				'is-setup': props.media.status !== 'live',
-				'is-warning': notice()?.warning === true,
-			}}
+			class={[
+				'portrait-card self-card',
+				{
+					'is-live': props.media.status === 'live',
+					'is-setup': props.media.status !== 'live',
+					'is-warning': notice()?.warning === true,
+				},
+			]}
 		>
 			<Show when={props.media.status === 'live'}>
 				<div class="portrait-face self-portrait-face">
@@ -539,7 +531,7 @@ export const SelfPortraitCard = (props: {
 				</div>
 			</Show>
 			<div
-				classList={{
+				class={{
 					'self-card-body': liveMedia() == null,
 					'self-live-shell': liveMedia() != null,
 				}}
@@ -629,7 +621,7 @@ const ToggleButton = (props: {
 			onClick={props.onPress}
 			disabled={props.disabled}
 			aria-label={props.accessibleName}
-			aria-pressed={props.enabled}
+			aria-pressed={props.enabled ? 'true' : 'false'}
 		>
 			<span class="self-toggle-label">{props.label}</span>
 			<span class="self-toggle-switch" aria-hidden="true">

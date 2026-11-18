@@ -32,7 +32,7 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 			return false
 		}
 
-		const connection = room.peers.byId(participantId)?.connection ?? null
+		const connection = room.connections.forPeer(participantId)
 		if (connection != null) {
 			room.packets.sendPortraitState(connection)
 		}
@@ -100,9 +100,9 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 			return null
 		}
 
-		const entry = room.state.entry
+		const entry = room.currentEntry()
 		if (entry.side === 'host') {
-			room.setState('entry', { ...entry, issue: null, replyText: '' })
+			room.setEntry({ ...entry, issue: null, replyText: '' })
 		}
 		log('info', 'room', 'host.admit', { connection, participantId })
 		return participantId
@@ -126,18 +126,18 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 					nextStep: 'fresh-signaling-or-network-change',
 				})
 				room.connections.close(connection)
-				const entry = room.state.entry
+				const entry = room.currentEntry()
 				if (entry.side === 'host') {
-					room.setState('entry', {
+					room.setEntry({
 						...entry,
 						issue: 'host-reply-failed',
 						manualPhase: 'waiting-for-reply',
 					})
 				}
 				void refreshManualInvite().then(() => {
-					const nextEntry = room.state.entry
+					const nextEntry = room.currentEntry()
 					if (nextEntry.side !== 'host') return
-					room.setState('entry', {
+					room.setEntry({
 						...nextEntry,
 						issue: 'host-reply-failed',
 					})
@@ -154,8 +154,8 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 		try {
 			const inviteLink = inviteLinkFromSecret(secret)
 			projectHostInvite(secret, inviteLink)
-			const currentEntry = room.state.entry
-			room.setState('entry', {
+			const currentEntry = room.currentEntry()
+			room.setEntry({
 				...initialHostEntry(),
 				inviteLink,
 				inviteLinkPhase:
@@ -177,8 +177,8 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 				return
 			}
 
-			const entry = room.state.entry
-			room.setState('entry', {
+			const entry = room.currentEntry()
+			room.setEntry({
 				...initialHostEntry(),
 				inviteCode: inviteCodeFromSignal(inviteSignal),
 				inviteLink,
@@ -190,8 +190,8 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 			log('warn', 'room', 'invite.create.failed', { error })
 			if (connection != null) room.connections.close(connection)
 			if (!room.rendezvous.isCurrent(attempt)) return
-			const entry = room.state.entry
-			room.setState('entry', {
+			const entry = room.currentEntry()
+			room.setEntry({
 				...(entry.side === 'host' ? entry : initialHostEntry()),
 				issue: 'invite-creation-failed',
 			})
@@ -262,9 +262,9 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 		}
 
 		try {
-			const entry = room.state.entry
+			const entry = room.currentEntry()
 			if (entry.side === 'host') {
-				room.setState('entry', {
+				room.setEntry({
 					...entry,
 					issue: null,
 					replyText: replyCode,
@@ -290,9 +290,9 @@ export const createHostFlow = (room: RoomSession, beacon: BeaconFlow) => {
 				nextStep: 'fresh-reply-or-network-change',
 			})
 			if (!room.rendezvous.isCurrent(attempt)) return
-			const entry = room.state.entry
+			const entry = room.currentEntry()
 			if (entry.side === 'host') {
-				room.setState('entry', {
+				room.setEntry({
 					...entry,
 					issue: 'host-reply-failed',
 					manualPhase: 'waiting-for-reply',

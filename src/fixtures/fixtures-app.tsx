@@ -22,9 +22,7 @@ const FixturesApp = () => {
 		() => uiFixtures.find((fixture) => fixture.id === fixtureId()) ?? null,
 	)
 
-	createEffect(() => {
-		writeFixtureId(fixtureId())
-	})
+	createEffect(fixtureId, writeFixtureId)
 
 	return (
 		<div class="fixture-shell">
@@ -35,7 +33,7 @@ const FixturesApp = () => {
 							<button
 								type="button"
 								onClick={() => setFixtureId(fixture.id)}
-								classList={{ active: fixture.id === fixtureId() }}
+								class={{ active: fixture.id === fixtureId() }}
 							>
 								{fixture.title}
 							</button>

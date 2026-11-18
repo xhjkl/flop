@@ -26,23 +26,7 @@ const BEACON_CANDIDATE_TTL_MS = 45_000
 /** Invite-link discovery and pre-membership candidates authenticated by its secret. */
 export const createBeaconFlow = (room: RoomSession) => {
 	const candidateTimeouts = new WeakMap<RoomConnection, () => void>()
-	const hostDiscovery = () => asHostDiscovery(room.state.entry)
-	const setGuestRelayFallbackEndsAt = (endsAt: number | null) => {
-		const entry = hostDiscovery()
-		if (entry == null) return
-		room.setState('entry', {
-			...entry,
-			relayFallbackEndsAt: endsAt,
-		})
-	}
-
-	// The deadline is armed once per sighting of the host; the UI counts down to it.
-	const startRelayFallback = () => {
-		if (room.relay.active()) return
-		if (hostDiscovery()?.relayFallbackEndsAt != null) return
-
-		setGuestRelayFallbackEndsAt(Date.now() + RELAY_FALLBACK_WAIT_SECONDS * 1000)
-	}
+	const hostDiscovery = () => asHostDiscovery(room.currentEntry())
 
 	const candidates = (role: LocalRoomRole) => {
 		return room.connections.admissions().filter((connection) => {
@@ -57,11 +41,8 @@ export const createBeaconFlow = (room: RoomSession) => {
 		peerId: BeaconPeerId,
 		except: RoomConnection | null = null,
 	) => {
-		const assigned = room.peers
-			.all()
-			.flatMap((peer) => (peer.connection == null ? [] : [peer.connection]))
 		return (
-			[...room.connections.admissions(), ...assigned].find((connection) => {
+			room.connections.all().find((connection) => {
 				return (
 					connection !== except &&
 					isBeaconConnection(connection) &&
@@ -125,9 +106,9 @@ export const createBeaconFlow = (room: RoomSession) => {
 	}
 
 	const setHostLinkPhase = (status: BeaconSocketStatus) => {
-		const entry = room.state.entry
+		const entry = room.currentEntry()
 		if (entry.side !== 'host') return
-		room.setState('entry', {
+		room.setEntry({
 			...entry,
 			inviteLinkPhase:
 				status === 'ready'
@@ -143,13 +124,18 @@ export const createBeaconFlow = (room: RoomSession) => {
 		if (entry == null) return
 
 		const hostPresent = peers.some((peer) => peer.role === 'host')
-		room.setState('entry', {
+		let relayFallbackEndsAt = hostPresent ? entry.relayFallbackEndsAt : null
+		// The deadline is armed once per sighting of the host.
+		if (hostPresent && !room.relay.active() && relayFallbackEndsAt == null) {
+			const now = Date.now()
+			relayFallbackEndsAt = now + RELAY_FALLBACK_WAIT_SECONDS * 1000
+		}
+		room.setEntry({
 			...entry,
 			hostPresent,
 			issue: null,
+			relayFallbackEndsAt,
 		})
-		if (hostPresent) startRelayFallback()
-		else setGuestRelayFallbackEndsAt(null)
 	}
 
 	const createOffer = async (
@@ -270,7 +256,7 @@ export const createBeaconFlow = (room: RoomSession) => {
 				if (status !== 'failed') return
 				const entry = hostDiscovery()
 				if (entry == null) return
-				room.setState('entry', {
+				room.setEntry({
 					...entry,
 					issue: 'discovery-unreachable',
 				})
@@ -310,7 +296,7 @@ export const createBeaconFlow = (room: RoomSession) => {
 			else {
 				const entry = hostDiscovery()
 				if (entry != null) {
-					room.setState('entry', {
+					room.setEntry({
 						...entry,
 						issue: 'discovery-unreachable',
 					})

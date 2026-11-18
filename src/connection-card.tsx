@@ -78,7 +78,7 @@ const ShareTextBlock = (props: {
 	}
 
 	return (
-		<div class="connection-copy-block" classList={{ 'is-empty': empty() }}>
+		<div class={['connection-copy-block', { 'is-empty': empty() }]}>
 			<div class="connection-copy-head">
 				<Show when={qr()} fallback={<span>{props.label}</span>}>
 					<pre class="connection-copy-inline-value scrollbarless">
@@ -87,14 +87,13 @@ const ShareTextBlock = (props: {
 				</Show>
 				<button
 					type="button"
-					class="connection-copy-button"
+					class={['connection-copy-button', { 'is-copied': copied.active() }]}
 					onClick={() => void press()}
 					disabled={
 						empty() ||
 						(props.disabled ?? false) ||
 						(!useShareSheet() && !canCopy())
 					}
-					classList={{ 'is-copied': copied.active() }}
 				>
 					{actionLabel()}
 				</button>
@@ -295,10 +294,10 @@ const GuestInvitePane = (props: {
 					}
 				>
 					<div
-						class="connection-main connection-body"
-						classList={{
-							'is-field': hasInviteField(),
-						}}
+						class={[
+							'connection-main connection-body',
+							{ 'is-field': hasInviteField() },
+						]}
 					>
 						<Show
 							when={hasInviteField()}
@@ -459,8 +458,10 @@ export const ConnectionCard = (props: {
 
 	return (
 		<article
-			class="portrait-card utility-card connection-card"
-			classList={{ 'is-entry': hasConnectionEntryLayout() }}
+			class={[
+				'portrait-card utility-card connection-card',
+				{ 'is-entry': hasConnectionEntryLayout() },
+			]}
 		>
 			<div class="connection-top">
 				<header class="utility-header">

@@ -1,12 +1,12 @@
-import { createEffect, createSignal, onCleanup } from 'solid-js'
+import { createEffect, createSignal, untrack } from 'solid-js'
 
 /** Milliseconds left until a `Date.now()` deadline, refreshed every frame until it passes. */
 export const createCountdown = (endsAt: () => number) => {
 	const msLeftAt = (deadline: number) => Math.max(0, deadline - Date.now())
-	const [msLeft, setMsLeft] = createSignal(msLeftAt(endsAt()))
+	const initialDeadline = untrack(endsAt)
+	const [msLeft, setMsLeft] = createSignal(msLeftAt(initialDeadline))
 
-	createEffect(() => {
-		const deadline = endsAt()
+	createEffect(endsAt, (deadline) => {
 		let frame: number | null = null
 		const tick = () => {
 			const left = msLeftAt(deadline)
@@ -15,9 +15,9 @@ export const createCountdown = (endsAt: () => number) => {
 		}
 
 		tick()
-		onCleanup(() => {
+		return () => {
 			if (frame != null) cancelAnimationFrame(frame)
-		})
+		}
 	})
 
 	return msLeft

@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createMemo, createRoot, mapArray, onCleanup } from 'solid-js'
+import { createMemo, createRoot, flush, mapArray, onCleanup } from 'solid-js'
 import {
 	type OfferDescription,
 	parseSignalExchangeId,
 } from '../contracts/signal'
 import { encodePacket, parseParticipantId } from '../src/protocol'
-import type { GuestFlow } from '../src/room/entry/guest'
+import { randomRoomSecret } from '../src/rendezvous/secret'
+import { createBeaconFlow } from '../src/room/entry/beacon'
+import { createGuestFlow, type GuestFlow } from '../src/room/entry/guest'
 import type { HostFlow } from '../src/room/entry/host'
+import type { GuestJoinState } from '../src/room/entry/state'
 import { createRoomLinkEvents } from '../src/room/link-events'
 import { selfMediaDeviceTrack } from '../src/room/media'
 import { createRoomSession } from '../src/room/session'
@@ -146,83 +149,121 @@ const guestFlow = (onMessage: () => void = () => {}): GuestFlow => ({
 })
 
 test('starting a host room releases the old room and local activity', () => {
-	createRoot((dispose) => {
-		const rtc = fakeRtcHarness()
-		const room = createRoomSession(rtc.create)
-		const peerId = participantId('0000000000000002')
+	const rtc = fakeRtcHarness()
+	const { dispose, room } = createRoot((dispose) => ({
+		dispose,
+		room: createRoomSession(rtc.create),
+	}))
+	const peerId = participantId('0000000000000002')
 
-		try {
-			room.setBlipDraft('carry this forward')
-			room.sendBlip()
-			room.peers.add(peerId)
-			const assigned = room.connections.createAdmission({
-				kind: 'manual',
-				localRole: 'host',
-			})
-			assert.equal(room.connections.assign(assigned, peerId), true)
+	try {
+		room.setBlipDraft('carry this forward')
+		room.sendBlip()
+		room.peers.add(peerId)
+		const assigned = room.connections.createAdmission({
+			kind: 'manual',
+			localRole: 'host',
+		})
+		assert.equal(room.connections.assign(assigned, peerId), true)
 
-			const attempt = room.rendezvous.start('host', null)
-			const admission = room.connections.createAdmission({
-				kind: 'manual',
-				localRole: 'host',
-			})
-			room.resetForHosting()
+		const attempt = room.rendezvous.start('host', null)
+		const admission = room.connections.createAdmission({
+			kind: 'manual',
+			localRole: 'host',
+		})
+		room.resetForHosting()
+		flush()
 
-			assert.equal(attempt.signal.aborted, true)
-			assert.deepEqual(room.peers.all(), [])
-			assert.equal(room.self.blip, null)
-			assert.equal(room.self.files.length, 0)
-			assert.equal(rtc.closed.includes(admission.rtc), true)
-			assert.equal(rtc.closed.includes(assigned.rtc), true)
-			const identity = room.identity()
-			assert.ok(identity != null)
-			assert.equal(identity.selfId, identity.hostId)
-		} finally {
-			room.dispose()
-			dispose()
-		}
-	})
+		assert.equal(attempt.signal.aborted, true)
+		assert.deepEqual(room.peers.all(), [])
+		assert.equal(room.self.blip, null)
+		assert.equal(room.self.files.length, 0)
+		assert.equal(rtc.closed.includes(admission.rtc), true)
+		assert.equal(rtc.closed.includes(assigned.rtc), true)
+		const identity = room.identity()
+		assert.ok(identity != null)
+		assert.equal(identity.selfId, identity.hostId)
+	} finally {
+		room.dispose()
+		dispose()
+	}
 })
 
 test('joining another room preserves the visible committed blip', () => {
-	createRoot((dispose) => {
-		const room = createRoomSession(fakeRtcHarness().create)
-		try {
-			room.setBlipDraft('still me')
-			room.sendBlip()
+	const { dispose, room } = createRoot((dispose) => ({
+		dispose,
+		room: createRoomSession(fakeRtcHarness().create),
+	}))
 
-			room.resetForJoining({ preserveBlip: true })
+	try {
+		room.setBlipDraft('still me')
+		room.sendBlip()
 
-			assert.equal(room.self.blip, 'still me')
-			assert.equal(room.self.blipDraft, 'still me')
-		} finally {
-			room.dispose()
-			dispose()
-		}
-	})
+		room.resetForJoining({ preserveBlip: true })
+		flush()
+
+		assert.equal(room.self.blip, 'still me')
+		assert.equal(room.self.blipDraft, 'still me')
+	} finally {
+		room.dispose()
+		dispose()
+	}
 })
 
 test('closing a room clears its identity and roster', () => {
-	createRoot((dispose) => {
+	const { dispose, room } = createRoot((dispose) => ({
+		dispose,
+		room: createRoomSession(fakeRtcHarness().create),
+	}))
+	const peerId = participantId('0000000000000002')
+
+	try {
+		room.peers.add(peerId)
+		assert.equal(room.localRoomRole(), 'host')
+		assert.deepEqual(room.roster(), [room.identity()?.selfId, peerId])
+
+		room.closeRoom()
+		flush()
+
+		assert.equal(room.identity(), null)
+		assert.equal(room.localRoomRole(), null)
+		assert.deepEqual(room.roster(), [])
+		assert.deepEqual(room.peers.all(), [])
+	} finally {
+		room.dispose()
+		dispose()
+	}
+})
+
+test('guest host claim reacts to changes in beacon membership', () => {
+	const { canClaim, dispose, room } = createRoot((dispose) => {
 		const room = createRoomSession(fakeRtcHarness().create)
-		const peerId = participantId('0000000000000002')
-
-		try {
-			room.peers.add(peerId)
-			assert.equal(room.localRoomRole(), 'host')
-			assert.deepEqual(room.roster(), [room.identity()?.selfId, peerId])
-
-			room.closeRoom()
-
-			assert.equal(room.identity(), null)
-			assert.equal(room.localRoomRole(), null)
-			assert.deepEqual(room.roster(), [])
-			assert.deepEqual(room.peers.all(), [])
-		} finally {
-			room.dispose()
-			dispose()
-		}
+		const guest = createGuestFlow(room, createBeaconFlow(room), hostFlow())
+		const canClaim = createMemo(guest.canClaimInviteAsHost)
+		return { canClaim, dispose, room }
 	})
+	try {
+		const secret = randomRoomSecret()
+		room.rendezvous.start('guest', secret)
+		const discovery: GuestJoinState = {
+			hostPresent: true,
+			inviteText: '',
+			issue: null,
+			relayFallbackEndsAt: null,
+			side: 'guest',
+			status: 'discovering-host',
+		}
+		room.setEntry(discovery)
+		flush()
+		assert.equal(canClaim(), false)
+
+		room.setEntry({ ...discovery, hostPresent: false })
+		flush()
+		assert.equal(canClaim(), true)
+	} finally {
+		room.dispose()
+		dispose()
+	}
 })
 
 test('an admission receives local media only after participant assignment', async () => {
@@ -237,6 +278,7 @@ test('an admission receives local media only after participant assignment', asyn
 
 		try {
 			await room.media.enable()
+			flush()
 			assert.equal(room.self.media.status, 'live')
 			if (room.self.media.status !== 'live') return
 			const publishedStream = room.self.media.publishedStream
@@ -255,6 +297,7 @@ test('an admission receives local media only after participant assignment', asyn
 			])
 
 			camera.end()
+			flush()
 			assert.equal(room.self.media.status, 'interrupted')
 			assert.deepEqual(rtc.localMedia.get(admission.rtc), [
 				null,
@@ -289,21 +332,26 @@ test('camera and microphone toggles update reactive media state', async () => {
 
 		try {
 			await observed.room.media.enable()
+			flush()
 			assert.equal(observed.cameraEnabled(), true)
 			assert.equal(observed.microphoneEnabled(), true)
 
 			observed.room.media.toggleCamera()
+			flush()
 			assert.equal(observed.cameraEnabled(), false)
 			assert.equal(observed.microphoneEnabled(), true)
 
 			observed.room.media.toggleMicrophone()
+			flush()
 			assert.equal(observed.microphoneEnabled(), false)
 
 			observed.room.media.toggleCamera()
+			flush()
 			assert.equal(observed.cameraEnabled(), true)
 			assert.equal(observed.microphoneEnabled(), false)
 
 			observed.room.media.toggleMicrophone()
+			flush()
 			assert.equal(observed.microphoneEnabled(), true)
 		} finally {
 			observed.room.dispose()
@@ -313,88 +361,95 @@ test('camera and microphone toggles update reactive media state', async () => {
 })
 
 test('admissions and connection replacement keep peer rows mounted', () => {
-	createRoot((dispose) => {
-		try {
-			const rtc = fakeRtcHarness()
-			const room = createRoomSession(rtc.create)
-			const guestId = participantId('0000000000000002')
-			room.peers.add(guestId)
-
-			let mounts = 0
-			let cleanups = 0
-			const renderedPeerIds = mapArray(room.peers.all, (peer) => {
-				mounts++
-				onCleanup(() => cleanups++)
-				return peer.id
-			})
-			assert.deepEqual(renderedPeerIds(), [guestId])
-			const peerRow = room.peers.byId(guestId)
-			const selfId = room.identity()?.selfId
-			assert.ok(peerRow != null)
-			assert.ok(selfId != null)
-			room.peers.replaceRoster([selfId, guestId])
-			assert.strictEqual(room.peers.byId(guestId), peerRow)
-			assert.deepEqual({ cleanups, mounts }, { cleanups: 0, mounts: 1 })
-
-			const admission = room.connections.createAdmission({
-				kind: 'manual',
-				localRole: 'guest',
-			})
-			assert.deepEqual(
-				room.peers.all().map((peer) => peer.id),
-				[guestId],
-			)
-			room.connections.close(admission)
-			assert.deepEqual(
-				room.peers.all().map((peer) => peer.id),
-				[guestId],
-			)
-
-			const first = room.connections.createAdmission({
-				kind: 'manual',
-				localRole: 'host',
-			})
-			assert.equal(room.connections.assign(first, guestId), true)
-			first.connected = true
-			assert.equal(
-				room.packets.handleActivity(guestId, {
-					id: 'interrupted-transfer',
-					mime: 'text/plain',
-					name: 'partial.txt',
-					size: 10,
-					type: 'file-start',
-				}),
-				true,
-			)
-			assert.equal(room.peers.byId(guestId)?.files[0]?.state, 'receiving')
-
-			const replacement = room.connections.createAdmission({
-				kind: 'manual',
-				localRole: 'host',
-			})
-			assert.equal(room.connections.assign(replacement, guestId), true)
-			assert.equal(room.peers.byId(guestId)?.files[0]?.state, 'failed')
-			assert.equal(rtc.closed.filter((peer) => peer === first.rtc).length, 1)
-			assert.strictEqual(room.peers.byId(guestId)?.connection, replacement)
-
-			let restarts = 0
-			const events = createRoomLinkEvents(
-				room,
-				hostFlow({ onRestart: () => restarts++ }),
-				guestFlow(),
-			)
-			events.onClose(first)
-			assert.equal(restarts, 0)
-			assert.strictEqual(room.peers.byId(guestId)?.connection, replacement)
-			assert.deepEqual({ cleanups, mounts }, { cleanups: 0, mounts: 1 })
-
-			room.peers.remove(guestId)
-			assert.deepEqual(renderedPeerIds(), [])
-			assert.deepEqual({ cleanups, mounts }, { cleanups: 1, mounts: 1 })
-		} finally {
-			dispose()
-		}
+	const rtc = fakeRtcHarness()
+	const guestId = participantId('0000000000000002')
+	let mounts = 0
+	let cleanups = 0
+	const { dispose, room, renderedPeerIds } = createRoot((dispose) => {
+		const room = createRoomSession(rtc.create)
+		const renderedPeerIds = mapArray(room.peers.all, (peer) => {
+			mounts++
+			onCleanup(() => cleanups++)
+			return peer.id
+		})
+		return { dispose, room, renderedPeerIds }
 	})
+
+	try {
+		room.peers.add(guestId)
+		flush()
+		assert.deepEqual(renderedPeerIds(), [guestId])
+		const [peerRow] = room.peers.all()
+		const selfId = room.identity()?.selfId
+		assert.ok(peerRow != null)
+		assert.ok(selfId != null)
+		room.peers.replaceRoster([selfId, guestId])
+		flush()
+		assert.strictEqual(room.peers.all()[0], peerRow)
+		assert.deepEqual({ cleanups, mounts }, { cleanups: 0, mounts: 1 })
+
+		const admission = room.connections.createAdmission({
+			kind: 'manual',
+			localRole: 'guest',
+		})
+		assert.deepEqual(
+			room.peers.all().map((peer) => peer.id),
+			[guestId],
+		)
+		room.connections.close(admission)
+		assert.deepEqual(
+			room.peers.all().map((peer) => peer.id),
+			[guestId],
+		)
+
+		const first = room.connections.createAdmission({
+			kind: 'manual',
+			localRole: 'host',
+		})
+		assert.equal(room.connections.assign(first, guestId), true)
+		first.connected = true
+		assert.equal(
+			room.packets.handleActivity(guestId, {
+				id: 'interrupted-transfer',
+				mime: 'text/plain',
+				name: 'partial.txt',
+				size: 10,
+				type: 'file-start',
+			}),
+			true,
+		)
+		flush()
+		assert.equal(peerRow.files[0]?.state, 'receiving')
+
+		const replacement = room.connections.createAdmission({
+			kind: 'manual',
+			localRole: 'host',
+		})
+		assert.equal(room.connections.assign(replacement, guestId), true)
+		flush()
+		assert.equal(peerRow.files[0]?.state, 'failed')
+		assert.equal(rtc.closed.filter((peer) => peer === first.rtc).length, 1)
+		assert.strictEqual(peerRow.connection, replacement.view)
+
+		let restarts = 0
+		const events = createRoomLinkEvents(
+			room,
+			hostFlow({ onRestart: () => restarts++ }),
+			guestFlow(),
+		)
+		events.onClose(first)
+		assert.equal(restarts, 0)
+		assert.strictEqual(room.connections.forPeer(guestId), replacement)
+		assert.deepEqual({ cleanups, mounts }, { cleanups: 0, mounts: 1 })
+
+		room.peers.remove(guestId)
+		flush()
+		assert.deepEqual(renderedPeerIds(), [])
+		assert.deepEqual({ cleanups, mounts }, { cleanups: 1, mounts: 1 })
+	} finally {
+		room.dispose()
+		dispose()
+	}
 })
 
 test('stale file work cannot update a successor with the same participant id', async () => {
@@ -424,6 +479,7 @@ test('stale file work cannot update a successor with the same participant id', a
 		connection.connected = true
 
 		const sending = room.files.sendFiles([file])
+		flush()
 		assert.equal(room.self.files[0]?.state, 'sending')
 		room.resetForHosting()
 		room.setIdentity({
@@ -473,6 +529,7 @@ test('stale file batches cannot start their next file in a successor room', asyn
 			file('already-sent.txt', 0),
 			file('must-not-start.txt', 1),
 		])
+		flush()
 		assert.equal(room.self.files[0]?.state, 'sent')
 		room.resetForHosting()
 		room.setIdentity({
@@ -622,15 +679,16 @@ test('connection origin keeps rendezvous and mesh packet routing stable', async 
 			to: selfId,
 			type: 'peer-signal',
 		})
-		const mesh = room.peers.byId(meshPeerId)?.connection ?? null
+		const mesh = room.connections.forPeer(meshPeerId)
 		assert.ok(mesh != null)
 		events.onMessage(mesh, encodePacket({ text: 'from mesh', type: 'blip' }))
+		flush()
 
 		assert.deepEqual(
 			{
 				guestMessages,
 				hostMessages,
-				meshBlip: room.peers.byId(meshPeerId)?.blip,
+				meshBlip: room.peers.all().find((peer) => peer.id === meshPeerId)?.blip,
 			},
 			{ guestMessages: 1, hostMessages: 1, meshBlip: 'from mesh' },
 		)
@@ -640,50 +698,37 @@ test('connection origin keeps rendezvous and mesh packet routing stable', async 
 })
 
 test('stopping rendezvous aborts and releases every owned resource', async () => {
-	await new Promise<void>((resolve, reject) =>
-		createRoot((dispose) => {
-			const rtc = fakeRtcHarness()
-			const room = createRoomSession(rtc.create)
-			const attempt = room.rendezvous.start('guest', null)
-			let clientCloses = 0
-			let timeoutRan = false
-			attempt.client = { close: () => clientCloses++ }
-			attempt.scheduleTimeout(() => {
-				timeoutRan = true
-			}, 0)
-			const admission = room.connections.createAdmission({
-				kind: 'manual',
-				localRole: 'guest',
-			})
+	const rtc = fakeRtcHarness()
+	const { dispose, room } = createRoot((dispose) => ({
+		dispose,
+		room: createRoomSession(rtc.create),
+	}))
+	try {
+		const attempt = room.rendezvous.start('guest', null)
+		let clientCloses = 0
+		let timeoutRan = false
+		attempt.client = { close: () => clientCloses++ }
+		attempt.scheduleTimeout(() => {
+			timeoutRan = true
+		}, 0)
+		const admission = room.connections.createAdmission({
+			kind: 'manual',
+			localRole: 'guest',
+		})
 
-			try {
-				room.rendezvous.stop()
+		room.rendezvous.stop()
 
-				assert.equal(attempt.signal.aborted, true)
-				assert.equal(attempt.client, null)
-				assert.equal(room.rendezvous.current, null)
-				assert.equal(room.connections.isCurrent(admission), false)
-				assert.equal(clientCloses, 1)
-				assert.equal(
-					rtc.closed.filter((peer) => peer === admission.rtc).length,
-					1,
-				)
-				setTimeout(() => {
-					try {
-						assert.equal(timeoutRan, false)
-						resolve()
-					} catch (error) {
-						reject(error)
-					} finally {
-						room.dispose()
-						dispose()
-					}
-				}, 5)
-			} catch (error) {
-				room.dispose()
-				dispose()
-				reject(error)
-			}
-		}),
-	)
+		assert.equal(attempt.signal.aborted, true)
+		assert.equal(attempt.client, null)
+		assert.equal(room.rendezvous.current, null)
+		assert.equal(room.connections.isCurrent(admission), false)
+		assert.equal(clientCloses, 1)
+		assert.equal(rtc.closed.filter((peer) => peer === admission.rtc).length, 1)
+
+		await new Promise<void>((resolve) => setTimeout(resolve, 5))
+		assert.equal(timeoutRan, false)
+	} finally {
+		room.dispose()
+		dispose()
+	}
 })

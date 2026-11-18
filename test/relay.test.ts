@@ -23,8 +23,6 @@ test('a replaced relay session cannot publish late stats', async () => {
 	let sample = 0
 	const connection: RoomConnection = {
 		connected: true,
-		mediaPresence: null,
-		mediaStream: null,
 		origin: { exchangeId, kind: 'mesh' },
 		rtc: {
 			acceptAnswer: async () => {},
@@ -37,6 +35,9 @@ test('a replaced relay session cannot publish late stats', async () => {
 			trySend: () => false,
 			waitForBufferBelow: async () => {},
 		},
+		setMediaPresence: () => {},
+		setMediaStream: () => {},
+		view: { connected: true, mediaPresence: null, mediaStream: null },
 	}
 	const metering: Array<RelayMetering | null> = []
 	let expirations = 0

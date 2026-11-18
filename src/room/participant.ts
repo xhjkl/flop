@@ -1,5 +1,5 @@
 import type { ParticipantId } from '../protocol'
-import type { RoomConnection } from './link'
+import type { RoomConnectionView } from './link'
 
 /** User-facing outcome of the latest outbound file batch. */
 export type FileTransferIssue = 'no-peers' | 'partial-delivery' | 'stopped'
@@ -27,8 +27,8 @@ export const isFileTransferActive = (file: SharedFile) => {
 
 /** Stable remote participant with reactive activity and replaceable transport. */
 export type RoomPeer = {
-	blip: string | null
-	connection: RoomConnection | null
-	files: SharedFile[]
+	readonly blip: string | null
+	readonly connection: RoomConnectionView | null
+	readonly files: SharedFile[]
 	readonly id: ParticipantId
 }

@@ -134,14 +134,14 @@ export const createRoomLinkEvents = (
 
 		if (origin.kind === 'beacon' && identity == null) return
 		if (origin.kind === 'manual' && identity == null) {
-			const inviteText =
-				room.state.entry.side === 'guest' ? room.state.entry.inviteText : ''
+			const entry = room.currentEntry()
+			const inviteText = entry.side === 'guest' ? entry.inviteText : ''
 			log('warn', 'room', 'manual.reply.direct-connection.failed', {
 				connection,
 				nextStep: 'fresh-reply-or-network-change',
 			})
 			room.rendezvous.stop()
-			room.setState('entry', {
+			room.setEntry({
 				...initialGuestEntry(),
 				inviteText,
 				issue: 'direct-connection-failed',

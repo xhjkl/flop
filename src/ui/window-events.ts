@@ -1,4 +1,4 @@
-import { createEffect, onCleanup, onMount } from 'solid-js'
+import { createEffect, createMemo, onSettled } from 'solid-js'
 import type { RoomController } from '../room'
 import { isFileTransferActive } from '../room/participant'
 
@@ -21,15 +21,16 @@ const shouldWarnBeforeUnload = (room: RoomController) => {
 
 /** Window listeners whose behavior depends on the active room. */
 export const useRoomWindowEvents = (room: RoomController) => {
-	createEffect(() => {
-		if (!shouldWarnBeforeUnload(room)) return
+	const warnBeforeUnload = createMemo(() => shouldWarnBeforeUnload(room))
+	createEffect(warnBeforeUnload, (shouldWarn) => {
+		if (!shouldWarn) return
 
 		const warn = (event: BeforeUnloadEvent) => event.preventDefault()
 		window.addEventListener('beforeunload', warn)
-		onCleanup(() => window.removeEventListener('beforeunload', warn))
+		return () => window.removeEventListener('beforeunload', warn)
 	})
 
-	onMount(() => {
+	onSettled(() => {
 		const carriesFiles = (event: DragEvent) => {
 			return Array.from(event.dataTransfer?.types ?? []).includes('Files')
 		}
@@ -45,9 +46,9 @@ export const useRoomWindowEvents = (room: RoomController) => {
 
 		window.addEventListener('dragover', preventBrowserFileOpen)
 		window.addEventListener('drop', receiveFiles)
-		onCleanup(() => {
+		return () => {
 			window.removeEventListener('dragover', preventBrowserFileOpen)
 			window.removeEventListener('drop', receiveFiles)
-		})
+		}
 	})
 }

@@ -19,7 +19,9 @@ export const createPulse = (durationMs: number) => {
 		timeout = setTimeout(clear, durationMs)
 	}
 
-	onCleanup(clear)
+	onCleanup(() => {
+		if (timeout != null) clearTimeout(timeout)
+	})
 
 	return { active, clear, trigger }
 }

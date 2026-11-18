@@ -13,19 +13,20 @@
 		"deploy:beacon": "bunx wrangler deploy --config worker/wrangler.toml",
 		"preview": "vite preview --port 31337",
 		"sculpt": "vite --open /src/fixtures/index.html",
-		"test": "bun --conditions=browser test"
+		"test": "bun --conditions=browser --conditions=development test"
 	},
 	"dependencies": {
-		"solid-js": "1"
+		"@solidjs/web": "2",
+		"solid-js": "2"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2",
 		"@cloudflare/workers-types": "5",
+		"@solidjs/vite-plugin": "3",
 		"@types/node": "26",
 		"baseline-browser-mapping": "2",
 		"typescript": "7",
 		"vite": "8",
-		"vite-plugin-solid": "2",
 		"wrangler": "4"
 	}
 }

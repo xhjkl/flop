@@ -21,10 +21,18 @@ export type ConnectionOrigin =
 /** Browser transport whose participant assignment may precede channel opening. */
 export type RoomConnection = {
 	connected: boolean
-	mediaPresence: MediaPresence | null
-	mediaStream: MediaStream | null
 	readonly origin: ConnectionOrigin
 	readonly rtc: RtcPeer
+	setMediaPresence: (presence: MediaPresence | null) => void
+	setMediaStream: (stream: MediaStream | null) => void
+	readonly view: RoomConnectionView
+}
+
+/** Transport state observed by a peer portrait. */
+export type RoomConnectionView = {
+	readonly connected: boolean
+	readonly mediaPresence: MediaPresence | null
+	readonly mediaStream: MediaStream | null
 }
 
 type BeaconConnection = RoomConnection & {

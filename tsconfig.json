@@ -6,7 +6,7 @@
 		"lib": ["ESNext", "DOM"],
 		"esModuleInterop": true,
 		"jsx": "preserve",
-		"jsxImportSource": "solid-js",
+		"jsxImportSource": "@solidjs/web",
 		"allowJs": true,
 		"allowUnreachableCode": false,
 		"allowUnusedLabels": false,

@@ -1,4 +1,4 @@
-import { onCleanup, onMount } from 'solid-js'
+import { onCleanup, onSettled } from 'solid-js'
 import { hostInviteFromAddressBar } from './room/address-bar'
 import { createBeaconFlow } from './room/entry/beacon'
 import { createGuestFlow } from './room/entry/guest'
@@ -15,7 +15,7 @@ export const useRoom = () => {
 	const guest = createGuestFlow(room, beacon, host)
 	room.connections.bind(createRoomLinkEvents(room, host, guest))
 
-	onMount(() => {
+	onSettled(() => {
 		// A same-tab reload retains host ownership; every other invite URL joins as a guest.
 		const invite = readInviteFromHash()
 		const hostInvite = hostInviteFromAddressBar()
@@ -63,17 +63,19 @@ export const useRoom = () => {
 		},
 		setBlipDraft: room.setBlipDraft,
 		setInviteText: (inviteText: string) => {
-			if (room.state.entry.side !== 'guest') return
-			room.setState('entry', {
-				...room.state.entry,
+			const entry = room.currentEntry()
+			if (entry.side !== 'guest') return
+			room.setEntry({
+				...entry,
 				inviteText,
 				issue: null,
 			})
 		},
 		setReplyText: (replyText: string) => {
-			if (room.state.entry.side !== 'host') return
-			room.setState('entry', {
-				...room.state.entry,
+			const entry = room.currentEntry()
+			if (entry.side !== 'host') return
+			room.setEntry({
+				...entry,
 				issue: null,
 				replyText,
 			})

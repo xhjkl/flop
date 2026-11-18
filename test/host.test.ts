@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createRoot } from 'solid-js'
+import { createRoot, flush } from 'solid-js'
 import { decodePacket, parseParticipantId } from '../src/protocol'
 import { createBeaconFlow } from '../src/room/entry/beacon'
 import { createHostFlow } from '../src/room/entry/host'
@@ -70,6 +70,7 @@ test('failed welcome removes the admitted peer without broadcasting a roster', a
 		const host = createHostFlow(room, createBeaconFlow(room))
 		host.handleMessage(failedWelcomeConnection, { type: 'hello' })
 		await Promise.resolve()
+		flush()
 
 		assert.deepEqual(
 			room.peers.all().map((peer) => peer.id),

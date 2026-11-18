@@ -1,17 +1,15 @@
-import type { JSX } from 'solid-js'
-import { parseSignalExchangeId } from '../../contracts/signal'
+import type { JSX } from '@solidjs/web'
 import { parseParticipantId } from '../protocol'
 import type {
 	GuestJoinState,
 	HostInviteState,
 	RoomEntryState,
 } from '../room/entry/state'
-import type { RoomConnection } from '../room/link'
+import type { RoomConnectionView } from '../room/link'
 import type { SelfMedia } from '../room/media'
 import type { RoomPeer, SharedFile } from '../room/participant'
 import type { RelayMetering } from '../room/relay'
 import { RoomView, type RoomViewProps } from '../ui/room-view'
-import type { RtcPeer } from '../webrtc'
 
 type UiFixture = {
 	id: string
@@ -34,9 +32,6 @@ const fixtureParticipantId = (value: string) => {
 const HOST_ID = fixtureParticipantId('48b6a1e2c59d730f')
 const OLEG_ID = fixtureParticipantId('79df2a4c038be116')
 const NADIA_ID = fixtureParticipantId('b05e9d8328aa41c7')
-const MESH_EXCHANGE_ID = parseSignalExchangeId('fixture-mesh-id-0001')
-if (MESH_EXCHANGE_ID == null)
-	throw new Error('Invalid fixture mesh exchange id')
 
 const noop = () => {}
 
@@ -60,38 +55,21 @@ const fixtureCommands: RoomViewProps['room']['commands'] = {
 }
 
 const noFiles: SharedFile[] = []
-const unavailableRtcOperation = async () => {
-	throw new Error('Room fixtures do not execute WebRTC operations')
-}
-
-const fixtureRtc: RtcPeer = {
-	acceptAnswer: unavailableRtcOperation,
-	close: noop,
-	createAnswer: unavailableRtcOperation,
-	createOffer: unavailableRtcOperation,
-	relayBytes: async () => null,
-	setLocalMedia: noop,
-	trySend: () => false,
-	waitForBufferBelow: async () => {},
-}
-
 const fixturePeer = (
 	id: RoomPeer['id'],
 	options: {
 		blip?: string | null
 		connected?: boolean
 		files?: SharedFile[]
-		mediaPresence?: RoomConnection['mediaPresence']
+		mediaPresence?: RoomConnectionView['mediaPresence']
 		mediaStream?: MediaStream | null
 	} = {},
 ): RoomPeer => {
-	const connection: RoomConnection | null = options.connected
+	const connection: RoomConnectionView | null = options.connected
 		? {
 				connected: true,
 				mediaPresence: options.mediaPresence ?? null,
 				mediaStream: options.mediaStream ?? null,
-				origin: { exchangeId: MESH_EXCHANGE_ID, kind: 'mesh' },
-				rtc: fixtureRtc,
 			}
 		: null
 
